@@ -1,8 +1,8 @@
 # NuViewer — handoff
 
 Written 2026-11-11. Read this first, then `README.md` (user-facing) and the plan referenced in the project memory
-(`C:\Users\noobc\.claude\plans\valiant-conjuring-hopper.md`). The project is **not under git**, so nothing is committed
-anywhere; the working tree is the only copy.
+(`%USERPROFILE%\.claude\plans\valiant-conjuring-hopper.md`). The project is on GitHub (Nbcybg/NuViewer);
+`dist/` and the generated benchmark pictures are not committed.
 
 ## 1. State in one paragraph
 
@@ -304,4 +304,4 @@ develop), so RAW comparisons are not like for like. FastStone's own numbers drif
 - The benchmark helpers used this session: `race2.ps1` (key/zoom/close scenarios on a folder), `race3.ps1`
   (record-then-analyse open timing, cold and warm, `-ExtraArgs '--fullscreen --actual-size'`), `race4.ps1` (unused
   windowed-then-fullscreen variant), `tiffdump.py` (TIFF/DNG/CR2 structure dump) and `rafhdr.py` (RAF header). They
-  lived under `C:\Users\noobc\AppData\Local\Temp\claude\<session>\...\scratchpad` and may be cleaned up.
+  lived under `%LOCALAPPDATA%\Temp\claude\<session>\...\scratchpad` and may be cleaned up.
