@@ -1,0 +1,39 @@
+[package]
+name = "nv-codecs"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+zune-jpeg = "0.4"
+zune-core = "0.4"
+png = "0.18"
+kamadak-exif = "0.6"
+jpeg-encoder = "0.7"
+jpeg-decoder = { version = "0.3", default-features = false }
+gif = "0.14"
+image-webp = "0.2"
+psd = "0.3"
+moxcms = "0.9"
+rawler = "0.8"
+resvg = "0.50.0"
+fbxcel-dom = "0.0.10"
+serde_json = "1.0.154"
+image = { version = "0.25.10", default-features = false, features = ["tga", "pnm", "hdr", "exr", "qoi"] }
+image_dds = { version = "0.7.2", default-features = false, features = ["ddsfile", "image"] }
+
+[target.'cfg(windows)'.dependencies.windows]
+workspace = true
+features = [
+  "Win32_Foundation",
+  "Win32_System_Com",
+  "Win32_Graphics_Imaging",
+  "Win32_System_WinRT",
+  "Win32_System_Threading",
+  "Win32_Graphics_Gdi",
+  "Win32_Graphics_GdiPlus",
+  "Win32_UI_WindowsAndMessaging",
+  "Foundation",
+  "Data_Pdf",
+  "Storage",
+  "Storage_Streams",
+]

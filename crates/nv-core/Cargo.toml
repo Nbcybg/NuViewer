@@ -1,0 +1,7 @@
+[package]
+name = "nv-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nv-codecs = { path = "../nv-codecs" }

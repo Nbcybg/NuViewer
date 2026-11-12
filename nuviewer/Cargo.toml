@@ -1,0 +1,10 @@
+[package]
+name = "nuviewer"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nv-core = { path = "../crates/nv-core" }
+nv-codecs = { path = "../crates/nv-codecs" }
+nv-render = { path = "../crates/nv-render" }
+nv-win = { path = "../crates/nv-win" }

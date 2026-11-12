@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = ["crates/nv-core", "crates/nv-codecs", "crates/nv-render", "crates/nv-win", "nuviewer", "setup"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+windows = "0.62"
+zune-jpeg = "0.4"
+png = "0.18"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 1

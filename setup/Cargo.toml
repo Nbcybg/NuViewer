@@ -1,0 +1,19 @@
+[package]
+name = "nuviewer-setup"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "nuviewer-setup"
+path = "src/main.rs"
+
+[dependencies]
+nv-win = { path = "../crates/nv-win" }
+miniz_oxide = "0.9"
+
+[dependencies.windows]
+workspace = true
+features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"]
+
+[build-dependencies]
+miniz_oxide = "0.9"
