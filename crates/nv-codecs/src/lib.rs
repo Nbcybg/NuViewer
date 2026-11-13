@@ -346,7 +346,7 @@ pub fn decode_file_first_frame(path: &Path) -> Result<Image, String> {
 /// Every decoder must hand back `width * height * 4` bytes per frame; the downscaler, the CPU preview and the GPU
 /// upload all index by that. A decoder that gets it wrong (this once crashed the viewer on greyscale JPEGs) becomes
 /// an error message instead of a panic or a read past the end of the buffer.
-fn check_buffers(img: Image) -> Result<Image, String> {
+pub(crate) fn check_buffers(img: Image) -> Result<Image, String> {
     let want = img.width as usize * img.height as usize * 4;
     if img.rgba.len() != want {
         return Err(format!("decoder produced {} bytes for {}x{} (expected {want})", img.rgba.len(), img.width, img.height));

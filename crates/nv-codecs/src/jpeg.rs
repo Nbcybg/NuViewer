@@ -10,6 +10,13 @@ pub fn decode(bytes: &[u8], fallback_orientation: Option<u32>) -> Result<Image, 
     let opts = DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGBA).set_max_width(1 << 16).set_max_height(1 << 16);
     let mut dec = JpegDecoder::new_with_options(bytes, opts);
     dec.decode_headers().map_err(|e| format!("jpeg: {e:?}"))?;
+    // CMYK / YCCK (print-oriented JPEGs): the decoder's CMYK -> RGBA conversion writes 3-byte pixels into a 4-byte
+    // layout, which scrambles the picture and leaves alpha at 0 (invisible). Its RGB conversion is fine, so ask for that.
+    if matches!(dec.get_input_colorspace(), Some(ColorSpace::CMYK | ColorSpace::YCCK)) {
+        let rgb = opts.jpeg_set_out_colorspace(ColorSpace::RGB);
+        dec = JpegDecoder::new_with_options(bytes, rgb);
+        dec.decode_headers().map_err(|e| format!("jpeg: {e:?}"))?;
+    }
     if let Some((w, h)) = dec.dimensions() {
         crate::check_size(w as u64, h as u64)?;
     }
@@ -62,6 +69,21 @@ mod tests {
         // and it can be shrunk without running off the end of the buffer
         let small = crate::downscale(&img, 4);
         assert_eq!(small.rgba.len(), (small.width * small.height * 4) as usize);
+    }
+
+    /// 16x8 CMYK (4 component, Adobe) JPEG of a grey ramp (x * 16), made with PIL.
+    const CMYK_16X8: &[u8] = include_bytes!("../tests/cmyk_16x8.jpg");
+
+    #[test]
+    fn cmyk_jpeg_is_converted_not_scrambled() {
+        let img = decode(CMYK_16X8, None).expect("decodes");
+        assert_eq!((img.width, img.height), (16, 8));
+        assert_eq!(img.rgba.len(), 16 * 8 * 4);
+        for (i, p) in img.rgba.chunks_exact(4).enumerate() {
+            assert_eq!(p[3], 255, "opaque");
+            let want = (i % 16) as i32 * 16;
+            assert!((p[0] as i32 - want).abs() <= 24 && (p[0] as i32 - p[1] as i32).abs() <= 4 && (p[1] as i32 - p[2] as i32).abs() <= 4, "pixel {i}: {p:?} should be near grey {want}");
+        }
     }
 
     #[test]

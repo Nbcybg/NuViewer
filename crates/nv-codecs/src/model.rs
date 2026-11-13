@@ -770,7 +770,7 @@ fn load_texture_file(path: &Path) -> Option<ModelTexture> {
 }
 
 fn load_texture_bytes(bytes: &[u8], ext_hint: &str) -> Option<ModelTexture> {
-    std::panic::catch_unwind(|| crate::decode_image_bytes(bytes, ext_hint).ok().and_then(texture_from_image)).ok().flatten()
+    std::panic::catch_unwind(|| crate::decode_image_bytes(bytes, ext_hint).and_then(crate::check_buffers).ok().and_then(texture_from_image)).ok().flatten()
 }
 
 /// Find a texture file a model names. Exporters write all kinds of paths: absolute paths from the artist's machine,
