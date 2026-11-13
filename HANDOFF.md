@@ -173,6 +173,46 @@ User complaints: (1) opening / stepping to a 100 MP+ picture looks like a hang (
   `tools\test\e2e-loading.ps1` (panel pixels, ping latency during a 108 MP load with optional `-Baseline` old exe, quick
   navigation, TGA/PPM, textured OBJ on/off).
 
+### Session 7 (2026-11-13): zoom keys, left-edge controls, rotation + save, 3D style, NuEditor mock-up, gallery split prep
+
+The user's 8-point list. Verified with `tools\test\e2e-session7.ps1` (64 checks, messages only) and the older suites.
+
+1. **Zoom keys.** `View` got `base_actual` (kept from picture to picture): F / A choose the base (the one that is on switches
+   to the other), 1-5 = n x base around the window centre (`View::set_multiple`), `` ` `` = `reset_to_base`. In 3D the digits set
+   the camera zoom. The old "1 = 100%" is now `A`. A click on a zoomed picture returns to the base, not always to fit.
+2. **Edge click removed** (setting, hint, `edge_press`); old `edge_click` / `edge_pct` lines in settings.ini are ignored.
+3. **Viewer controls** `sidebar.rs`: 14 buttons in the order the user gave, every button is an `Action`. Opens when the pointer
+   touches the left edge (6 px), closes when it leaves the bar (+10 px), `V` pins it, setting `sidebar`. Tooltip shows label + key.
+   Posted test clicks need the bar opened and the button hovered *before each click* (Windows sends a mouse move at the real
+   pointer position after a click, which closes the bar): see `Bar-Click` in the test.
+4. **3D style** (`nv_codecs::model::ModelStyle`, saved as `model_*` settings, Settings > 3D page): shadings combined / diffuse /
+   cartoon / normals / unlit; light from the viewer or fixed in the scene (angle + height); perspective / orthographic; up axis
+   Auto/Y/Z; quarter turns about X, Y, Z. `camera_styled` builds the matrices; `mesh.hlsl` has the looks and four passes
+   (normal, floor shadow, wire lines, dimmed solid under the wire).
+5. **3D keys** `model3d.rs`: T texture, N normal map, W wireframe, Shift+S shadow, Shift+T next shading, O ortho, X/Y/Z turn.
+   Normal maps: OBJ MTL `map_Bump`/`bump`/`norm`, glTF `normalTexture`; the shader builds the tangent frame from screen-space
+   derivatives. **Not verified visually** (no model with a normal map on this PC): the green channel flip is a guess for
+   y-up maps. Shadow = the model flattened onto the floor along the light (stencil so overlaps don't double-darken); it needs
+   the light above ~15 degrees. Gallery thumbnails keep the file's own orientation (not the user's axis fix). Checked by eye
+   on an STL cube: combined, shadow and wireframe look right (screenshots were in the session scratchpad).
+6. **Rotation** `rotate.rs` + `nv-editor`: the turn is a transform in the quad vertex shader (`rot` in the 96-byte cbuffer),
+   `view_size()` gives the box around the turned picture to all view maths. Pending until saved. Save = decode again, turn
+   (`nv_editor::raster`, exact for right angles, bilinear with transparent corners otherwise), JPEG q95 4:4:4 with the EXIF
+   block carried over (orientation reset to 1, pixel size patched) or PNG; other formats get `name_edited.png`; written
+   atomically; the original goes to `%LOCALAPPDATA%\NuViewer\undo` and `UndoOp::Rewritten` brings it back with Ctrl+Z.
+   Setting `rotate_save` = ask (default; Yes / No / Cancel) or auto. Settled before: next / previous / first / last, gallery,
+   opening another path, Esc / Quit / middle click / the window's close box (`nv_win::veto_close`). Ctrl+Z while a turn is
+   pending takes the turn back first. Not rotatable: 3D, animations, document pages. JPEG corners of a 45 degree turn are black.
+   Saving runs on the UI thread (a 12 MP JPEG takes a few hundred ms). Backups older than 7 days are pruned by the
+   start-up housekeeping thread (`save::prune_backups`).
+7. **NuEditor mock-up** `editor_ui.rs` + `nv-editor::tools`: palette (9 tools, only Rotate is `Ready`) + inspector with
+   Rotate +-45 / +-90, Save, Revert; other tools show their hint and dummy sliders. `E` opens, `E` / Esc closes.
+8. **Gallery split prep** `gallery.rs`, `docs/gallery-split.md`: gallery code moved out of `main.rs`, thumbnail workers start lazily.
+
+New crate `crates/nv-editor` (16 tests): `raster` (rotate / flip / flatten), `ops` (EditStack with undo / redo, merges
+rotations), `save` (encode, EXIF patch, backup, atomic write), `tools` (the catalogue). The keyboard list has 59 actions now.
+Tests: nv-core 44, nv-codecs 92 (8 new camera / light / shadow / MTL tests), nv-editor 16, nv-win 13.
+
 ## 2. Build, test, run
 
 ```powershell

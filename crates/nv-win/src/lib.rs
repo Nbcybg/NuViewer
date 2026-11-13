@@ -343,6 +343,13 @@ pub fn quit() {
     unsafe { PostQuitMessage(0) }
 }
 
+static CLOSE_VETO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Call while handling `Event::Close` to keep the window open (e.g. the user answered Cancel to "save changes?").
+pub fn veto_close() {
+    CLOSE_VETO.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Creates the window, calls `init(hwnd, client_w, client_h)` to build the event handler,
 /// then runs the message loop until the window closes. With `fullscreen` the window is made borderless-fullscreen
 /// before it is first shown, so there is no windowed frame at all.
@@ -556,8 +563,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_CLOSE => {
+            CLOSE_VETO.store(false, std::sync::atomic::Ordering::Relaxed);
             dispatch(Event::Close);
-            let _ = DestroyWindow(hwnd);
+            if !CLOSE_VETO.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                let _ = DestroyWindow(hwnd);
+            }
             LRESULT(0)
         }
         WM_DESTROY => {
@@ -570,3 +580,48 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
 
 #[allow(dead_code)]
 fn _assert_send_ptr(_: *mut c_void) {}
+
+/// The ICC profile Windows has assigned to the display the window is on (the primary display without a window):
+/// the file from Settings > Display > Colour profiles / Colour Management. None if there is none or Windows won't say.
+pub fn display_profile_path(hwnd: Option<HWND>) -> Option<std::path::PathBuf> {
+    use windows::Win32::Graphics::Gdi::{CreateDCW, DeleteDC, GetMonitorInfoW, MonitorFromWindow, MONITORINFOEXW, MONITOR_DEFAULTTOPRIMARY};
+    // GetICMProfileW lives in gdi32 (the `windows` crate files it under another feature we don't otherwise need).
+    #[link(name = "gdi32")]
+    extern "system" {
+        fn GetICMProfileW(hdc: isize, size: *mut u32, name: *mut u16) -> i32;
+    }
+    unsafe {
+        let mon = MonitorFromWindow(hwnd.unwrap_or_default(), MONITOR_DEFAULTTOPRIMARY);
+        let mut mi = MONITORINFOEXW::default();
+        mi.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+        if !GetMonitorInfoW(mon, &mut mi as *mut MONITORINFOEXW as *mut _).as_bool() {
+            return None;
+        }
+        // A device context for this one monitor, so the answer is for it and not for the whole desktop.
+        let dc = CreateDCW(w!("DISPLAY"), PCWSTR(mi.szDevice.as_ptr()), PCWSTR::null(), None);
+        if dc.is_invalid() {
+            return None;
+        }
+        let mut buf = vec![0u16; 520];
+        let mut size = buf.len() as u32;
+        let ok = GetICMProfileW(dc.0 as isize, &mut size, buf.as_mut_ptr());
+        let _ = DeleteDC(dc);
+        if ok == 0 {
+            return None;
+        }
+        let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+        (len > 0).then(|| std::path::PathBuf::from(String::from_utf16_lossy(&buf[..len])))
+    }
+}
+
+#[cfg(test)]
+mod display_profile_tests {
+    #[test]
+    fn display_profile_is_a_real_file_when_windows_names_one() {
+        // Windows names some profile for every display (at worst its sRGB one); a headless machine may name none.
+        if let Some(p) = super::display_profile_path(None) {
+            assert!(p.is_file(), "{} should exist", p.display());
+            println!("display profile: {}", p.display());
+        }
+    }
+}

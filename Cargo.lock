@@ -1177,6 +1177,7 @@ version = "0.1.0"
 dependencies = [
  "nv-codecs",
  "nv-core",
+ "nv-editor",
  "nv-render",
  "nv-win",
 ]
@@ -1218,6 +1219,14 @@ name = "nv-core"
 version = "0.1.0"
 dependencies = [
  "nv-codecs",
+]
+
+[[package]]
+name = "nv-editor"
+version = "0.1.0"
+dependencies = [
+ "jpeg-encoder",
+ "png",
 ]
 
 [[package]]

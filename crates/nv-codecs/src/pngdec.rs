@@ -43,6 +43,7 @@ pub fn decode(bytes: &[u8], first_only: bool) -> Result<Image, String> {
         }
         let mut img = Image::new(w as u32, h as u32, rgba);
         img.icc = icc_profile; // converted later, after any downscaling
+        img.profile_assumable = true;
         return Ok(img);
     }
 

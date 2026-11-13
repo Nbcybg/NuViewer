@@ -103,6 +103,8 @@ pub enum UndoOp {
     Copied { copy: PathBuf },
     /// File sent to the Recycle Bin from `original`.
     Deleted { original: PathBuf },
+    /// File rewritten in place (a rotation was saved): `backup` holds what it was before.
+    Rewritten { path: PathBuf, backup: PathBuf },
 }
 
 #[cfg(test)]

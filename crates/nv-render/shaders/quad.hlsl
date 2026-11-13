@@ -3,13 +3,19 @@ cbuffer C : register(b0) {
     float4 p;    // x: texture width, y: texture height, z: mip level, w: 1 = nearest, 0 = bicubic
     float4 tint; // multiplied into the result (linear RGBA); white = unchanged
     float4 q;    // x: EXIF orientation 1..8 (0 or 1 = upright)
+    float4 rot;  // x: cos, y: sin of the turn about the rectangle's centre (NDC, y up), z/w: viewport size in pixels
 };
 struct VO { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
 
 VO vs(uint id : SV_VertexID) {
     float2 uv = float2(id & 1, id >> 1);
     VO o;
-    o.pos = float4(lerp(rect.x, rect.z, uv.x), lerp(rect.y, rect.w, uv.y), 0, 1);
+    float2 ndc = float2(lerp(rect.x, rect.z, uv.x), lerp(rect.y, rect.w, uv.y));
+    // Turn the corner about the centre in pixel units (NDC is stretched by the aspect ratio).
+    float2 c = float2(rect.x + rect.z, rect.y + rect.w) * 0.5;
+    float2 d = (ndc - c) * rot.zw * 0.5;
+    d = float2(d.x * rot.x - d.y * rot.y, d.x * rot.y + d.y * rot.x);
+    o.pos = float4(c + d * 2.0 / rot.zw, 0, 1);
     o.uv = uv;
     return o;
 }

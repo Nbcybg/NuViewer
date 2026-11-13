@@ -94,6 +94,7 @@ pub fn downscale(img: &Image, max_edge: u32) -> Image {
     // Orientation and pending colour conversion describe the picture, not its size: keep them.
     result.orientation = img.orientation;
     result.icc = img.icc.clone();
+    result.profile_assumable = img.profile_assumable;
     result
 }
 

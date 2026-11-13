@@ -53,6 +53,8 @@ pub struct Part {
     pub color: [f32; 3],
     /// The texture's alpha cuts holes in the surface (leaves, fences, ...).
     pub alpha_cut: bool,
+    /// Index into `Mesh::textures` of a tangent-space normal map (needs texture coordinates, like `texture`).
+    pub normal_map: Option<usize>,
 }
 
 /// Models with more triangles than this are refused (memory: ~72 bytes per triangle with flat shading).
@@ -130,6 +132,9 @@ impl Mesh {
                         p.texture = None;
                         p.alpha_cut = false;
                     }
+                    if !textured_ok || p.normal_map.map(|t| t >= textures.len()).unwrap_or(false) {
+                        p.normal_map = None;
+                    }
                     p
                 })
                 .collect();
@@ -198,11 +203,13 @@ pub struct Orbit {
     pub zoom: f32,
     /// Treat the other axis as "up" (some files disagree with their format's convention).
     pub flip_up: bool,
+    /// Slide the picture on screen: x, y as a fraction of the window (1.0 = half the window width / height).
+    pub pan: [f32; 2],
 }
 
 impl Default for Orbit {
     fn default() -> Self {
-        Orbit { yaw: -0.6, pitch: 0.45, zoom: 1.0, flip_up: false }
+        Orbit { yaw: -0.6, pitch: 0.45, zoom: 1.0, flip_up: false, pan: [0.0, 0.0] }
     }
 }
 
@@ -212,34 +219,192 @@ impl Orbit {
         self.pitch = (self.pitch + dpitch).clamp(-1.52, 1.52);
     }
 
+    /// Move the picture by `dx`, `dy` pixels in a `w` x `h` window (what the pointer moved).
+    pub fn pan_by(&mut self, dx: f32, dy: f32, w: f32, h: f32) {
+        self.pan[0] = (self.pan[0] + 2.0 * dx / w.max(1.0)).clamp(-3.0, 3.0);
+        self.pan[1] = (self.pan[1] - 2.0 * dy / h.max(1.0)).clamp(-3.0, 3.0);
+    }
+
     pub fn zoom_by(&mut self, notches: f32) {
         self.zoom = (self.zoom * 1.12f32.powf(notches)).clamp(0.2, 60.0);
     }
 }
 
-/// What the shaders need: model-view-projection, and the view's rotation (to bring normals into view space).
+/// How the surface is shaded.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Shading {
+    /// Diffuse + a soft highlight + a faint rim: the default.
+    Combined,
+    /// Plain Lambert shading (what earlier versions did).
+    Diffuse,
+    /// Flat colour bands, dark rim.
+    Cartoon,
+    /// The surface normal as a colour (for checking a model's geometry).
+    Normals,
+    /// The colour or texture alone, no lighting.
+    Unlit,
+}
+
+impl Shading {
+    pub const ALL: [Shading; 5] = [Shading::Combined, Shading::Diffuse, Shading::Cartoon, Shading::Normals, Shading::Unlit];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Shading::Combined => "combined",
+            Shading::Diffuse => "diffuse",
+            Shading::Cartoon => "cartoon",
+            Shading::Normals => "normals",
+            Shading::Unlit => "unlit",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Shading::Combined => "Combined (diffuse + highlight)",
+            Shading::Diffuse => "Diffuse colour",
+            Shading::Cartoon => "Cartoon",
+            Shading::Normals => "Normals (colour = direction)",
+            Shading::Unlit => "Unlit (colour / texture only)",
+        }
+    }
+
+    pub fn from_id(s: &str) -> Option<Shading> {
+        Self::ALL.iter().copied().find(|m| m.id().eq_ignore_ascii_case(s.trim()))
+    }
+
+    /// The mode after this one (for the cycle key).
+    pub fn next(self) -> Shading {
+        let i = Self::ALL.iter().position(|m| *m == self).unwrap_or(0);
+        Self::ALL[(i + 1) % Self::ALL.len()]
+    }
+}
+
+/// What the light's angles are measured against.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LightMode {
+    /// The light is fixed to the viewer: 0/0 shines from the viewer's position, and it follows while the model turns.
+    Viewer,
+    /// The light is fixed in the scene: the model turns under it.
+    World,
+}
+
+/// Which model axis points up when the camera orbits.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum UpAxis {
+    /// What the file format says (Y for OBJ / glTF / FBX, Z for STL / PLY).
+    Auto,
+    Y,
+    Z,
+}
+
+/// Everything about how a 3D model is drawn that the user can change (the settings window and the T / N / W / Shift+S
+/// keys). It never changes the model's data.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct ModelStyle {
+    pub shading: Shading,
+    pub light: LightMode,
+    /// Degrees to the right of straight ahead (-180..=180) and above the horizon (-90..=90).
+    pub light_az: f32,
+    pub light_el: f32,
+    /// Orthographic instead of perspective projection.
+    pub ortho: bool,
+    pub up: UpAxis,
+    /// Quarter turns (0..=3) applied to the model about X, then Y, then Z: fixes models that arrive face-down or lying on a side.
+    pub turns: [u8; 3],
+    pub texture: bool,
+    pub normal_map: bool,
+    pub wireframe: bool,
+    pub shadow: bool,
+}
+
+impl Default for ModelStyle {
+    fn default() -> Self {
+        ModelStyle {
+            shading: Shading::Combined,
+            light: LightMode::Viewer,
+            light_az: -25.0,
+            light_el: 33.0,
+            ortho: false,
+            up: UpAxis::Auto,
+            turns: [0; 3],
+            texture: true,
+            normal_map: true,
+            wireframe: false,
+            shadow: false,
+        }
+    }
+}
+
+impl ModelStyle {
+    /// The model's own rotation as a row-vector matrix (X, then Y, then Z).
+    pub fn rotation(&self) -> Mat4 {
+        let q = |k: u8| -> (f32, f32) {
+            match k % 4 {
+                0 => (1.0, 0.0),
+                1 => (0.0, 1.0),
+                2 => (-1.0, 0.0),
+                _ => (0.0, -1.0),
+            }
+        };
+        let ((cx, sx), (cy, sy), (cz, sz)) = (q(self.turns[0]), q(self.turns[1]), q(self.turns[2]));
+        let rx: Mat4 = [[1.0, 0.0, 0.0, 0.0], [0.0, cx, sx, 0.0], [0.0, -sx, cx, 0.0], [0.0, 0.0, 0.0, 1.0]];
+        let ry: Mat4 = [[cy, 0.0, -sy, 0.0], [0.0, 1.0, 0.0, 0.0], [sy, 0.0, cy, 0.0], [0.0, 0.0, 0.0, 1.0]];
+        let rz: Mat4 = [[cz, sz, 0.0, 0.0], [-sz, cz, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]];
+        mat_mul(&mat_mul(&rx, &ry), &rz)
+    }
+
+    /// Direction towards the light for the given angles, with +Z towards the viewer / +Y (or +Z) up.
+    fn light_vector(&self, y_up: bool) -> [f32; 3] {
+        let (az, el) = (self.light_az.to_radians(), self.light_el.to_radians());
+        let (h, v) = (el.cos(), el.sin());
+        // Viewer: x right, y up, z towards the viewer. World: the same with the model's up axis in place of y.
+        if y_up || self.light == LightMode::Viewer { [az.sin() * h, v, az.cos() * h] } else { [az.sin() * h, az.cos() * h, v] }
+    }
+}
+
+/// What the shaders need: model-view-projection, and the model + view rotation (to bring normals into view space).
 #[derive(Clone, Copy, Debug)]
 pub struct Camera {
     pub mvp: Mat4,
+    /// Rotation from model space to view space, for normals (and for position differences).
     pub view_rot: Mat4,
+    /// Direction towards the light, in view space.
+    pub light_view: [f32; 3],
+    /// Model space -> clip space with the model flattened onto the floor along the light (None = no shadow possible).
+    pub shadow_mvp: Option<Mat4>,
 }
 
 const FOV_Y: f32 = 0.6; // radians, a gentle perspective
 
 /// Camera for `mesh` seen through `orbit` on a viewport with the given aspect ratio (width / height).
 pub fn camera(mesh: &Mesh, orbit: &Orbit, aspect: f32) -> Camera {
+    camera_styled(mesh, orbit, aspect, &ModelStyle::default())
+}
+
+/// The same, with the user's style: model rotation, up axis, projection, light and shadow.
+pub fn camera_styled(mesh: &Mesh, orbit: &Orbit, aspect: f32, style: &ModelStyle) -> Camera {
     let c = mesh.centre();
     let r = mesh.radius();
-    let y_up = mesh.y_up != orbit.flip_up;
+    let base_up = match style.up {
+        UpAxis::Auto => mesh.y_up,
+        UpAxis::Y => true,
+        UpAxis::Z => false,
+    };
+    let y_up = base_up != orbit.flip_up;
+    let rot = style.rotation();
+    // The model is moved so its centre is the origin, then turned by the style's rotation.
+    let place: Mat4 = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [-c[0], -c[1], -c[2], 1.0]];
+    let model = mat_mul(&place, &rot);
+
     let (cp, sp, cy, sy) = (orbit.pitch.cos(), orbit.pitch.sin(), orbit.yaw.cos(), orbit.yaw.sin());
     let (dir, up) = if y_up { ([cp * cy, sp, cp * sy], [0.0, 1.0, 0.0]) } else { ([cp * cy, cp * sy, sp], [0.0, 0.0, 1.0]) };
     // Far enough that the bounding sphere fits both ways, nearer when zoomed in.
     let t = (FOV_Y / 2.0).tan().min((FOV_Y / 2.0).tan() * aspect.max(0.05));
     let fit = r * (1.0 + t * t).sqrt() / t * 1.05;
     let dist = (fit / orbit.zoom).max(r * 0.02);
-    let eye = [c[0] + dir[0] * dist, c[1] + dir[1] * dist, c[2] + dir[2] * dist];
-    // Right-handed look-at, row-vector convention.
-    let z = normalize(sub(eye, c));
+    let eye = [dir[0] * dist, dir[1] * dist, dir[2] * dist];
+    // Right-handed look-at at the origin, row-vector convention.
+    let z = normalize(dir);
     let x = normalize(cross(up, z));
     let y = cross(z, x);
     let view: Mat4 = [
@@ -248,18 +413,83 @@ pub fn camera(mesh: &Mesh, orbit: &Orbit, aspect: f32) -> Camera {
         [x[2], y[2], z[2], 0.0],
         [-dot(x, eye), -dot(y, eye), -dot(z, eye), 1.0],
     ];
-    let (near, far) = ((dist - r * 1.2).max(dist * 0.02).max(r * 0.001), dist + r * 1.5);
+    // A floor shadow can stretch well behind the model, so the far plane moves out when it is on.
+    let (near, far) = ((dist - r * 1.2).max(dist * 0.02).max(r * 0.001), dist + r * if style.shadow { 6.0 } else { 1.5 });
     let h = 1.0 / (FOV_Y / 2.0).tan();
     let w = h / aspect.max(0.05);
-    let proj: Mat4 = [
-        [w, 0.0, 0.0, 0.0],
-        [0.0, h, 0.0, 0.0],
-        [0.0, 0.0, far / (near - far), -1.0],
-        [0.0, 0.0, near * far / (near - far), 0.0],
-    ];
-    let mut view_rot = view;
-    view_rot[3] = [0.0, 0.0, 0.0, 1.0];
-    Camera { mvp: mat_mul(&view, &proj), view_rot }
+    let proj: Mat4 = if style.ortho {
+        // Same size as the perspective view at the model's centre.
+        let half_h = dist / h;
+        let half_w = half_h * aspect.max(0.05);
+        [
+            [1.0 / half_w, 0.0, 0.0, 0.0],
+            [0.0, 1.0 / half_h, 0.0, 0.0],
+            [0.0, 0.0, 1.0 / (near - far), 0.0],
+            [0.0, 0.0, near / (near - far), 1.0],
+        ]
+    } else {
+        [
+            [w, 0.0, 0.0, 0.0],
+            [0.0, h, 0.0, 0.0],
+            [0.0, 0.0, far / (near - far), -1.0],
+            [0.0, 0.0, near * far / (near - far), 0.0],
+        ]
+    };
+    let mut view3 = view;
+    view3[3] = [0.0, 0.0, 0.0, 1.0];
+    let mut rot3 = rot;
+    rot3[3] = [0.0, 0.0, 0.0, 1.0];
+    let view_rot = mat_mul(&rot3, &view3);
+    // Panning moves the finished picture in clip space (times w, so it is the same number of pixels at any depth).
+    let slide: Mat4 = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [orbit.pan[0], orbit.pan[1], 0.0, 1.0]];
+    let vp = mat_mul(&mat_mul(&view, &proj), &slide);
+
+    // Light. `Viewer`: the angles are relative to the camera. `World`: relative to the scene, then brought to view space.
+    let to_view = |v: [f32; 3]| normalize([dot3_col(v, &view3, 0), dot3_col(v, &view3, 1), dot3_col(v, &view3, 2)]);
+    let to_world = |v: [f32; 3]| normalize([dot3_row(v, &view3, 0), dot3_row(v, &view3, 1), dot3_row(v, &view3, 2)]);
+    let lv = style.light_vector(y_up);
+    let (light_view, light_world) = match style.light {
+        LightMode::Viewer => (normalize(lv), to_world(lv)),
+        LightMode::World => (to_view(lv), normalize(lv)),
+    };
+
+    // Shadow: the model flattened onto the floor (its lowest point along the up axis) along the light.
+    let shadow_mvp = style.shadow.then(|| {
+        let n = up;
+        let nl = dot(n, light_world);
+        if nl < 0.25 {
+            return None;
+        }
+        let mut floor = f32::MAX;
+        for k in 0..8 {
+            let corner = [if k & 1 == 0 { mesh.min[0] } else { mesh.max[0] }, if k & 2 == 0 { mesh.min[1] } else { mesh.max[1] }, if k & 4 == 0 { mesh.min[2] } else { mesh.max[2] }];
+            let p = sub(corner, c);
+            let q = [dot3_col(p, &rot3, 0), dot3_col(p, &rot3, 1), dot3_col(p, &rot3, 2)];
+            floor = floor.min(dot(n, q));
+        }
+        let l = light_world;
+        let mut flat: Mat4 = [[0.0; 4]; 4];
+        for i in 0..3 {
+            for j in 0..3 {
+                flat[i][j] = if i == j { 1.0 } else { 0.0 } - l[j] * n[i] / nl;
+            }
+            flat[3][i] = l[i] * floor / nl;
+        }
+        flat[3][3] = 1.0;
+        Some(mat_mul(&mat_mul(&model, &flat), &vp))
+    });
+
+    Camera { mvp: mat_mul(&model, &vp), view_rot, light_view, shadow_mvp: shadow_mvp.flatten() }
+}
+
+/// `v * M` for the 3x3 part of a row-vector matrix, component `j` (the column).
+fn dot3_col(v: [f32; 3], m: &Mat4, j: usize) -> f32 {
+    v[0] * m[0][j] + v[1] * m[1][j] + v[2] * m[2][j]
+}
+
+/// `v * M^T` (the inverse of a rotation), component `i`.
+fn dot3_row(v: [f32; 3], m: &Mat4, i: usize) -> f32 {
+    v[0] * m[i][0] + v[1] * m[i][1] + v[2] * m[i][2]
 }
 
 /// Light direction in view space (from the surface towards a light up-left of the viewer) and the surface colour.
@@ -316,7 +546,7 @@ pub fn render_preview(mesh: &Mesh, orbit: &Orbit, w: u32, h: u32) -> Vec<u8> {
     let stride = (tris / 400_000).max(1);
     let small: Vec<(u32, u32, Vec<u8>)> = mesh.textures.iter().map(|t| shrink_for_preview(t, w.max(h).min(1024))).collect();
     // The runs of triangles to draw: the parts, or everything in the plain surface.
-    let plain = Part { first: 0, count: mesh.indices.len() as u32, texture: None, color: BASE_COLOR, alpha_cut: false };
+    let plain = Part { first: 0, count: mesh.indices.len() as u32, texture: None, color: BASE_COLOR, alpha_cut: false, normal_map: None };
     let runs: Vec<&Part> = if mesh.parts.is_empty() { vec![&plain] } else { mesh.parts.iter().collect() };
     let has_uv = !mesh.uvs.is_empty();
     let has_col = !mesh.colors.is_empty();
@@ -631,6 +861,8 @@ fn linear_to_srgb(c: f32) -> f32 {
 struct MtlMaterial {
     kd: Option<[f32; 3]>,
     map_kd: Option<String>,
+    /// `map_Bump` / `bump` / `norm`: a normal map (height-map bumps are not converted, they are used as given).
+    map_bump: Option<String>,
     /// `map_d` names a picture whose alpha/greyscale cuts holes.
     cutout: bool,
 }
@@ -672,6 +904,13 @@ fn parse_mtl(text: &str, out: &mut HashMap<String, MtlMaterial>) {
                 if let (Some(name), Some(tex)) = (&cur, mtl_texture_name(rest)) {
                     if let Some(m) = out.get_mut(name) {
                         m.map_kd = Some(tex);
+                    }
+                }
+            }
+            "map_bump" | "bump" | "norm" | "map_kn" => {
+                if let (Some(name), Some(tex)) = (&cur, mtl_texture_name(rest)) {
+                    if let Some(m) = out.get_mut(name) {
+                        m.map_bump = Some(tex);
                     }
                 }
             }
@@ -810,7 +1049,15 @@ pub fn parse_obj(bytes: &[u8], dir: Option<&Path>) -> Result<Mesh, String> {
         if let (true, Some(dir)) = (want, dir) {
             let m = mats.get(name).cloned().unwrap_or_default();
             let texture = m.map_kd.as_deref().and_then(|t| set.from_file(dir, t));
-            parts.push(Part { first, count: bucket.len() as u32, texture, color: m.kd.unwrap_or(if texture.is_some() { [1.0; 3] } else { BASE_COLOR }), alpha_cut: texture.is_some() && m.cutout });
+            let normal_map = m.map_bump.as_deref().and_then(|t| set.from_file(dir, t));
+            parts.push(Part {
+                first,
+                count: bucket.len() as u32,
+                texture,
+                color: m.kd.unwrap_or(if texture.is_some() { [1.0; 3] } else { BASE_COLOR }),
+                alpha_cut: texture.is_some() && m.cutout,
+                normal_map,
+            });
         }
     }
     let mesh = Mesh::build(positions, normals, indices, true)?;
@@ -1073,7 +1320,7 @@ pub fn parse_ply(bytes: &[u8], dir: Option<&Path>) -> Result<Mesh, String> {
     let mut parts = Vec::new();
     if let (true, Some(dir), Some(name)) = (any_uv, dir, texture_file.as_deref()) {
         if let Some(t) = set.from_file(dir, name) {
-            parts.push(Part { first: 0, count: mesh.indices.len() as u32, texture: Some(t), color: [1.0; 3], alpha_cut: false });
+            parts.push(Part { first: 0, count: mesh.indices.len() as u32, texture: Some(t), color: [1.0; 3], alpha_cut: false, normal_map: None });
         }
     }
     Ok(mesh.dressed(if any_uv { uvs } else { Vec::new() }, if any_color { colors } else { Vec::new() }, set.list, parts))
@@ -1260,6 +1507,7 @@ pub fn parse_gltf(bytes: &[u8], dir: Option<&Path>) -> Result<Mesh, String> {
     // Materials: the colour and picture of each, when textures are wanted.
     struct MatInfo {
         texture: Option<usize>,
+        normal_map: Option<usize>,
         texcoord: u64,
         color: [f32; 3],
         alpha_cut: bool,
@@ -1283,7 +1531,9 @@ pub fn parse_gltf(bytes: &[u8], dir: Option<&Path>) -> Result<Mesh, String> {
             let texcoord = tex.and_then(|t| t.get("texCoord")).and_then(|t| t.as_u64()).unwrap_or(0);
             let source = tex.and_then(|t| t.get("index")).and_then(|t| t.as_u64()).and_then(|ti| gtex.get(ti as usize)).and_then(|t| t.get("source")).and_then(|t| t.as_u64());
             let texture = source.and_then(|ii| *image_cache.entry(ii as usize).or_insert_with(|| gltf_image(&images, ii as usize, &buffers, &views, dir, &mut set)));
-            mats.push(MatInfo { texture, texcoord, color, alpha_cut: alpha_cut && texture.is_some() });
+            let nsource = m.get("normalTexture").and_then(|t| t.get("index")).and_then(|t| t.as_u64()).and_then(|ti| gtex.get(ti as usize)).and_then(|t| t.get("source")).and_then(|t| t.as_u64());
+            let normal_map = nsource.and_then(|ii| *image_cache.entry(ii as usize).or_insert_with(|| gltf_image(&images, ii as usize, &buffers, &views, dir, &mut set)));
+            mats.push(MatInfo { texture, normal_map, texcoord, color, alpha_cut: alpha_cut && texture.is_some() });
         }
     }
 
@@ -1375,6 +1625,7 @@ pub fn parse_gltf(bytes: &[u8], dir: Option<&Path>) -> Result<Mesh, String> {
                         texture: mat.and_then(|m| m.texture),
                         color: mat.map(|m| m.color).unwrap_or(BASE_COLOR),
                         alpha_cut: mat.map(|m| m.alpha_cut).unwrap_or(false),
+                        normal_map: mat.and_then(|m| m.normal_map),
                     });
                 }
             }
@@ -1505,7 +1756,7 @@ pub fn parse_fbx(bytes: &[u8], dir: Option<&Path>) -> Result<Mesh, String> {
                 let first = indices.len() as u32;
                 indices.extend_from_slice(&tris_of);
                 let texture = materials.get(material as usize).and_then(|m| fbx_texture(m, dir, &mut set));
-                parts.push(Part { first, count: tris_of.len() as u32, texture, color: if texture.is_some() { [1.0; 3] } else { BASE_COLOR }, alpha_cut: false });
+                parts.push(Part { first, count: tris_of.len() as u32, texture, color: if texture.is_some() { [1.0; 3] } else { BASE_COLOR }, alpha_cut: false, normal_map: None });
             }
         } else {
             let cps: Vec<[f32; 3]> = pv.raw_control_points().map_err(|e| format!("fbx: {e}"))?.map(|p| [p.x as f32, p.y as f32, p.z as f32]).collect();
@@ -1526,7 +1777,7 @@ pub fn parse_fbx(bytes: &[u8], dir: Option<&Path>) -> Result<Mesh, String> {
                 }
             }
             if want && indices.len() as u32 > first {
-                parts.push(Part { first, count: indices.len() as u32 - first, texture: None, color: BASE_COLOR, alpha_cut: false });
+                parts.push(Part { first, count: indices.len() as u32 - first, texture: None, color: BASE_COLOR, alpha_cut: false, normal_map: None });
             }
         }
         if indices.len() / 3 > MAX_TRIANGLES {
@@ -1564,6 +1815,148 @@ mod tests {
             out.extend([0u8; 2]);
         }
         out
+    }
+
+    // ---- 3D style: camera, light, shadow -----------------------------------------------------------
+
+    fn project(m: &Mat4, p: [f32; 3]) -> [f32; 4] {
+        let mut o = [0.0; 4];
+        for j in 0..4 {
+            o[j] = p[0] * m[0][j] + p[1] * m[1][j] + p[2] * m[2][j] + m[3][j];
+        }
+        o
+    }
+
+    #[test]
+    fn default_style_matches_the_old_headlight() {
+        let cube = parse_stl(&cube_stl()).unwrap();
+        let cam = camera(&cube, &Orbit::default(), 1.5);
+        for k in 0..3 {
+            assert!((cam.light_view[k] - normalize(LIGHT_DIR)[k]).abs() < 0.01, "axis {k}: {:?}", cam.light_view);
+        }
+        assert!(cam.shadow_mvp.is_none(), "no shadow unless asked for");
+        // The model's centre is on the view axis: it projects to the middle of the screen.
+        let c = project(&cam.mvp, cube.centre());
+        assert!(c[0].abs() < 1e-4 && c[1].abs() < 1e-4, "{c:?}");
+    }
+
+    #[test]
+    fn panning_slides_the_picture_by_the_pointer_distance() {
+        let cube = parse_stl(&cube_stl()).unwrap();
+        let mut orbit = Orbit::default();
+        let before = project(&camera(&cube, &orbit, 1.5).mvp, cube.centre());
+        orbit.pan_by(100.0, -50.0, 1000.0, 500.0); // right 100 px, up 50 px in a 1000x500 window
+        let after = project(&camera(&cube, &orbit, 1.5).mvp, cube.centre());
+        let (dx, dy) = ((after[0] / after[3]) - (before[0] / before[3]), (after[1] / after[3]) - (before[1] / before[3]));
+        assert!((dx - 0.2).abs() < 1e-4 && (dy - 0.2).abs() < 1e-4, "{dx} {dy}"); // 100/1000 * 2 = 0.2 NDC in both directions
+        assert_eq!(Orbit::default().pan, [0.0, 0.0], "reset puts it back");
+    }
+
+    #[test]
+    fn quarter_turns_compose_and_cancel() {
+        let id = ModelStyle::default().rotation();
+        let turned = |t: [u8; 3]| ModelStyle { turns: t, ..ModelStyle::default() }.rotation();
+        // A quarter turn about Z sends +X to +Y (row-vector convention).
+        let r = turned([0, 0, 1]);
+        let x = [1.0 * r[0][0] + r[1][0] * 0.0, r[0][1], r[0][2]];
+        assert!((x[0]).abs() < 1e-6 && (x[1] - 1.0).abs() < 1e-6 && x[2].abs() < 1e-6, "{x:?}");
+        // Four quarter turns are no turn at all, and 4 is the same as 0.
+        assert_eq!(turned([4, 4, 4]), id);
+        let twice = mat_mul(&turned([1, 0, 0]), &turned([1, 0, 0]));
+        assert_eq!(twice, turned([2, 0, 0]));
+    }
+
+    #[test]
+    fn turning_the_model_moves_it_on_screen_but_keeps_it_centred() {
+        let cube = parse_stl(&cube_stl()).unwrap();
+        let plain = camera_styled(&cube, &Orbit::default(), 1.0, &ModelStyle::default());
+        let turned = camera_styled(&cube, &Orbit::default(), 1.0, &ModelStyle { turns: [1, 0, 0], ..ModelStyle::default() });
+        let corner = [0.0, 0.0, 1.0];
+        assert_ne!(project(&plain.mvp, corner), project(&turned.mvp, corner));
+        let c = project(&turned.mvp, cube.centre());
+        assert!(c[0].abs() < 1e-4 && c[1].abs() < 1e-4);
+    }
+
+    #[test]
+    fn orthographic_has_no_perspective_divide_and_the_same_size_at_the_centre() {
+        let cube = parse_stl(&cube_stl()).unwrap();
+        let persp = camera_styled(&cube, &Orbit::default(), 1.0, &ModelStyle::default());
+        let ortho = camera_styled(&cube, &Orbit::default(), 1.0, &ModelStyle { ortho: true, ..ModelStyle::default() });
+        let p = [0.7, 0.2, 0.6];
+        assert!((project(&ortho.mvp, p)[3] - 1.0).abs() < 1e-5, "w stays 1");
+        assert!(project(&persp.mvp, p)[3] > 1.5, "perspective divides by distance");
+        // A point beside the centre lands at about the same screen x either way (the ortho box is sized to match).
+        let (a, b) = (project(&persp.mvp, [0.55, 0.5, 0.5]), project(&ortho.mvp, [0.55, 0.5, 0.5]));
+        assert!((a[0] / a[3] - b[0]).abs() < 0.03, "{a:?} {b:?}");
+    }
+
+    #[test]
+    fn world_light_stays_put_while_the_viewer_light_follows_the_camera() {
+        let cube = parse_stl(&cube_stl()).unwrap();
+        let spin = |style: ModelStyle, yaw: f32| camera_styled(&cube, &Orbit { yaw, ..Orbit::default() }, 1.0, &style).light_view;
+        let viewer = ModelStyle::default();
+        let world = ModelStyle { light: LightMode::World, ..ModelStyle::default() };
+        let (v0, v1) = (spin(viewer, 0.0), spin(viewer, 1.3));
+        let (w0, w1) = (spin(world, 0.0), spin(world, 1.3));
+        for k in 0..3 {
+            assert!((v0[k] - v1[k]).abs() < 1e-5, "viewer light is fixed in view space");
+        }
+        assert!((0..3).any(|k| (w0[k] - w1[k]).abs() > 0.1), "scene light moves in view space as the camera orbits");
+        let head_on = spin(ModelStyle { light_az: 0.0, light_el: 0.0, ..ModelStyle::default() }, 0.4);
+        assert!((head_on[2] - 1.0).abs() < 1e-5, "0/0 from the viewer shines straight at the model: {head_on:?}");
+    }
+
+    #[test]
+    fn a_shadow_needs_light_above_the_floor_and_lands_on_the_floor() {
+        let cube = parse_stl(&cube_stl()).unwrap(); // Z is up for STL; the cube sits on z = 0..1
+        let lit = ModelStyle { shadow: true, light_el: 50.0, ..ModelStyle::default() };
+        let cam = camera_styled(&cube, &Orbit::default(), 1.0, &lit);
+        let sm = cam.shadow_mvp.expect("light 50 degrees up gives a shadow");
+        // The same top corner, flattened: it must end up exactly where the floor plane meets the same view ray as a floor point.
+        // Floor = the cube's lowest z (0). Flattening the bottom corner changes nothing; the top corner moves.
+        let bottom = [0.0, 0.0, 0.0];
+        let flat_bottom = project(&sm, bottom);
+        let real_bottom = project(&cam.mvp, bottom);
+        for k in 0..4 {
+            assert!((flat_bottom[k] - real_bottom[k]).abs() < 1e-4, "points on the floor stay where they are");
+        }
+        let top = [0.0, 0.0, 1.0];
+        assert_ne!(project(&sm, top), project(&cam.mvp, top));
+        // Light at or below the horizon: nothing to cast.
+        // (A light fixed to the viewer is as high as the camera is, so the horizon test needs a light fixed in the scene.)
+        let low = ModelStyle { shadow: true, light: LightMode::World, light_el: 5.0, ..ModelStyle::default() };
+        assert!(camera_styled(&cube, &Orbit::default(), 1.0, &low).shadow_mvp.is_none());
+    }
+
+    #[test]
+    fn shading_ids_round_trip_and_cycle() {
+        for m in Shading::ALL {
+            assert_eq!(Shading::from_id(m.id()), Some(m));
+        }
+        assert_eq!(Shading::from_id(" Cartoon "), Some(Shading::Cartoon));
+        assert_eq!(Shading::from_id("nope"), None);
+        let mut m = Shading::Combined;
+        for _ in 0..Shading::ALL.len() {
+            m = m.next();
+        }
+        assert_eq!(m, Shading::Combined);
+    }
+
+    #[test]
+    fn mtl_normal_maps_are_found_under_every_common_key() {
+        let mut out = HashMap::new();
+        parse_mtl("newmtl a
+map_Kd a.png
+map_Bump -bm 1.0 a_n.png
+newmtl b
+norm b_n.png
+newmtl c
+bump c_n.png
+", &mut out);
+        assert_eq!(out["a"].map_bump.as_deref(), Some("a_n.png"));
+        assert_eq!(out["b"].map_bump.as_deref(), Some("b_n.png"));
+        assert_eq!(out["c"].map_bump.as_deref(), Some("c_n.png"));
+        assert_eq!(out["a"].map_kd.as_deref(), Some("a.png"));
     }
 
     #[test]
@@ -1846,8 +2239,8 @@ mod tests {
     fn dressing_drops_what_does_not_fit() {
         let mesh = parse_stl(&cube_stl()).unwrap();
         let n = mesh.positions.len();
-        let ok_part = Part { first: 0, count: 6, texture: Some(3), color: [1.0; 3], alpha_cut: true };
-        let m = mesh.dressed(vec![[0.0, 0.0]; n + 1], vec![[1, 2, 3, 4]; n], Vec::new(), vec![ok_part, Part { first: 6, count: 100_000, texture: None, color: [1.0; 3], alpha_cut: false }]);
+        let ok_part = Part { first: 0, count: 6, texture: Some(3), color: [1.0; 3], alpha_cut: true, normal_map: None };
+        let m = mesh.dressed(vec![[0.0, 0.0]; n + 1], vec![[1, 2, 3, 4]; n], Vec::new(), vec![ok_part, Part { first: 6, count: 100_000, texture: None, color: [1.0; 3], alpha_cut: false, normal_map: None }]);
         assert!(m.uvs.is_empty(), "wrong number of coordinates is ignored");
         assert_eq!(m.colors.len(), n);
         assert!(m.parts.is_empty(), "parts that run past the indices are all dropped");

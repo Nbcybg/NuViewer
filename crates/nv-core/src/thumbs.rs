@@ -44,6 +44,8 @@ fn cache_key(path: &Path, meta: &std::fs::Metadata) -> u64 {
     fnv1a(&mut h, &meta.len().to_le_bytes());
     fnv1a(&mut h, &CACHE_VERSION.to_le_bytes());
     fnv1a(&mut h, &THUMB_MAX.to_le_bytes());
+    // Cached thumbnails are sRGB; what an untagged picture's numbers mean (a setting) changes them.
+    fnv1a(&mut h, &nv_codecs::colour_signature().to_le_bytes());
     h
 }
 
@@ -115,8 +117,9 @@ pub fn make_thumb(path: &Path) -> Result<Image, String> {
 
     if let Some(cf) = &cache_file {
         if let Ok(bytes) = std::fs::read(cf) {
-            if let Ok(img) = nv_codecs::decode_jpeg(&bytes) {
+            if let Ok(mut img) = nv_codecs::decode_jpeg(&bytes) {
                 touch(cf); // "recently used": keeps it away from the trimmer
+                img.srgb_to_output();
                 return Ok(img);
             }
         }
@@ -124,7 +127,7 @@ pub fn make_thumb(path: &Path) -> Result<Image, String> {
 
     let full = nv_codecs::decode_file_first_frame(path)?;
     // Shrink first: colour conversion and rotation are then done on ~256 px instead of the full image.
-    let small = nv_codecs::downscale(&full, THUMB_MAX).finish_for_cpu();
+    let small = nv_codecs::downscale(&full, THUMB_MAX).finish_for_thumb();
     drop(full);
 
     if let Some(cf) = &cache_file {
@@ -136,6 +139,8 @@ pub fn make_thumb(path: &Path) -> Result<Image, String> {
             }
         }
     }
+    let mut small = small;
+    small.srgb_to_output(); // the cache holds sRGB; what is shown is in the output profile
     Ok(small)
 }
 

@@ -178,6 +178,15 @@ impl Form {
         self.item(id).map(|c| unsafe { SendMessageW(c, 0x0147 /* CB_GETCURSEL */, None, None).0.max(0) as usize }).unwrap_or(0)
     }
 
+    /// Select entry `index` of a combo box.
+    pub fn combo_set(&self, id: u16, index: usize) {
+        if let Some(c) = self.item(id) {
+            unsafe {
+                SendMessageW(c, 0x014E /* CB_SETCURSEL */, Some(WPARAM(index)), Some(LPARAM(0)));
+            }
+        }
+    }
+
     /// Single-selection list box (notifies the handler with `id | SELECTION_CHANGED`).
     pub fn list(&self, id: u16, x: i32, y: i32, w: i32, h: i32) {
         self.child(w!("LISTBOX"), "", WS_TABSTOP | WS_VSCROLL | WS_BORDER | WINDOW_STYLE(0x0001 /* LBS_NOTIFY */ | 0x0040 /* LBS_NOINTEGRALHEIGHT */), WINDOW_EX_STYLE(0), id, x, y, w, h);

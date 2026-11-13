@@ -53,7 +53,7 @@ impl App {
         self.dir = if page > p { 1 } else { -1 };
         self.doc_page = page;
         self.nav_start = Some(Instant::now());
-        self.view = View::new();
+        self.view = self.view.fresh();
         self.refresh();
     }
 
@@ -64,24 +64,16 @@ impl App {
             return;
         }
         if self.is_model() {
-            self.orbit_last = Some((x, y)); // dragging turns the model
+            self.orbit_last = Some((x, y)); // dragging turns the model; with Shift held it slides it
+            self.orbit_pan = nv_win::modifiers().shift;
             return;
         }
-        let Some(img) = self.renderer.image_size() else { return };
+        let Some(img) = self.view_size() else { return };
         let win = self.renderer.size();
-        // Click zones at the left / right edge turn the page (when the settings ask for it); no zoom starts there.
-        if self.settings.edge_click && !ctrl {
-            let ez = self.settings.edge_px(win.0) as i32;
-            let side = if x < ez { -1 } else if x >= win.0 as i32 - ez { 1 } else { 0 };
-            if side != 0 {
-                self.edge_press = Some((side, (x, y)));
-                return;
-            }
-        }
         if ctrl {
             self.view.area = Some(((x, y), (x, y)));
         } else if !self.view.fit {
-            // Already zoomed (area zoom, Ctrl+wheel, "1"): a plain click cancels it, dragging pans it.
+            // Already zoomed (area zoom, Ctrl+wheel, the 1-5 keys): a plain click cancels it, dragging pans it.
             self.view.click_cancel = Some((x, y));
             self.view.drag_last = Some((x, y));
         } else {
@@ -101,14 +93,13 @@ impl App {
             self.seek_to(x);
             return;
         }
-        if let Some((_, (sx, sy))) = self.edge_press {
-            if (x - sx).abs() > 4 || (y - sy).abs() > 4 {
-                self.edge_press = None; // it became a drag
-            }
-            return;
-        }
         if let Some((lx, ly)) = self.orbit_last {
-            self.cam.rotate(-(x - lx) as f32 * 0.008, (y - ly) as f32 * 0.008);
+            if self.orbit_pan {
+                let (w, h) = self.renderer.size();
+                self.cam.pan_by((x - lx) as f32, (y - ly) as f32, w as f32, h as f32);
+            } else {
+                self.cam.rotate(-(x - lx) as f32 * 0.008, (y - ly) as f32 * 0.008);
+            }
             self.orbit_last = Some((x, y));
             invalidate(self.hwnd);
             return;
@@ -122,7 +113,7 @@ impl App {
                     self.view.click_cancel = None; // it is a drag, not a click
                 }
             }
-            let Some(img) = self.renderer.image_size() else { return };
+            let Some(img) = self.view_size() else { return };
             self.view.pan.0 += (x - lx) as f32;
             self.view.pan.1 += (y - ly) as f32;
             self.view.clamp_pan(img, self.renderer.size()); // the picture's edge stops at the window edge
@@ -137,24 +128,19 @@ impl App {
         self.view.drag_last = None;
         self.orbit_last = None;
         self.seek_drag = false;
-        if let Some((side, _)) = self.edge_press.take() {
-            self.step(side as isize); // a click in the left / right zone: previous / next
-            return;
-        }
         if let Some((fit, zoom, pan)) = self.view.held.take() {
             self.view.fit = fit;
             self.view.zoom = zoom;
             self.view.pan = pan;
             invalidate(self.hwnd);
         } else if let Some((a, b)) = self.view.area.take() {
-            if let Some(img) = self.renderer.image_size() {
+            if let Some(img) = self.view_size() {
                 let win = self.renderer.size();
                 self.view.zoom_to_rect(img, win, [a.0.min(b.0), a.1.min(b.1), a.0.max(b.0), a.1.max(b.1)]);
             }
             invalidate(self.hwnd);
         } else if self.view.click_cancel.take().is_some() {
-            self.view.fit = true;
-            self.view.pan = (0.0, 0.0);
+            self.view.reset_to_base(); // back to the fitted picture, or to 100% when that is the base mode
             invalidate(self.hwnd);
         }
     }

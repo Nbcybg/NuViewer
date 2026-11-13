@@ -9,7 +9,7 @@ mod develop;
 #[cfg(windows)]
 mod eps;
 mod gifdec;
-mod icc;
+pub mod icc;
 mod imgfmt;
 mod jpeg;
 pub mod model;
@@ -31,11 +31,22 @@ mod webpdec;
 
 pub use resize::downscale;
 
-static ICC_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+pub use icc::Profile;
 
-/// Turn the conversion of embedded colour profiles to sRGB on or off (a setting). Affects pictures decoded afterwards.
-pub fn set_icc_enabled(on: bool) {
-    ICC_ENABLED.store(on, std::sync::atomic::Ordering::Relaxed);
+/// Colour management settings (see `icc`): on / off, the output profile (None = sRGB) and what pictures that carry no
+/// profile are taken to be (None = sRGB). Affects pictures decoded afterwards; on error nothing changes.
+pub fn configure_colour(enabled: bool, output: Option<Profile>, untagged: Option<Profile>) -> Result<(), String> {
+    icc::configure(enabled, output, untagged)
+}
+
+/// Would these colour choices be accepted by `configure_colour`? Changes nothing.
+pub fn check_colour(output: Option<Profile>, untagged: Option<Profile>) -> Result<(), String> {
+    icc::check(output, untagged)
+}
+
+/// Part of a thumbnail cache key: changes when what an untagged picture's numbers mean changes.
+pub fn colour_signature() -> u64 {
+    icc::thumb_signature()
 }
 
 static MODEL_TEXTURES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
@@ -119,6 +130,9 @@ pub struct Image {
     pub orientation: u8,
     /// An embedded ICC profile whose conversion to sRGB is still pending (see `apply_icc`).
     pub icc: Option<Vec<u8>>,
+    /// A photo-style bitmap (JPEG, PNG, WebP): when it carries no profile the user's "pictures without a profile"
+    /// choice applies. Renders (SVG, PDF, ...) are always sRGB.
+    pub profile_assumable: bool,
     /// (page, page count) when this picture is one page of a multi-page document (PDF).
     pub page: Option<(u32, u32)>,
     /// For 3D models: the geometry (`pixels` hold a software-rendered preview). The viewer draws the mesh itself.
@@ -127,7 +141,7 @@ pub struct Image {
 
 impl Image {
     pub fn new(width: u32, height: u32, rgba: Vec<u8>) -> Self {
-        Image { width, height, rgba, delay_ms: 0, extra_frames: Vec::new(), reduced_from: None, orientation: 1, icc: None, page: None, mesh: None }
+        Image { width, height, rgba, delay_ms: 0, extra_frames: Vec::new(), reduced_from: None, orientation: 1, icc: None, profile_assumable: false, page: None, mesh: None }
     }
 
     pub fn frame_count(&self) -> usize {
@@ -139,12 +153,40 @@ impl Image {
         if self.orientation >= 5 { (self.height, self.width) } else { (self.width, self.height) }
     }
 
-    /// Convert pending ICC-profiled pixels to sRGB (no-op if there's nothing pending, or if conversion is switched off).
+    /// Convert pixels that carry their own ICC profile to sRGB (what files, the clipboard and 3D textures need). Pictures
+    /// without a profile are left alone. No-op if there's nothing pending, or if colour management is switched off.
     pub fn apply_icc(&mut self) {
-        if let Some(profile) = self.icc.take() {
-            if ICC_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-                icc::to_srgb_in_place(&mut self.rgba, &profile);
-            }
+        let icc = self.icc.take();
+        self.convert(icc::transform_for(icc.as_deref(), false, icc::Target::Srgb));
+    }
+
+    /// Like `apply_icc`, but a photo without a profile is first read as what the user said such pictures are
+    /// (thumbnails are cached as sRGB, so this is their conversion).
+    pub fn apply_icc_assumed(&mut self) {
+        let icc = self.icc.take();
+        self.convert(icc::transform_for(icc.as_deref(), self.profile_assumable, icc::Target::Srgb));
+    }
+
+    /// Bring the pixels to the output profile (the screen): from their own profile, the assumed one for a photo
+    /// without a profile, or sRGB. Does nothing with the default settings and an sRGB picture.
+    pub fn apply_display_colour(&mut self) {
+        let icc = self.icc.take();
+        self.convert(icc::transform_for(icc.as_deref(), self.profile_assumable, icc::Target::Display));
+    }
+
+    /// sRGB pixels (a cached thumbnail) to the output profile.
+    pub fn srgb_to_output(&mut self) {
+        self.convert(icc::srgb_to_output());
+    }
+
+    fn convert(&mut self, t: Option<icc::Transform>) {
+        let Some(t) = t else { return };
+        if self.mesh.is_some() {
+            return; // a 3D preview is lit by the viewer itself
+        }
+        icc::apply(&mut self.rgba, &t);
+        for f in &mut self.extra_frames {
+            icc::apply(&mut f.rgba, &t);
         }
     }
 
@@ -164,6 +206,12 @@ impl Image {
         }
     }
 
+    /// Upright sRGB pixels for a thumbnail (a photo without a profile is read as the user's assumed profile).
+    pub fn finish_for_thumb(mut self) -> Image {
+        self.apply_icc_assumed();
+        self.oriented()
+    }
+
     /// Upright sRGB pixels, ready for CPU consumers.
     pub fn finish_for_cpu(mut self) -> Image {
         self.apply_icc();
@@ -174,7 +222,7 @@ impl Image {
     pub(crate) fn from_frames(width: u32, height: u32, frames: Vec<(Vec<u8>, u32)>) -> Option<Self> {
         let mut it = frames.into_iter();
         let (rgba, delay_ms) = it.next()?;
-        Some(Image { width, height, rgba, delay_ms, extra_frames: it.map(|(rgba, delay_ms)| Frame { rgba, delay_ms }).collect(), reduced_from: None, orientation: 1, icc: None, page: None, mesh: None })
+        Some(Image { width, height, rgba, delay_ms, extra_frames: it.map(|(rgba, delay_ms)| Frame { rgba, delay_ms }).collect(), reduced_from: None, orientation: 1, icc: None, profile_assumable: false, page: None, mesh: None })
     }
 }
 
@@ -260,8 +308,8 @@ fn looks_like_pdf(path: &Path) -> bool {
 pub fn decode_file(path: &Path) -> Result<Image, String> {
     // Order matters for speed: shrink first, then colour-convert, so a 100-megapixel panorama is converted at the
     // size it will actually be shown (and orientation is left to the GPU).
-    decode_file_opts(path, false).map(fit_gpu_limits).map(|mut img| {
-        img.apply_icc();
+    decode_file_opts(path, false).and_then(check_buffers).map(fit_gpu_limits).map(|mut img| {
+        img.apply_display_colour();
         img
     })
 }
@@ -292,7 +340,21 @@ fn fit_within(img: Image, max_dim: u32, max_pixels: u64) -> Image {
 
 /// Decode only the first frame of animations (cheap; used for thumbnails).
 pub fn decode_file_first_frame(path: &Path) -> Result<Image, String> {
-    decode_file_opts(path, true)
+    decode_file_opts(path, true).and_then(check_buffers)
+}
+
+/// Every decoder must hand back `width * height * 4` bytes per frame; the downscaler, the CPU preview and the GPU
+/// upload all index by that. A decoder that gets it wrong (this once crashed the viewer on greyscale JPEGs) becomes
+/// an error message instead of a panic or a read past the end of the buffer.
+fn check_buffers(img: Image) -> Result<Image, String> {
+    let want = img.width as usize * img.height as usize * 4;
+    if img.rgba.len() != want {
+        return Err(format!("decoder produced {} bytes for {}x{} (expected {want})", img.rgba.len(), img.width, img.height));
+    }
+    if img.extra_frames.iter().any(|f| f.rgba.len() != want) {
+        return Err("decoder produced an animation frame of the wrong size".into());
+    }
+    Ok(img)
 }
 
 fn decode_file_opts(path: &Path, first_only: bool) -> Result<Image, String> {

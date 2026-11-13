@@ -61,6 +61,29 @@ pub fn confirm(hwnd: HWND, text: &str) -> bool {
     unsafe { MessageBoxW(Some(hwnd), PCWSTR(t.as_ptr()), w!("NuViewer"), MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES }
 }
 
+/// The answer to a Yes / No / Cancel question.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Answer {
+    Yes,
+    No,
+    Cancel,
+}
+
+/// Modal Yes / No / Cancel question; Cancel is the default and also what Esc and the close box give.
+pub fn ask3(hwnd: HWND, text: &str) -> Answer {
+    use windows::Win32::UI::WindowsAndMessaging::{IDNO, MB_DEFBUTTON3, MB_ICONQUESTION, MB_YESNOCANCEL};
+    let mut t: Vec<u16> = text.encode_utf16().collect();
+    t.push(0);
+    let r = unsafe { MessageBoxW(Some(hwnd), PCWSTR(t.as_ptr()), w!("NuViewer"), MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON3) };
+    if r == IDYES {
+        Answer::Yes
+    } else if r == IDNO {
+        Answer::No
+    } else {
+        Answer::Cancel
+    }
+}
+
 /// Native folder picker. None if cancelled.
 pub fn pick_folder(hwnd: HWND, title: &str, initial: Option<&Path>) -> Option<PathBuf> {
     unsafe {
@@ -276,15 +299,27 @@ pub fn pick_color(hwnd: HWND, initial: u32) -> Option<u32> {
 
 /// The system "Open" dialog for a program (.exe). None if cancelled.
 pub fn pick_program(hwnd: HWND) -> Option<PathBuf> {
+    pick_file(hwnd, "Programs (*.exe)\0*.exe\0All files\0*.*\0\0", None)
+}
+
+/// The system "Open" dialog for an ICC colour profile. None if cancelled.
+pub fn pick_profile(hwnd: HWND, current: Option<&Path>) -> Option<PathBuf> {
+    pick_file(hwnd, "Colour profiles (*.icc;*.icm)\0*.icc;*.icm\0All files\0*.*\0\0", current)
+}
+
+/// The system "Open" dialog. `filter` is the usual NUL-separated description / pattern list ending in a double NUL.
+fn pick_file(hwnd: HWND, filter: &str, start_in: Option<&Path>) -> Option<PathBuf> {
     use windows::Win32::UI::Controls::Dialogs::{GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_PATHMUSTEXIST, OPENFILENAMEW};
     let mut file = vec![0u16; 1024];
-    let filter: Vec<u16> = "Programs (*.exe)\0*.exe\0All files\0*.*\0\0".encode_utf16().collect();
+    let dir: Option<Vec<u16>> = start_in.and_then(|p| p.parent()).filter(|d| d.is_dir()).map(|d| d.as_os_str().encode_wide().chain(std::iter::once(0)).collect());
+    let filter: Vec<u16> = filter.encode_utf16().collect();
     let mut ofn = OPENFILENAMEW {
         lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
         hwndOwner: hwnd,
         lpstrFilter: PCWSTR(filter.as_ptr()),
         lpstrFile: windows::core::PWSTR(file.as_mut_ptr()),
         nMaxFile: file.len() as u32,
+        lpstrInitialDir: dir.as_ref().map(|d| PCWSTR(d.as_ptr())).unwrap_or(PCWSTR::null()),
         Flags: OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST,
         ..Default::default()
     };

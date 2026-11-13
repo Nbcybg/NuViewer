@@ -14,8 +14,12 @@ const HELP: &[&str] = &[
     "←  →  Space  Backspace  PgUp  PgDn  Home  End     previous / next / first / last",
     "Ctrl+←  Ctrl+→     previous / next file (documents: skips the pages)",
     "Mouse wheel previous / next  ·  hold left button: zoom 100% (200% if small), drag to pan",
-    "Ctrl + drag zoom into an area  ·  Ctrl + wheel zoom  ·  click while zoomed: back to fit",
-    "F fit  ·  1 = 100%  ·  3D models: drag turns, wheel zooms, F resets, U other axis is up",
+    "Ctrl + drag zoom into an area  ·  Ctrl + wheel zoom  ·  click while zoomed: back to the base view",
+    "F fit  ·  A 100%  (pressing the one that is on switches to the other)  ·  1 2 3 4 5 = that many times fit or 100%  ·  ` resets",
+    "[  ]  rotate −45° / +45°  ·  Shift+[  Shift+]  rotate 90°  ·  Ctrl+S save the rotation  ·  Ctrl+Z take it back",
+    "V  viewer controls (they also open when the pointer touches the left edge)  ·  E  NuEditor (mock-up)",
+    "3D: drag turns, Shift+drag moves, wheel zooms, F resets  ·  T texture  N normal map  W wireframe  Shift+S shadow  Shift+T shading  O ortho",
+    "3D: X Y Z turn the model 90° about that axis (Shift = back)  ·  U other axis is up  ·  more in Settings > 3D",
     "Right click: menu (Open with…, Settings…)  ·  middle click: close  ·  top edge: info bar",
     "G  Tab  Enter     gallery  ·  arrows select, wheel scrolls, Ctrl+wheel sets the size",
     "Q  fold numbered pictures into image sequences (gallery)  ·  P play / pause  ·  C pin the controls  ·  D disk speed",
@@ -80,10 +84,10 @@ impl App {
         self.overlay_px(lines, (13.0 * d).round() as i32, (4.0 * d).round() as i32)
     }
 
-    /// Very large text (the edge-zone arrows).
-    pub fn overlay_big(&mut self, lines: &[String]) -> Option<(u64, f32, f32)> {
+    /// One symbol or short label at `size` logical pixels (the viewer controls and editor palette).
+    pub fn overlay_glyph(&mut self, text: &str, size: f32) -> Option<(u64, f32, f32)> {
         let d = self.gallery.dpi;
-        self.overlay_px(lines, (64.0 * d).round() as i32, (6.0 * d).round() as i32)
+        self.overlay_px(&[text.to_string()], (size * d).round() as i32, (2.0 * d).round() as i32)
     }
 
     fn overlay_px(&mut self, lines: &[String], px: i32, pad: i32) -> Option<(u64, f32, f32)> {
@@ -209,9 +213,10 @@ impl App {
 
         self.draw_disk_badge();
 
-        // Playback bar and the click-to-turn-page hint.
-        self.draw_edge_hint();
+        // Playback bar, the viewer controls on the left edge, the NuEditor mock-up.
         self.draw_controls();
+        self.draw_sidebar();
+        self.draw_editor();
 
         // Toast (bottom-left).
         if let Some((msg, _)) = self.hud.toast.clone() {
@@ -294,7 +299,7 @@ impl App {
         }
         if self.is_model() {
             parts.push(format!("zoom ×{:.1}", self.cam.zoom));
-        } else if let Some(img) = self.renderer.image_size() {
+        } else if let Some(img) = self.view_size() {
             let scale = self.view.scale(img, self.renderer.size());
             parts.push(format!("{:.0}%", scale * 100.0));
         }

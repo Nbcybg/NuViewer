@@ -39,6 +39,7 @@ pub fn decode(bytes: &[u8], first_only: bool) -> Result<Image, String> {
     dec.read_image(&mut buf).map_err(|e| format!("webp: {e}"))?;
     let mut img = Image::new(w, h, to_rgba(&buf, has_alpha));
     img.icc = dec.icc_profile().ok().flatten(); // converted later, after any downscaling
+    img.profile_assumable = true;
     Ok(img)
 }
 

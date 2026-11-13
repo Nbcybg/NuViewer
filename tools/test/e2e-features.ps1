@@ -1,4 +1,4 @@
-# End-to-end test of the settings, key map, edge click, image sequences, playback bar, PDF pages, SVG, 3D models and
+# End-to-end test of the settings, key map, image sequences, playback bar, PDF pages, SVG, 3D models and
 # the Settings window. Messages in, window pixels out (see lib.ps1): it never touches your real mouse or keyboard,
 # and every scenario reads its own settings file, so your real settings are never read or changed.
 #   tools\test\e2e-features.ps1 [-Exe path\to\nuviewer.exe]
@@ -25,12 +25,12 @@ function Signature { $b = Grab; $s = New-Object System.Text.StringBuilder; for (
 
 try {
     # ============================================================================================
-    Write-Host "`n[1] Settings file: canvas colour, wheel action, hold zoom, edge click, key map"
+    Write-Host "`n[1] Settings file: canvas colour, wheel action, hold zoom, key map"
     $d = Sub-Dir 's1'
     Make-Picture "$d\a.png" 400 300 20
     Make-Picture "$d\b.png" 4000 2000 40
     Make-Picture "$d\c.png" 1200 800 30
-    Use-Settings "$sandbox\s1.ini" "canvas = 204060`nwheel = zoom`nhold_zoom = 400`nedge_click = true`nedge_pct = 15`nkey.next = N"
+    Use-Settings "$sandbox\s1.ini" "canvas = 204060`nwheel = zoom`nhold_zoom = 400`nedge_click = true`nkey.next = N"
     Check 'viewer opens b.png with the settings file' (Open-Viewer "$d\b.png")
     $bar = Pixel $cx 20
     Check "canvas colour 204060 shows in the letterbox bars  [pixel $($bar.R),$($bar.G),$($bar.B)]" ((InRange $bar.R 29 35) -and (InRange $bar.G 61 67) -and (InRange $bar.B 93 99))
@@ -47,11 +47,9 @@ try {
     Check "hold zoom set to 400%: the 40 px marker is 160 px  [width $($z[0])]" (InRange $z[0] 150 170)
     Btn-Up $cx $cy
     Click 100 $cy
-    Check 'edge click on the left edge: previous picture (a.png)' ((Title) -like 'a.png*') (Title)
+    Check 'a click near the left edge no longer turns the page (edge click was removed; an old edge_click line is ignored)' ((Title) -like 'b.png*') (Title)
     Click ($scr.Width - 100) $cy
-    Check 'edge click on the right edge: next picture (b.png)' ((Title) -like 'b.png*') (Title)
-    Btn-Down 100 $cy; Btn-Move 220 $cy; Btn-Up 220 $cy
-    Check 'dragging out of the edge zone is not a click' ((Title) -like 'b.png*') (Title)
+    Check 'nor on the right edge' ((Title) -like 'b.png*') (Title)
     Key 0x4E
     Check 'key.next = N: N goes to the next picture (c.png)' ((Title) -like 'c.png*') (Title)
     Key 0x27
@@ -232,7 +230,7 @@ try {
         Start-Sleep -Milliseconds 300
         $list = ([In]::Children($sw) | Where-Object { $_.Id -eq 410 }).H
         $cnt = [In]::SendMessage($list, 0x018B, [IntPtr]::Zero, [IntPtr]::Zero)
-        Check "keyboard list holds all 37 actions  [$cnt]" ($cnt -eq 37)
+        Check "keyboard list holds all 59 actions  [$cnt]" ($cnt -eq 59)
         [void][In]::SendMessage($list, 0x0186, [IntPtr]0, [IntPtr]::Zero)   # LB_SETCURSEL 0
         [void][In]::SendMessage($sw, 0x0111, [IntPtr](410 -bor (1 -shl 16)), $list)   # WM_COMMAND, LBN_SELCHANGE
         $edit = ([In]::Children($sw) | Where-Object { $_.Id -eq 411 }).H
@@ -248,7 +246,7 @@ try {
         Check 'a key that another action owns is refused with a message' ($null -ne $mb)
         if ($mb) { [void][In]::PostMessage($mb, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero); Start-Sleep -Milliseconds 300 }
         Check 'and the row is unchanged' ([In]::ListText($list, 0) -like '*J, Space*')
-        $edge = ([In]::Children($sw) | Where-Object { $_.Id -eq 402 }).H
+        $edge = ([In]::Children($sw) | Where-Object { $_.Id -eq 113 }).H   # "viewer controls on the left edge" (on by default)
         [void][In]::PostMessage($edge, 0xF5, [IntPtr]::Zero, [IntPtr]::Zero); Start-Sleep -Milliseconds 300
         $ok = ([In]::Children($sw) | Where-Object { $_.Id -eq 1 -and $_.Cls -eq 'Button' }).H
         [void][In]::PostMessage($ok, 0xF5, [IntPtr]::Zero, [IntPtr]::Zero)
@@ -256,7 +254,7 @@ try {
         Check 'OK closes the window' ($null -ne $done)
         $text = Get-Content $ini -Raw
         Check 'the keys were saved to the settings file' ($text -match 'key\.next = J, Space') $text
-        Check 'the edge click setting was saved' ($text -match 'edge_click = true')
+        Check 'the left-edge controls setting was saved' ($text -match 'sidebar = false')
         Check 'untouched settings stay as they were' ($text -match 'fps = 24')
     }
     if ($sp -and -not $sp.HasExited) { $sp.Kill() }

@@ -325,30 +325,6 @@ impl App {
         let next = if self.folder.index >= run.end { run.start } else { self.folder.index + 1 };
         self.goto_frame(next);
     }
-
-    /// Hover hint for the click-to-turn-page edge zones: a faint strip with an arrow.
-    pub fn draw_edge_hint(&mut self) {
-        if !self.settings.edge_click || self.mode != Mode::Viewer || self.is_model() || self.view.held.is_some() || self.view.area.is_some() {
-            return;
-        }
-        let (w, h) = self.renderer.size();
-        let ez = self.settings.edge_px(w) as f32;
-        let (mx, my) = (self.last_mouse.0 as f32, self.last_mouse.1 as f32);
-        if my < 0.0 || my > h as f32 || mx < 0.0 {
-            return;
-        }
-        let (rect, glyph) = if mx < ez {
-            ([0.0, 0.0, ez, h as f32], "\u{2039}")
-        } else if mx >= w as f32 - ez {
-            ([w as f32 - ez, 0.0, w as f32, h as f32], "\u{203A}")
-        } else {
-            return;
-        };
-        let _ = self.renderer.fill_rect(rect, srgb(0xFFFFFF, 0.06));
-        if let Some((key, tw, th)) = self.overlay_big(&[glyph.to_string()]) {
-            let _ = self.renderer.draw_overlay(key, rect[0] + (ez - tw) / 2.0, (h as f32 - th) / 2.0, srgb(0xFFFFFF, 0.7));
-        }
-    }
 }
 
 fn fmt_speed(s: f32) -> String {

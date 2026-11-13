@@ -3,7 +3,7 @@
 
 mod mesh;
 
-pub use nv_codecs::model::Orbit;
+pub use nv_codecs::model::{LightMode, ModelStyle, Orbit, Shading, UpAxis};
 use nv_codecs::Image;
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -194,7 +194,7 @@ impl Renderer {
             device.CreatePixelShader(PS_BYTES, None, Some(&mut ps)).map_err(err("CreatePixelShader"))?;
 
             let cb_desc = D3D11_BUFFER_DESC {
-                ByteWidth: 64,
+                ByteWidth: 96,
                 Usage: D3D11_USAGE_DYNAMIC,
                 BindFlags: D3D11_BIND_CONSTANT_BUFFER.0 as u32,
                 CPUAccessFlags: D3D11_CPU_ACCESS_WRITE.0 as u32,
@@ -553,10 +553,10 @@ impl Renderer {
     }
 
     /// Draw model `id` filling the frame (call between `begin` and the 2D overlays). Returns false if it isn't uploaded.
-    pub fn draw_mesh(&mut self, id: u64, orbit: &Orbit) -> Result<bool, String> {
+    pub fn draw_mesh(&mut self, id: u64, orbit: &Orbit, style: &ModelStyle) -> Result<bool, String> {
         let Some(rtv) = self.rtv.clone() else { return Ok(false) };
         let Some(pipe) = self.mesh.as_mut() else { return Ok(false) };
-        let drawn = pipe.draw(&self.device, &self.ctx, &rtv, self.size, id, orbit)?;
+        let drawn = pipe.draw(&self.device, &self.ctx, &rtv, self.size, id, orbit, style)?;
         if drawn {
             // Back to the 2D state `begin` set up.
             unsafe {
@@ -685,8 +685,17 @@ impl Renderer {
     }
 
     fn draw_quad(&mut self, srv: &ID3D11ShaderResourceView, dst: [f32; 4], params: [f32; 4], tint: [f32; 4], extra: [f32; 4]) -> Result<(), String> {
+        self.draw_quad_turned(srv, dst, params, tint, extra, 0.0)
+    }
+
+    /// `draw_quad` with the rectangle turned clockwise by `degrees` about its centre.
+    fn draw_quad_turned(&mut self, srv: &ID3D11ShaderResourceView, dst: [f32; 4], params: [f32; 4], tint: [f32; 4], extra: [f32; 4], degrees: f32) -> Result<(), String> {
         unsafe {
             let (w, h) = (self.size.0 as f32, self.size.1 as f32);
+            // Clockwise on screen is counter-clockwise with y up; right angles are made exact so a quarter turn stays pixel-sharp.
+            let a = (-degrees).to_radians();
+            let snap = |v: f32| if v.abs() < 1e-6 { 0.0 } else if (v.abs() - 1.0).abs() < 1e-6 { v.signum() } else { v };
+            let rot = [snap(a.cos()), snap(a.sin()), w, h];
             let ndc = [dst[0] / w * 2.0 - 1.0, 1.0 - dst[1] / h * 2.0, dst[2] / w * 2.0 - 1.0, 1.0 - dst[3] / h * 2.0];
             let mut m = D3D11_MAPPED_SUBRESOURCE::default();
             self.ctx.Map(&self.cbuf, 0, D3D11_MAP_WRITE_DISCARD, 0, Some(&mut m)).map_err(err("Map"))?;
@@ -695,6 +704,7 @@ impl Renderer {
             std::ptr::copy_nonoverlapping(params.as_ptr(), p.add(4), 4);
             std::ptr::copy_nonoverlapping(tint.as_ptr(), p.add(8), 4);
             std::ptr::copy_nonoverlapping(extra.as_ptr(), p.add(12), 4);
+            std::ptr::copy_nonoverlapping(rot.as_ptr(), p.add(16), 4);
             self.ctx.Unmap(&self.cbuf, 0);
             self.ctx.PSSetShaderResources(0, Some(&[Some(srv.clone())]));
             self.ctx.Draw(4, 0);
@@ -705,6 +715,12 @@ impl Renderer {
     /// Draw the displayed viewer image into `dst` = [left, top, right, bottom] in client pixels.
     /// `nearest` selects point sampling (for inspecting pixels when zoomed in far).
     pub fn draw_current(&mut self, dst: [f32; 4], nearest: bool) -> Result<(), String> {
+        self.draw_current_turned(dst, nearest, 0.0)
+    }
+
+    /// `draw_current`, with the picture turned clockwise by `degrees` about the centre of `dst`. `dst` is the rectangle
+    /// of the *unturned* picture (so for a quarter turn it is the picture's own shape, not the turned one).
+    pub fn draw_current_turned(&mut self, dst: [f32; 4], nearest: bool, degrees: f32) -> Result<(), String> {
         let Some((srv, tw, th, mips, orientation, ow)) =
             self.current.and_then(|id| self.textures.get(&id)).map(|t| (t.srv().clone(), t.width, t.height, t.mips, t.orientation, t.oriented_size().0))
         else {
@@ -713,7 +729,7 @@ impl Renderer {
         // Pick the mip so that the remaining downscale factor is in [0.5, 1).
         let scale = (dst[2] - dst[0]) / ow as f32; // scale of the *displayed* (oriented) image
         let lod = if scale < 1.0 { ((-scale.log2()).floor().max(0.0) as u32).min(mips - 1) } else { 0 };
-        self.draw_quad(&srv, dst, [tw as f32, th as f32, lod as f32, if nearest { 1.0 } else { 0.0 }], [1.0; 4], [orientation as f32, 0.0, 0.0, 0.0])
+        self.draw_quad_turned(&srv, dst, [tw as f32, th as f32, lod as f32, if nearest { 1.0 } else { 0.0 }], [1.0; 4], [orientation as f32, 0.0, 0.0, 0.0], degrees)
     }
 
     /// Draw a gallery thumbnail. Returns Ok(false) if it isn't uploaded.

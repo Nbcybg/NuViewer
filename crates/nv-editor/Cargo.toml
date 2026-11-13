@@ -1,0 +1,9 @@
+[package]
+name = "nv-editor"
+version.workspace = true
+edition.workspace = true
+
+# NuEditor core: no window, no GPU. Operations on RGBA8 pixels, an undo stack, and saving. The viewer drives it.
+[dependencies]
+png = { workspace = true }
+jpeg-encoder = "0.7"

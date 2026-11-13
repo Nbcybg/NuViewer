@@ -51,6 +51,9 @@ impl App {
             self.toast(format!("Not found: {}", path.display()));
             return;
         }
+        if !self.settle_rotation() {
+            return;
+        }
         self.rename = None;
 
         // Same folder and the file is already listed: just go to it, keeping caches and view state.
@@ -105,7 +108,7 @@ impl App {
         self.gallery.scroll = 0.0;
         self.renderer.clear_cache();
         self.loader.request(Vec::new());
-        self.thumb_loader.request(Vec::new());
+        self.thumb_request(Vec::new());
         self.mode = Mode::Viewer;
         self.nav_start = None;
         self.after_list_change(); // shows the new current image (or "no images")
@@ -132,6 +135,10 @@ impl App {
     /// Forget file `i` everywhere (list, GPU caches, metadata) after it was deleted or moved away.
     pub fn drop_file_at(&mut self, i: usize) {
         let id = self.id_at(i);
+        if self.edits_for == Some(id) {
+            self.edits.clear(); // a turn on a picture that is gone has nothing to save
+            self.edits_for = None;
+        }
         self.folder.remove_at(i);
         let n = self.folder.files.len();
         if i < self.gallery.selected {
@@ -159,7 +166,7 @@ impl App {
             set_title(self.hwnd, "NuViewer — no images");
             invalidate(self.hwnd);
         } else if self.mode == Mode::Viewer {
-            self.view = View::new();
+            self.view = self.view.fresh();
             self.refresh();
         } else {
             self.request_thumbs();
@@ -284,6 +291,9 @@ impl App {
                 self.gallery.selected = at;
             }
         }
+        if self.edits_for == Some(old_id) {
+            self.edits_for = Some(new_id); // a pending turn follows its picture to the new name
+        }
         self.renderer.rekey(old_id, new_id);
         if let Some(m) = self.meta.remove(&old_id) {
             self.meta.insert(new_id, m);
@@ -368,7 +378,7 @@ impl App {
 
     // ---- undo ------------------------------------------------------------------------------------
 
-    fn push_undo(&mut self, op: UndoOp) {
+    pub fn push_undo(&mut self, op: UndoOp) {
         self.undo.push(op);
         if self.undo.len() > UNDO_LIMIT {
             self.undo.remove(0);
@@ -376,6 +386,9 @@ impl App {
     }
 
     pub fn undo(&mut self) {
+        if self.undo_rotation() {
+            return; // a turn that isn't saved yet comes first
+        }
         let Some(op) = self.undo.pop() else {
             self.toast("Nothing to undo");
             return;
@@ -413,6 +426,7 @@ impl App {
                     self.toast(format!("Removed the copy {}", file_name_of(&copy)));
                 }
             },
+            UndoOp::Rewritten { path, backup } => self.restore_backup(&path, &backup),
             UndoOp::Deleted { original } => match shell::recycle_restore(&original) {
                 Err(e) => {
                     // Keep it on the stack: the user can still restore it from the Recycle Bin by hand.

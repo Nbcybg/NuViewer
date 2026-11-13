@@ -2,8 +2,53 @@
 //! variable `NUVIEWER_SETTINGS` points somewhere else, which is what the tests use). Unknown keys are kept out of the
 //! way, bad values fall back to the defaults, so an old or hand-edited file never stops the viewer from starting.
 
+use nv_codecs::model::{LightMode, ModelStyle, Shading, UpAxis};
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+/// What happens to a rotated picture when the user moves on (next / previous picture, gallery, close).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RotateSave {
+    /// Ask every time: save, discard or stay.
+    Ask,
+    /// Save without asking.
+    Auto,
+}
+
+/// Where a colour profile comes from.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ProfileChoice {
+    Srgb,
+    DisplayP3,
+    AdobeRgb,
+    /// The profile Windows has for the display (output only).
+    System,
+    /// An `.icc` / `.icm` file the user picked.
+    File,
+}
+
+impl ProfileChoice {
+    pub fn id(self) -> &'static str {
+        match self {
+            ProfileChoice::Srgb => "srgb",
+            ProfileChoice::DisplayP3 => "p3",
+            ProfileChoice::AdobeRgb => "adobe",
+            ProfileChoice::System => "system",
+            ProfileChoice::File => "file",
+        }
+    }
+
+    pub fn from_id(v: &str) -> Option<ProfileChoice> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "srgb" => ProfileChoice::Srgb,
+            "p3" | "displayp3" => ProfileChoice::DisplayP3,
+            "adobe" | "adobergb" => ProfileChoice::AdobeRgb,
+            "system" => ProfileChoice::System,
+            "file" => ProfileChoice::File,
+            _ => return None,
+        })
+    }
+}
 
 /// What the mouse wheel does in the viewer.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -39,17 +84,22 @@ pub struct Settings {
     /// Background around the picture, 0xRRGGBB.
     pub canvas: u32,
     pub start_fullscreen: bool,
-    /// Convert pictures with an embedded colour profile to sRGB (off = show the numbers as they are).
+    /// Colour management on: pictures are converted from their own profile to the output profile (off = show the
+    /// numbers as they are).
     pub icc: bool,
+    /// The profile of what the pictures are shown on: sRGB, Windows' display profile, or a file (`icc_output_file`).
+    pub icc_output: ProfileChoice,
+    pub icc_output_file: String,
+    /// What a JPEG / PNG / WebP without a profile is taken to be: sRGB, Display P3, Adobe RGB or a file.
+    pub icc_untagged: ProfileChoice,
+    pub icc_untagged_file: String,
     pub hold_zoom: HoldZoom,
     /// "Small picture" threshold for `HoldZoom::Auto`, percent of the screen in both directions.
     pub small_pct: u32,
     // Mouse
     pub wheel: WheelAction,
-    /// Clicking the left / right edge of the picture goes to the previous / next one.
-    pub edge_click: bool,
-    /// Width of each edge zone, percent of the window.
-    pub edge_pct: u32,
+    /// The viewer controls (a vertical bar) appear when the pointer touches the left edge.
+    pub sidebar: bool,
     pub top_bar: bool,
     pub taskbar_edge: bool,
     // Image sequences and playback
@@ -63,6 +113,10 @@ pub struct Settings {
     pub disk_monitor: bool,
     /// Load the textures of 3D models (OBJ + MTL, glTF, FBX, PLY); off shows the plain grey surface.
     pub model_textures: bool,
+    /// Rotating a picture: save it when moving on, or ask first.
+    pub rotate_save: RotateSave,
+    /// How 3D models are shaded, lit and projected.
+    pub model: ModelStyle,
     pub external: Vec<External>,
     /// Keyboard overrides: action id -> "Key, Key" (see `keys`).
     pub keys: HashMap<String, String>,
@@ -74,11 +128,14 @@ impl Default for Settings {
             canvas: 0x1A1A1A,
             start_fullscreen: true,
             icc: true,
+            icc_output: ProfileChoice::Srgb,
+            icc_output_file: String::new(),
+            icc_untagged: ProfileChoice::Srgb,
+            icc_untagged_file: String::new(),
             hold_zoom: HoldZoom::Auto,
             small_pct: 50,
             wheel: WheelAction::Pages,
-            edge_click: false,
-            edge_pct: 12,
+            sidebar: true,
             top_bar: true,
             taskbar_edge: true,
             sequences: false,
@@ -87,6 +144,8 @@ impl Default for Settings {
             controls_always: false,
             disk_monitor: false,
             model_textures: true,
+            rotate_save: RotateSave::Ask,
+            model: ModelStyle::default(),
             external: Vec::new(),
             keys: HashMap::new(),
         }
@@ -141,6 +200,10 @@ impl Settings {
                 }
                 "start_fullscreen" => s.start_fullscreen = parse_bool(v).unwrap_or(s.start_fullscreen),
                 "icc" => s.icc = parse_bool(v).unwrap_or(s.icc),
+                "icc_output" => s.icc_output = ProfileChoice::from_id(v).unwrap_or(s.icc_output),
+                "icc_output_file" => s.icc_output_file = v.to_string(),
+                "icc_untagged" => s.icc_untagged = ProfileChoice::from_id(v).filter(|c| *c != ProfileChoice::System).unwrap_or(s.icc_untagged),
+                "icc_untagged_file" => s.icc_untagged_file = v.to_string(),
                 "hold_zoom" => {
                     s.hold_zoom = match v.to_ascii_lowercase().as_str() {
                         "auto" => HoldZoom::Auto,
@@ -160,8 +223,7 @@ impl Settings {
                         _ => s.wheel,
                     }
                 }
-                "edge_click" => s.edge_click = parse_bool(v).unwrap_or(s.edge_click),
-                "edge_pct" => s.edge_pct = v.parse().ok().filter(|p| (3..=40).contains(p)).unwrap_or(s.edge_pct),
+                "sidebar" => s.sidebar = parse_bool(v).unwrap_or(s.sidebar),
                 "top_bar" => s.top_bar = parse_bool(v).unwrap_or(s.top_bar),
                 "taskbar_edge" => s.taskbar_edge = parse_bool(v).unwrap_or(s.taskbar_edge),
                 "sequences" => s.sequences = parse_bool(v).unwrap_or(s.sequences),
@@ -170,6 +232,39 @@ impl Settings {
                 "controls_always" => s.controls_always = parse_bool(v).unwrap_or(s.controls_always),
                 "disk_monitor" => s.disk_monitor = parse_bool(v).unwrap_or(s.disk_monitor),
                 "model_textures" => s.model_textures = parse_bool(v).unwrap_or(s.model_textures),
+                "rotate_save" => {
+                    s.rotate_save = match v.to_ascii_lowercase().as_str() {
+                        "ask" => RotateSave::Ask,
+                        "auto" => RotateSave::Auto,
+                        _ => s.rotate_save,
+                    }
+                }
+                "model_shading" => s.model.shading = Shading::from_id(v).unwrap_or(s.model.shading),
+                "model_light" => {
+                    s.model.light = match v.to_ascii_lowercase().as_str() {
+                        "viewer" => LightMode::Viewer,
+                        "world" => LightMode::World,
+                        _ => s.model.light,
+                    }
+                }
+                "model_light_az" => s.model.light_az = v.parse::<f32>().ok().filter(|a| (-180.0..=180.0).contains(a)).unwrap_or(s.model.light_az),
+                "model_light_el" => s.model.light_el = v.parse::<f32>().ok().filter(|a| (-90.0..=90.0).contains(a)).unwrap_or(s.model.light_el),
+                "model_ortho" => s.model.ortho = parse_bool(v).unwrap_or(s.model.ortho),
+                "model_up" => {
+                    s.model.up = match v.to_ascii_lowercase().as_str() {
+                        "auto" => UpAxis::Auto,
+                        "y" => UpAxis::Y,
+                        "z" => UpAxis::Z,
+                        _ => s.model.up,
+                    }
+                }
+                "model_turn_x" => s.model.turns[0] = v.parse::<u8>().ok().filter(|t| *t < 4).unwrap_or(s.model.turns[0]),
+                "model_turn_y" => s.model.turns[1] = v.parse::<u8>().ok().filter(|t| *t < 4).unwrap_or(s.model.turns[1]),
+                "model_turn_z" => s.model.turns[2] = v.parse::<u8>().ok().filter(|t| *t < 4).unwrap_or(s.model.turns[2]),
+                "model_texture" => s.model.texture = parse_bool(v).unwrap_or(s.model.texture),
+                "model_normal_map" => s.model.normal_map = parse_bool(v).unwrap_or(s.model.normal_map),
+                "model_wireframe" => s.model.wireframe = parse_bool(v).unwrap_or(s.model.wireframe),
+                "model_shadow" => s.model.shadow = parse_bool(v).unwrap_or(s.model.shadow),
                 _ => {
                     if let Some(rest) = k.strip_prefix("key.") {
                         s.keys.insert(rest.to_string(), v.to_string());
@@ -198,6 +293,7 @@ impl Settings {
         let b = |v: bool| if v { "true" } else { "false" };
         let mut out = String::from("# NuViewer settings. Edit here or in the Settings window (Ctrl+,).\n");
         out += &format!("canvas = {:06X}\nstart_fullscreen = {}\nicc = {}\n", self.canvas, b(self.start_fullscreen), b(self.icc));
+        out += &format!("icc_output = {}\nicc_output_file = {}\nicc_untagged = {}\nicc_untagged_file = {}\n", self.icc_output.id(), self.icc_output_file, self.icc_untagged.id(), self.icc_untagged_file);
         out += &format!(
             "hold_zoom = {}\nsmall_pct = {}\n",
             match self.hold_zoom {
@@ -210,19 +306,52 @@ impl Settings {
             self.small_pct
         );
         out += &format!(
-            "wheel = {}\nedge_click = {}\nedge_pct = {}\ntop_bar = {}\ntaskbar_edge = {}\n",
+            "wheel = {}\nsidebar = {}\ntop_bar = {}\ntaskbar_edge = {}\n",
             match self.wheel {
                 WheelAction::Pages => "pages",
                 WheelAction::Zoom => "zoom",
                 WheelAction::Off => "off",
             },
-            b(self.edge_click),
-            self.edge_pct,
+            b(self.sidebar),
             b(self.top_bar),
             b(self.taskbar_edge)
         );
         out += &format!("sequences = {}\nsequence_min = {}\nfps = {}\ncontrols_always = {}\n", b(self.sequences), self.sequence_min, self.fps, b(self.controls_always));
         out += &format!("disk_monitor = {}\nmodel_textures = {}\n", b(self.disk_monitor), b(self.model_textures));
+        out += &format!(
+            "rotate_save = {}\n",
+            match self.rotate_save {
+                RotateSave::Ask => "ask",
+                RotateSave::Auto => "auto",
+            }
+        );
+        let m = &self.model;
+        out += &format!(
+            "model_shading = {}\nmodel_light = {}\nmodel_light_az = {}\nmodel_light_el = {}\nmodel_ortho = {}\nmodel_up = {}\n",
+            m.shading.id(),
+            match m.light {
+                LightMode::Viewer => "viewer",
+                LightMode::World => "world",
+            },
+            m.light_az,
+            m.light_el,
+            b(m.ortho),
+            match m.up {
+                UpAxis::Auto => "auto",
+                UpAxis::Y => "y",
+                UpAxis::Z => "z",
+            }
+        );
+        out += &format!(
+            "model_turn_x = {}\nmodel_turn_y = {}\nmodel_turn_z = {}\nmodel_texture = {}\nmodel_normal_map = {}\nmodel_wireframe = {}\nmodel_shadow = {}\n",
+            m.turns[0],
+            m.turns[1],
+            m.turns[2],
+            b(m.texture),
+            b(m.normal_map),
+            b(m.wireframe),
+            b(m.shadow)
+        );
         for (i, e) in self.external.iter().enumerate() {
             out += &format!("external.{i}.name = {}\nexternal.{i}.command = {}\n", e.name, e.command);
         }
@@ -248,11 +377,6 @@ impl Settings {
             }
         }
     }
-
-    /// Edge zone width in pixels for a window `width` wide.
-    pub fn edge_px(&self, width: u32) -> u32 {
-        (width as u64 * self.edge_pct as u64 / 100) as u32
-    }
 }
 
 #[cfg(test)]
@@ -271,11 +395,27 @@ mod tests {
         s.canvas = 0x203040;
         s.start_fullscreen = false;
         s.icc = false;
+        s.icc_output = ProfileChoice::File;
+        s.icc_output_file = r"D:\Colour\My Monitor = calibrated.icc".into();
+        s.icc_untagged = ProfileChoice::DisplayP3;
         s.hold_zoom = HoldZoom::X400;
         s.small_pct = 30;
         s.wheel = WheelAction::Zoom;
-        s.edge_click = true;
-        s.edge_pct = 20;
+        s.sidebar = false;
+        s.rotate_save = RotateSave::Auto;
+        s.model = ModelStyle {
+            shading: Shading::Cartoon,
+            light: LightMode::World,
+            light_az: 40.0,
+            light_el: -10.5,
+            ortho: true,
+            up: UpAxis::Z,
+            turns: [1, 2, 3],
+            texture: false,
+            normal_map: false,
+            wireframe: true,
+            shadow: true,
+        };
         s.top_bar = false;
         s.taskbar_edge = false;
         s.sequences = true;
@@ -294,11 +434,11 @@ mod tests {
 
     #[test]
     fn bad_values_and_unknown_keys_are_ignored() {
-        let t = "canvas = zzz\nhold_zoom = banana\nsmall_pct = 5000\nfps = 0\nwheel = pages\nmystery = 1\nno equals sign\nedge_pct = 7\n# comment\n";
+        let t = "canvas = zzz\nhold_zoom = banana\nsmall_pct = 5000\nfps = 0\nwheel = pages\nmystery = 1\nno equals sign\nsequence_min = 7\n# comment\n";
         let s = Settings::parse(t);
         let d = Settings::default();
         assert_eq!((s.canvas, s.hold_zoom, s.small_pct, s.fps, s.wheel), (d.canvas, d.hold_zoom, d.small_pct, d.fps, d.wheel));
-        assert_eq!(s.edge_pct, 7, "valid values next to bad ones still apply");
+        assert_eq!(s.sequence_min, 7, "valid values next to bad ones still apply");
         assert_eq!(Settings::parse(""), d);
     }
 
@@ -323,7 +463,6 @@ mod tests {
         assert_eq!(s2.hold_scale((1000, 600), screen), Some(4.0));
         s2.hold_zoom = HoldZoom::Off;
         assert_eq!(s2.hold_scale((1000, 600), screen), None);
-        assert_eq!(s.edge_px(1000), 120);
     }
 
     #[test]

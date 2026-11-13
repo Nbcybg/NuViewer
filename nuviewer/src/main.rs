@@ -1,13 +1,20 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod actions;
+mod colour;
 mod controls;
+mod editor_ui;
+mod gallery;
 mod hud;
 mod loading;
+mod model3d;
 mod mouse;
 mod ops;
+mod rotate;
 mod settings_ui;
+mod sidebar;
 
+use gallery::{Gallery, GALLERY_CELL, GALLERY_CELL_MAX, GALLERY_CELL_MIN, GALLERY_GAP};
 use hud::Hud;
 use nv_core::keys::Keymap;
 use nv_core::sequence::{self, Run};
@@ -69,16 +76,6 @@ const GPU_BUDGET_MAX: usize = 2560 * 1024 * 1024;
 /// Max time spent uploading textures per wake-up, so key presses stay responsive.
 const UPLOAD_SLICE: Duration = Duration::from_millis(8);
 
-/// Gallery metrics in logical pixels (multiplied by the monitor's DPI scale).
-const GALLERY_CELL: f32 = 176.0;
-const GALLERY_CELL_MIN: f32 = 96.0;
-const GALLERY_CELL_MAX: f32 = 264.0;
-const GALLERY_GAP: f32 = 10.0;
-const GALLERY_MARGIN: f32 = 16.0;
-/// Rows of thumbnails requested beyond the visible ones (and kept on the GPU, plus a bit more).
-const PREFETCH_ROWS: usize = 2;
-const KEEP_ROWS: usize = 4;
-
 /// sRGB hex (0xRRGGBB) to linear RGBA, for use as a tint with the sRGB render target.
 fn srgb(hex: u32, a: f32) -> [f32; 4] {
     let ch = |shift: u32| {
@@ -92,19 +89,6 @@ fn srgb(hex: u32, a: f32) -> [f32; 4] {
 enum Mode {
     Viewer,
     Gallery,
-}
-
-struct Gallery {
-    cell: f32,
-    selected: usize,
-    scroll: f32,
-    dpi: f32,
-    /// Thumbnails that failed to generate (shown as a dark-red tile).
-    failed: HashSet<u64>,
-    /// Ids of thumbnails currently worth keeping on the GPU.
-    keep: HashSet<u64>,
-    req_start: Option<Instant>,
-    ready_ms: Option<f64>,
 }
 
 fn file_name_of(p: &Path) -> String {
@@ -128,14 +112,46 @@ struct View {
     held: Option<(bool, f32, (f32, f32))>,
     /// Ctrl + left drag in progress: the rubber-band corners (start, current) in client pixels.
     area: Option<((i32, i32), (i32, i32))>,
-    /// A press on an already zoomed picture: where it started. Released without moving it cancels the zoom (back to fit);
-    /// moving it pans instead.
+    /// A press on an already zoomed picture: where it started. Released without moving it cancels the zoom (back to the
+    /// base view); moving it pans instead.
     click_cancel: Option<(i32, i32)>,
+    /// The base the zoom keys (1..5) multiply: false = the fitted view, true = 100%. Kept from picture to picture.
+    base_actual: bool,
 }
 
 impl View {
     fn new() -> Self {
-        View { fit: true, zoom: 1.0, pan: (0.0, 0.0), drag_last: None, held: None, area: None, click_cancel: None }
+        View { fit: true, zoom: 1.0, pan: (0.0, 0.0), drag_last: None, held: None, area: None, click_cancel: None, base_actual: false }
+    }
+
+    /// The view a new picture starts with: nothing dragged or zoomed, in the same base mode (fit or 100%) as this one.
+    fn fresh(&self) -> View {
+        let mut v = View::new();
+        v.base_actual = self.base_actual;
+        v.reset_to_base();
+        v
+    }
+
+    /// Back to the base view: the fitted picture, or 100% centred.
+    fn reset_to_base(&mut self) {
+        self.pan = (0.0, 0.0);
+        self.zoom = 1.0;
+        self.fit = !self.base_actual;
+    }
+
+    /// The scale of the base view for a picture of `img` pixels in a `win` window.
+    fn base_scale(&self, img: (u32, u32), win: (u32, u32)) -> f32 {
+        if self.base_actual { 1.0 } else { Self::fit_scale(img, win) }
+    }
+
+    /// `n` times the base scale (keys 1..5), around the middle of the window.
+    fn set_multiple(&mut self, img: (u32, u32), win: (u32, u32), n: f32) {
+        if n <= 1.0 {
+            self.reset_to_base();
+            return;
+        }
+        let target = (self.base_scale(img, win) * n).clamp(0.02, 64.0);
+        self.zoom_to(img, win, ((win.0 / 2) as i32, (win.1 / 2) as i32), target);
     }
 
     /// Keep the picture covering the window: when it is larger than the window an edge can never move inside it
@@ -232,8 +248,9 @@ struct Meta {
     page: Option<(u32, u32)>,
     /// Triangle count for 3D models.
     tris: Option<usize>,
-    /// Pictures a 3D model brings with it (0 = plain surface).
+    /// Pictures a 3D model brings with it (0 = plain surface), and how many parts have a normal map.
     textures: usize,
+    normal_maps: usize,
     /// Bytes read from disk and the seconds that took (whole-file reads only).
     read: Option<(u64, f64)>,
 }
@@ -258,7 +275,8 @@ struct App {
     hwnd: WindowHandle,
     renderer: Renderer,
     loader: Loader,
-    thumb_loader: Loader,
+    /// Thumbnail workers, started the first time the gallery opens (see `gallery.rs`).
+    thumb_loader: Option<Loader>,
     mode: Mode,
     gallery: Gallery,
     wake: Arc<dyn Fn() + Send + Sync>,
@@ -291,6 +309,8 @@ struct App {
     /// Camera for 3D models, and where a left-button drag that turns the model last was.
     cam: nv_render::Orbit,
     orbit_last: Option<(i32, i32)>,
+    /// The drag in progress slides the model (Shift held at the press) instead of turning it.
+    orbit_pan: bool,
     settings: Settings,
     keymap: Keymap,
     /// Gallery tiles as file indices: every file, or (sequences folded) the first frame of each run.
@@ -302,8 +322,13 @@ struct App {
     anim_speed: f32,
     fps: u32,
     controls_pinned: bool,
-    /// The left button went down in an edge zone (-1 left, +1 right) at this point: a click there turns the page.
-    edge_press: Option<(i32, (i32, i32))>,
+    /// Turns applied to the picture on screen and not saved yet, and which picture they belong to (see `rotate.rs`).
+    edits: nv_editor::EditStack,
+    edits_for: Option<u64>,
+    /// The viewer controls on the left edge (see `sidebar.rs`).
+    sidebar: sidebar::Sidebar,
+    /// The NuEditor mock-up is open (see `editor_ui.rs`).
+    editor: editor_ui::Editor,
     /// Dragging the playback seek bar.
     seek_drag: bool,
     /// The next navigation keeps the zoom (stepping through a sequence).
@@ -534,219 +559,28 @@ impl App {
         if to >= self.folder.files.len() || to == self.folder.index {
             return;
         }
+        // A rotated picture is saved (or dropped) first. Saving a copy adds a file to the list, so aim by path, not by number.
+        let target = self.folder.files[to].clone();
+        if !self.settle_rotation() {
+            return;
+        }
+        let to = self.folder.position(&target).unwrap_or(to.min(self.folder.files.len().saturating_sub(1)));
+        if to == self.folder.index {
+            return;
+        }
         self.dir = dir;
         self.folder.index = to;
         self.doc_page = 1;
         self.cam = nv_render::Orbit::default();
         self.nav_start = Some(Instant::now());
         if !std::mem::take(&mut self.keep_view_once) {
-            self.view = View::new();
+            self.view = self.view.fresh();
             self.anim_paused = false;
         }
         if self.slide.on {
             set_timer(self.hwnd, TIMER_SLIDE, (self.slide.secs * 1000.0) as u32); // manual navigation restarts the interval
         }
         self.refresh();
-    }
-
-    // ---- gallery ---------------------------------------------------------------------------------
-
-    fn layout(&self) -> Layout {
-        let (w, h) = self.renderer.size();
-        let d = self.gallery.dpi;
-        Layout::new(self.items.len(), self.gallery.cell, GALLERY_GAP * d, GALLERY_MARGIN * d, w as f32, h as f32)
-    }
-
-    /// File index shown by gallery tile `tile`.
-    fn file_of(&self, tile: usize) -> usize {
-        self.items.get(tile).copied().unwrap_or(0)
-    }
-
-    /// Gallery tile that contains file `file` (a frame in the middle of a folded sequence belongs to its first frame's tile).
-    fn tile_of(&self, file: usize) -> usize {
-        match self.items.binary_search(&file) {
-            Ok(t) => t,
-            Err(t) => t.saturating_sub(1),
-        }
-    }
-
-    /// The folded sequence containing file `file`, if sequences are folded.
-    fn run_of(&self, file: usize) -> Option<Run> {
-        self.runs.iter().find(|r| (r.start..=r.end).contains(&file)).cloned()
-    }
-
-    /// Recompute which gallery tiles exist (after the folder or the sequence setting changed); keeps the selection on a tile.
-    fn rebuild_items(&mut self) {
-        self.runs = if self.settings.sequences { sequence::find_runs(&self.folder.files, self.settings.sequence_min as usize) } else { Vec::new() };
-        self.items = sequence::gallery_items(self.folder.files.len(), &self.runs);
-        if !self.items.is_empty() {
-            let sel = self.gallery.selected.min(self.folder.files.len() - 1);
-            self.gallery.selected = self.items[self.tile_of(sel)];
-        }
-    }
-
-    fn gallery_title(&self) -> String {
-        let n = self.items.len();
-        if n == 0 {
-            return "NuViewer — no images".into();
-        }
-        let sel = self.gallery.selected.min(self.folder.files.len() - 1);
-        let name = self.folder.files[sel].file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let seq = self.run_of(sel).map(|r| format!(" (sequence, {} frames)", r.len())).unwrap_or_default();
-        let vis = self.layout().visible(self.gallery.scroll);
-        let loaded = vis.clone().filter(|&i| self.renderer.has_thumb(self.id_at(self.file_of(i)))).count();
-        let ready = self.gallery.ready_ms.map(|m| format!(" in {m:.0} ms")).unwrap_or_default();
-        format!("{name}{seq} — {}/{n} — gallery — thumbs {loaded}/{}{ready} — NuViewer", self.tile_of(sel) + 1, vis.len())
-    }
-
-    /// Keep thumbnails for the visible rows (plus margin) on the GPU, and queue the missing ones, visible first.
-    fn request_thumbs(&mut self) {
-        if self.folder.files.is_empty() {
-            return;
-        }
-        let lay = self.layout();
-        let scroll = self.gallery.scroll;
-        let vis = lay.visible(scroll);
-        let near = lay.visible_with_margin(scroll, PREFETCH_ROWS);
-        let (items, files) = (&self.items, &self.folder.files);
-        self.gallery.keep = lay.visible_with_margin(scroll, KEEP_ROWS).map(|i| path_id(&files[items[i]])).collect();
-        let keep = &self.gallery.keep;
-        self.renderer.retain_thumbs(|id| keep.contains(&id));
-
-        let order = vis.clone().chain(near.filter(|i| !vis.contains(i)));
-        let todo: Vec<PathBuf> = order
-            .filter(|&i| {
-                let id = path_id(&self.folder.files[self.items[i]]);
-                !self.renderer.has_thumb(id) && !self.gallery.failed.contains(&id)
-            })
-            .map(|i| self.folder.files[self.items[i]].clone())
-            .collect();
-        self.thumb_loader.request(todo);
-    }
-
-    fn enter_gallery(&mut self) {
-        if self.folder.files.is_empty() {
-            return;
-        }
-        self.stop_slideshow(false);
-        self.mode = Mode::Gallery;
-        self.sync_anim(); // stops the timer
-        self.doc_page = 1; // the gallery shows first pages
-        self.rebuild_items();
-        self.seq_playing = false;
-        kill_timer(self.hwnd, TIMER_SEQ);
-        self.gallery.selected = self.items.get(self.tile_of(self.folder.index)).copied().unwrap_or(0);
-        self.gallery.scroll = self.layout().scroll_to_center(self.tile_of(self.gallery.selected));
-        self.gallery.req_start = Some(Instant::now());
-        self.gallery.ready_ms = None;
-        self.loader.request(Vec::new()); // stop prefetching full images while browsing
-        self.request_thumbs();
-        set_title(self.hwnd, &self.title());
-        invalidate(self.hwnd);
-    }
-
-    /// Back to the viewer; `open` shows the gallery's selection, otherwise the image stays as it was.
-    fn leave_gallery(&mut self, open: bool) {
-        self.mode = Mode::Viewer;
-        self.thumb_loader.request(Vec::new());
-        if open && self.gallery.selected != self.folder.index {
-            // Don't leave the previously viewed picture on screen while the chosen one decodes.
-            if !self.renderer.has(self.id_at(self.gallery.selected)) {
-                self.renderer.hide_current();
-            }
-            self.navigate(self.gallery.selected as isize);
-        } else {
-            self.refresh();
-        }
-    }
-
-    /// Select gallery tile `tile` (clamped) and scroll it into view.
-    fn gallery_select(&mut self, tile: usize) {
-        let n = self.items.len();
-        if n == 0 {
-            return;
-        }
-        let tile = tile.min(n - 1);
-        self.gallery.selected = self.items[tile];
-        let lay = self.layout();
-        self.gallery.scroll = lay.scroll_to_show(tile, lay.clamp_scroll(self.gallery.scroll));
-        self.request_thumbs();
-        set_title(self.hwnd, &self.title());
-        invalidate(self.hwnd);
-    }
-
-    fn gallery_scroll_by(&mut self, pixels: f32) {
-        let lay = self.layout();
-        self.gallery.scroll = lay.clamp_scroll(self.gallery.scroll + pixels);
-        self.request_thumbs();
-        set_title(self.hwnd, &self.title());
-        invalidate(self.hwnd);
-    }
-
-    fn gallery_zoom(&mut self, notches: f32) {
-        let d = self.gallery.dpi;
-        self.gallery.cell = (self.gallery.cell * 1.1f32.powf(notches)).clamp(GALLERY_CELL_MIN * d, GALLERY_CELL_MAX * d);
-        let lay = self.layout();
-        self.gallery.scroll = lay.scroll_to_show(self.tile_of(self.gallery.selected), lay.clamp_scroll(self.gallery.scroll));
-        self.request_thumbs();
-        invalidate(self.hwnd);
-    }
-
-    /// Keys that move by whole rows in the gallery (not remappable: they only make sense in a grid).
-    fn gallery_key(&mut self, k: u32) {
-        let lay = self.layout();
-        let (sel, cols) = (self.tile_of(self.gallery.selected), lay.cols);
-        match k {
-            VK_DOWN => self.gallery_select(sel + cols),
-            VK_UP => self.gallery_select(sel.saturating_sub(cols)),
-            _ => {}
-        }
-    }
-
-    /// One screen of tiles (for the Page keys in the gallery).
-    fn gallery_page(&self) -> usize {
-        let lay = self.layout();
-        ((lay.view_h / (lay.cell + lay.gap)) as usize).saturating_sub(1).max(1) * lay.cols
-    }
-
-    fn draw_gallery(&mut self) {
-        if !self.renderer.begin(clear_color()) {
-            return;
-        }
-        let lay = self.layout();
-        let scroll = lay.clamp_scroll(self.gallery.scroll);
-        let d = self.gallery.dpi;
-        let tile = srgb(0x2A2A2A, 1.0);
-        let tile_failed = srgb(0x4A2222, 1.0);
-        let accent = srgb(0x3D8BFF, 1.0);
-        for i in lay.visible(scroll) {
-            let r = lay.rect(i, scroll);
-            let fi = self.items[i];
-            let id = self.id_at(fi);
-            if fi == self.gallery.selected {
-                let b = 4.0 * d;
-                let _ = self.renderer.fill_rect([r[0] - b, r[1] - b, r[2] + b, r[3] + b], accent);
-            }
-            let _ = self.renderer.fill_rect(r, if self.gallery.failed.contains(&id) { tile_failed } else { tile });
-            if let Some((tw, th)) = self.renderer.thumb_size(id) {
-                // Fit inside the cell, never enlarging beyond the thumbnail's own pixels; snap to whole pixels.
-                let (cw, ch) = (r[2] - r[0], r[3] - r[1]);
-                let s = (cw / tw as f32).min(ch / th as f32).min(1.0);
-                let (w, h) = ((tw as f32 * s).round(), (th as f32 * s).round());
-                let (l, t) = ((r[0] + (cw - w) / 2.0).round(), (r[1] + (ch - h) / 2.0).round());
-                let _ = self.renderer.draw_thumb(id, [l, t, l + w, t + h]);
-            }
-            // A folded image sequence: show how many frames it holds.
-            if let Some(run) = self.runs.iter().find(|r| r.start == fi).cloned() {
-                if let Some((key, tw, th)) = self.overlay_small(&[format!("\u{25B6} {}", run.len())]) {
-                    let (x, y) = (r[2] - tw - 4.0 * d, r[3] - th - 4.0 * d);
-                    let _ = self.renderer.fill_rect([x, y, x + tw, y + th], srgb(0x0E0E0E, 0.82));
-                    let _ = self.renderer.draw_overlay(key, x, y, srgb(0xF2F2F2, 1.0));
-                }
-            }
-        }
-        self.draw_hud();
-        let _ = self.renderer.end();
     }
 
     // ---- full-image + thumbnail completion -------------------------------------------------------
@@ -797,7 +631,7 @@ impl App {
     fn finish_ingest(&mut self, id: u64, img: nv_codecs::Image, decode_ms: f64, read: Option<(u64, f64)>) -> bool {
         let (dw, dh) = img.display_size();
         let swap = |(w, h): (u32, u32)| if img.orientation >= 5 { (h, w) } else { (w, h) };
-        self.meta.insert(id, Meta { width: dw, height: dh, decode_ms, reduced_from: img.reduced_from.map(swap), page: img.page, tris: img.mesh.as_ref().map(|m| m.triangles()), textures: img.mesh.as_ref().map(|m| m.texture_count()).unwrap_or(0), read });
+        self.meta.insert(id, Meta { width: dw, height: dh, decode_ms, reduced_from: img.reduced_from.map(swap), page: img.page, tris: img.mesh.as_ref().map(|m| m.triangles()), textures: img.mesh.as_ref().map(|m| m.texture_count()).unwrap_or(0), normal_maps: img.mesh.as_ref().map(|m| m.parts.iter().filter(|p| p.normal_map.is_some()).count()).unwrap_or(0), read });
         if let Some(mesh) = &img.mesh {
             if let Err(e) = self.renderer.upload_mesh(id, mesh) {
                 self.toast(format!("3D view unavailable: {e}"));
@@ -882,7 +716,7 @@ impl App {
         let t0 = Instant::now();
         let mut got_thumb = false;
         let mut slice_expired = false;
-        while let Some(t) = self.thumb_loader.try_recv() {
+        while let Some(t) = self.next_thumb() {
             let id = path_id(&t.path);
             if self.gallery.keep.contains(&id) && !self.renderer.has_thumb(id) {
                 match t.result {
@@ -981,10 +815,11 @@ impl App {
             return self.draw_gallery();
         }
         let win = self.renderer.size();
-        if let Some(i) = self.renderer.image_size() {
+        if let Some(i) = self.view_size() {
             self.view.clamp_pan(i, win); // the window may have been resized since the pan was set
         }
-        let (dst, nearest) = match self.renderer.image_size() {
+        let turn = self.rotation();
+        let (dst, nearest) = match self.view_size() {
             Some(i) => (Some(self.view.dst_rect(i, win)), self.view.scale(i, win) >= 4.0),
             None => (None, false),
         };
@@ -994,9 +829,17 @@ impl App {
         let model_id = if self.is_model() { Some(self.id_at(self.folder.index)) } else { None };
         if self.renderer.begin(clear_color()) {
             if let Some(mid) = model_id {
-                let _ = self.renderer.draw_mesh(mid, &self.cam);
+                let _ = self.renderer.draw_mesh(mid, &self.cam, &self.settings.model);
             } else if let Some(d) = dst {
-                let _ = self.renderer.draw_current(d, nearest);
+                if turn == 0.0 {
+                    let _ = self.renderer.draw_current(d, nearest);
+                } else if let Some((ow, oh)) = self.renderer.image_size() {
+                    // `d` is the box around the turned picture; the quad is the picture's own shape, turned about the same centre.
+                    let (cx, cy) = ((d[0] + d[2]) / 2.0, (d[1] + d[3]) / 2.0);
+                    let s = self.view.scale(self.view_size().unwrap_or((ow, oh)), win);
+                    let (hw, hh) = (ow as f32 * s / 2.0, oh as f32 * s / 2.0);
+                    let _ = self.renderer.draw_current_turned([cx - hw, cy - hh, cx + hw, cy + hh], nearest, turn);
+                }
             } else if let Some((id, rect)) = placeholder {
                 let _ = self.renderer.draw_thumb(id, rect);
             }
@@ -1027,6 +870,10 @@ impl App {
         if activity && nv_win::is_fullscreen() {
             nv_win::set_cursor_hidden(false);
             set_timer(self.hwnd, TIMER_CURSOR, CURSOR_IDLE_MS);
+        }
+        if let Event::MouseMove { x, y, left_down } = &ev {
+            self.sidebar_hover(*x, *y, *left_down);
+            self.editor_hover(*x, *y);
         }
         if let Event::MouseMove { y, left_down: false, .. } = &ev {
             // Info bar: appears when the pointer touches the top edge, stays while it is over the bar.
@@ -1084,7 +931,7 @@ impl App {
             }
             Event::Timer(_) => {}
             // Middle click closes the viewer (not the gallery, and not while the rename box is open).
-            Event::MiddleClick if self.mode == Mode::Viewer && self.rename.is_none() => quit(),
+            Event::MiddleClick if self.mode == Mode::Viewer && self.rename.is_none() => self.request_quit(),
             Event::MiddleClick => {}
             Event::Char(c) => self.rename_char(c),
             Event::Key(k) if self.rename.is_some() => self.rename_key(k),
@@ -1124,6 +971,9 @@ impl App {
                     invalidate(self.hwnd);
                     return;
                 }
+                if self.sidebar_blocks(x, y) {
+                    return; // the wheel over the controls does nothing
+                }
                 // Ctrl swaps what the wheel does (zoom <-> pages), whichever one the settings made the default.
                 let zoom = match (self.settings.wheel, ctrl) {
                     (WheelAction::Pages, true) | (WheelAction::Zoom, false) => true,
@@ -1131,7 +981,7 @@ impl App {
                     _ => false,
                 };
                 if zoom {
-                    if let Some(i) = self.renderer.image_size() {
+                    if let Some(i) = self.view_size() {
                         self.view.zoom_at(i, self.renderer.size(), (x, y), delta as f32 / 120.0);
                         invalidate(self.hwnd);
                     }
@@ -1141,14 +991,19 @@ impl App {
             }
             // A quick second click arrives as DoubleClick: for these gestures it is just another press.
             Event::MouseDown { x, y, ctrl } | Event::DoubleClick { x, y, ctrl } => {
-                if !self.controls_press(x, y) {
+                if !self.sidebar_press(x, y) && !self.editor_press(x, y) && !self.controls_press(x, y) {
                     self.viewer_press(x, y, ctrl);
                 }
             }
             Event::MouseUp => self.viewer_release(),
             Event::MouseMove { x, y, left_down } => self.viewer_drag(x, y, left_down),
             Event::RightClick { x, y } => self.context_menu(x, y),
-            Event::Close => {}
+            // The window's close box / Alt+F4: a rotated picture is saved or dropped first; Cancel keeps the window.
+            Event::Close => {
+                if !self.settle_rotation() {
+                    nv_win::veto_close();
+                }
+            }
         }
     }
 }
@@ -1170,12 +1025,11 @@ impl App {
         start_gallery: bool,
         actual_size: bool,
     ) -> Self {
-        let threads = worker_threads();
         let mut app = App {
             hwnd,
             renderer,
             loader,
-            thumb_loader: Loader::thumbs(threads, wake.clone()),
+            thumb_loader: None,
             mode: Mode::Viewer,
             gallery: Gallery {
                 cell: GALLERY_CELL * dpi,
@@ -1209,6 +1063,7 @@ impl App {
             doc_page: 1,
             cam: nv_render::Orbit::default(),
             orbit_last: None,
+            orbit_pan: false,
             keymap: Keymap::new(&Settings::load().keys),
             fps: Settings::load().fps,
             settings: Settings::load(),
@@ -1218,7 +1073,10 @@ impl App {
             anim_paused: false,
             anim_speed: 1.0,
             controls_pinned: false,
-            edge_press: None,
+            edits: nv_editor::EditStack::new(),
+            edits_for: None,
+            sidebar: sidebar::Sidebar::new(),
+            editor: editor_ui::Editor::new(),
             seek_drag: false,
             keep_view_once: false,
             taskbar_shown: false,
@@ -1239,7 +1097,7 @@ impl App {
             app.pump_uploads();
         }
         if actual_size {
-            app.view = View { fit: false, ..View::new() };
+            app.view = View { fit: false, base_actual: true, ..View::new() };
         }
         if nv_win::is_fullscreen() {
             app.fullscreen_timers(true);
@@ -1511,7 +1369,7 @@ fn main() {
     // Pictures open borderless-fullscreen from the first frame (--windowed opts out; --fullscreen is accepted and is the default). --actual-size starts at 100%.
     let startup_settings = Settings::load();
     CANVAS.store(startup_settings.canvas, Ordering::Relaxed);
-    nv_codecs::set_icc_enabled(startup_settings.icc);
+    colour::apply_at_startup(&startup_settings);
     nv_codecs::set_model_textures(startup_settings.model_textures);
     let start_fullscreen = !flag("--windowed") && startup_settings.start_fullscreen;
     let actual_size = flag("--actual-size");
@@ -1543,6 +1401,7 @@ fn main() {
     std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_secs(5));
         nv_core::thumbs::prune_cache();
+        nv_editor::save::prune_backups(&rotate::backup_dir(), std::time::Duration::from_secs(7 * 24 * 3600));
     });
 
     // 1. GPU driver load (~200+ ms) on its own thread.

@@ -13,7 +13,9 @@ A very fast, very light image viewer for Windows. Written in Rust on Win32 + Dir
 
 - **Photos:** JPEG, PNG/APNG, GIF (animated), WebP (incl. animated), PSD, camera RAW (embedded preview, developed from the
   sensor data when there is none), and, through Windows' own codecs: AVIF, HEIC (needs the Microsoft *HEVC Video
-  Extensions*), TIFF, BMP, ICO, JPEG XR. Embedded ICC profiles (e.g. Display P3) are converted to sRGB (switchable).
+  Extensions*), TIFF, BMP, ICO, JPEG XR. Colour managed: a picture's embedded ICC profile (e.g. Display P3) is converted to the output profile you choose in
+  Settings > Colour (sRGB, this PC's display profile from Windows, or any `.icc` / `.icm` file), and you decide what a
+  JPEG / PNG / WebP *without* a profile is (sRGB, Display P3, Adobe RGB or a file). Switchable.
 - **Game / render formats:** TGA (also `.icb`, `.vda`, `.vst`; RLE, colour-mapped, 16/24/32 bit), DDS (uncompressed and
   block-compressed BC1-BC7), PNM (PPM, PGM, PBM, PAM), Radiance HDR and OpenEXR (tone mapped to a normal picture), QOI.
 - **Documents:** PDF, one page at a time (rendered by Windows' own PDF engine, so text and vector graphics stay sharp);
@@ -54,8 +56,16 @@ Press **F1** (or **H**) in the app for this list; these are the defaults and **S
 | Hold left button · drag while held | zoom to 100% (200% if the picture is smaller than half the screen) and pan; release returns to the fitted view |
 | `Ctrl` + drag | zoom into the dragged area (Esc cancels) |
 | Click on a zoomed picture | back to the fitted view (dragging pans instead) |
-| `Ctrl` + wheel · `F` · `1` | zoom · fit · 100% |
-| Click the left / right edge | previous / next picture (off by default; Settings > Mouse) |
+| `Ctrl` + wheel | zoom around the pointer |
+| `F` · `A` | fit · 100%. These are the two *base views*: pressing the one that is on switches to the other |
+| `1` `2` `3` `4` `5` · `` ` `` | 1x … 5x of the base view (fit or 100%, whichever is on) · reset zoom |
+| `]` `[` · `Shift+]` `Shift+[` | rotate +45° / −45° · +90° / −90° |
+| `Ctrl+S` | save the rotation (JPEG / PNG are rewritten in place, other formats get a PNG copy; the original is backed up and `Ctrl+Z` restores it) |
+| Pointer on the left edge · `V` | viewer controls: a vertical bar (next, previous, fit, 100%, fullscreen, NuEditor, ±45°, slideshow, image sequences, gallery, settings, help, close). It closes when the pointer leaves it; `V` keeps it open |
+| `E` | NuEditor (mock-up: palette and inspector; only Rotate works yet) |
+| 3D: drag · `Shift`+drag · wheel | turn the model · slide it (pan) · zoom; `F` resets all three |
+| 3D: `T` `N` `W` `Shift+S` | texture · normal map · wireframe · shadow on/off |
+| 3D: `Shift+T` `O` `X` `Y` `Z` | next shading · perspective / orthographic · turn the model 90° about X / Y / Z (Shift = back) |
 | Right click | context menu (every action with its shortcut, *Open with* your programs, Settings) |
 | Pointer on the top edge | info bar: name, size and megapixels, file size, position, speed, zoom |
 | Pointer on the bottom screen edge | shows the Windows taskbar while in fullscreen |
@@ -78,14 +88,20 @@ Press **F1** (or **H**) in the app for this list; these are the defaults and **S
 
 `Ctrl+,` (or right click > Settings, or `nuviewer.exe --settings`) opens the Settings window; OK applies and saves at once.
 
-- **Viewer:** background colour, open fullscreen or windowed, ICC conversion on/off, what holding the left button does
+- **Colour:** colour management on/off, the output profile (sRGB / the Windows display profile / a profile file) and the
+  assumed profile of pictures that carry none. Saved rotations and the clipboard always stay sRGB.
+- **Viewer:** background colour, open fullscreen or windowed, what holding the left button does
   (automatic 100% / 200% for small pictures, always 100 / 200 / 400%, off) and what counts as "small", image sequences
   (fold, minimum length, playback speed), keep the playback bar visible, always show the disk read / write speed, and
-  load the textures of 3D models.
+  load the textures of 3D models, the left-edge viewer controls on/off, and what happens to a rotated picture when you
+  move on (ask every time, or save automatically).
 - **File types:** the format check-box list (same as `--associate`), applied with one button.
 - **External programs:** a list of programs the current picture can be sent to (*Open with* in the right-click menu).
   The command line uses `{file}` for the path, e.g. `"C:\Program Files\Adobe\Adobe Photoshop\Photoshop.exe" "{file}"`.
-- **Mouse and keyboard:** wheel action (pages / zoom / nothing), edge-click zones and their width, the top info bar,
+- **3D:** shading (combined, diffuse, cartoon, normals, unlit), texture / normal map / wireframe / floor shadow, the light
+  (from the viewer, or fixed in the scene; angle and height), perspective or orthographic, which axis is up and a
+  90° turn per axis for models that arrive face-down. The T / N / W / Shift+S / O / X / Y / Z keys change the same values.
+- **Mouse and keyboard:** wheel action (pages / zoom / nothing), the top info bar,
   the taskbar reveal, and every keyboard shortcut (several keys per action, conflicts are refused, Reset restores
   the default).
 

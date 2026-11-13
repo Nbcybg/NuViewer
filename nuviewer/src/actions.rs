@@ -44,19 +44,62 @@ impl App {
                     self.enter_gallery();
                 }
             }
-            Action::FitReset | Action::ActualSize if self.is_model() => {
+            Action::FitReset | Action::ActualSize | Action::ZoomReset if self.is_model() => {
                 self.cam = nv_render::Orbit::default();
                 invalidate(self.hwnd);
             }
+            // Fit and 100% are the two base views the zoom keys multiply; pressing the one that is already on switches to the other.
             Action::FitReset if !gallery => {
-                self.view.fit = true;
+                let already = !self.view.base_actual && self.view.fit;
+                self.view.base_actual = already;
+                self.view.reset_to_base();
+                self.toast(if already { "100%" } else { "Fit to screen" });
                 invalidate(self.hwnd);
             }
             Action::ActualSize if !gallery => {
-                self.view.fit = false;
-                self.view.zoom = 1.0;
-                self.view.pan = (0.0, 0.0);
+                let already = self.view.base_actual && !self.view.fit && (self.view.zoom - 1.0).abs() < 1e-3;
+                self.view.base_actual = !already;
+                self.view.reset_to_base();
+                self.toast(if already { "Fit to screen" } else { "100%" });
                 invalidate(self.hwnd);
+            }
+            Action::Zoom1 | Action::Zoom2 | Action::Zoom3 | Action::Zoom4 | Action::Zoom5 if !gallery => {
+                let n = match a {
+                    Action::Zoom1 => 1.0,
+                    Action::Zoom2 => 2.0,
+                    Action::Zoom3 => 3.0,
+                    Action::Zoom4 => 4.0,
+                    _ => 5.0,
+                };
+                if self.is_model() {
+                    self.cam.zoom = n;
+                } else if let Some(img) = self.view_size() {
+                    let win = self.renderer.size();
+                    self.view.set_multiple(img, win, n);
+                    self.toast(format!("{n:.0}\u{00D7} {}", if self.view.base_actual { "of 100%" } else { "of fit" }));
+                }
+                invalidate(self.hwnd);
+            }
+            Action::ZoomReset if !gallery => {
+                self.view.reset_to_base();
+                invalidate(self.hwnd);
+            }
+            Action::RotatePlus45 => self.rotate_by(45.0),
+            Action::RotateMinus45 => self.rotate_by(-45.0),
+            Action::RotateCw90 => self.rotate_by(90.0),
+            Action::RotateCcw90 => self.rotate_by(-90.0),
+            Action::SaveRotation if !gallery => {
+                self.save_rotation(true);
+            }
+            Action::ToggleSidebar if !gallery => {
+                self.sidebar.pinned = !self.sidebar.pinned;
+                invalidate(self.hwnd);
+            }
+            Action::Edit if !gallery => self.toggle_editor(),
+            Action::ToggleTexture | Action::ToggleNormalMap | Action::ToggleWireframe | Action::ToggleShadow | Action::CycleShading | Action::ToggleProjection | Action::ModelRotX | Action::ModelRotY | Action::ModelRotZ
+                if self.is_model() =>
+            {
+                self.model_key(a);
             }
             Action::FlipUp if self.is_model() => {
                 self.cam.flip_up = !self.cam.flip_up;
@@ -124,6 +167,8 @@ impl App {
             Action::Back => {
                 if self.view.area.take().is_some() {
                     invalidate(self.hwnd); // cancel a Ctrl+drag selection in progress
+                } else if self.editor.open {
+                    self.toggle_editor();
                 } else if self.hud.show_help || self.hud.show_info {
                     self.hud.show_help = false;
                     self.hud.show_info = false;
@@ -133,10 +178,10 @@ impl App {
                 } else if gallery {
                     self.leave_gallery(false);
                 } else {
-                    quit();
+                    self.request_quit();
                 }
             }
-            Action::Quit => quit(),
+            Action::Quit => self.request_quit(),
             // An action that doesn't apply in this mode (e.g. "fit" in the gallery) does nothing.
             _ => {}
         }

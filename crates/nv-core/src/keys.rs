@@ -42,6 +42,7 @@ const NAMES: &[(&str, u32)] = &[
     ("/", 0xBF),
     ("[", 0xDB),
     ("]", 0xDD),
+    ("`", 0xC0),
     // aliases
     ("Escape", 0x1B),
     ("PageUp", 0x21),
@@ -52,10 +53,13 @@ const NAMES: &[(&str, u32)] = &[
     ("Comma", 0xBC),
     ("Period", 0xBE),
     ("Return", 0x0D),
+    ("Backtick", 0xC0),
+    ("Tilde", 0xC0),
+    ("~", 0xC0),
 ];
 
 /// Names for the first entries above that must not come out as aliases when formatting.
-const CANONICAL_END: usize = 29;
+const CANONICAL_END: usize = 30;
 
 fn key_name(vk: u32) -> String {
     if (0x30..=0x39).contains(&vk) || (0x41..=0x5A).contains(&vk) {
@@ -191,6 +195,28 @@ pub enum Action {
     ToggleControls,
     DiskMonitor,
     FlipUp,
+    Zoom1,
+    Zoom2,
+    Zoom3,
+    Zoom4,
+    Zoom5,
+    ZoomReset,
+    RotatePlus45,
+    RotateMinus45,
+    RotateCw90,
+    RotateCcw90,
+    SaveRotation,
+    ToggleSidebar,
+    Edit,
+    ToggleTexture,
+    ToggleNormalMap,
+    ToggleWireframe,
+    ToggleShadow,
+    CycleShading,
+    ToggleProjection,
+    ModelRotX,
+    ModelRotY,
+    ModelRotZ,
     Info,
     Help,
     Rename,
@@ -234,8 +260,8 @@ pub const ACTIONS: &[ActionInfo] = &[
     a!(FirstFile, "first_file", "First file", ["Ctrl+Home"]),
     a!(LastFile, "last_file", "Last file", ["Ctrl+End"]),
     a!(Gallery, "gallery", "Gallery on / off", ["G", "Tab", "Enter"]),
-    a!(FitReset, "fit", "Fit to screen (3D: reset camera)", ["F"]),
-    a!(ActualSize, "actual_size", "Actual size 100% (3D: reset camera)", ["1"]),
+    a!(FitReset, "fit", "Fit to screen; again = 100% (3D: reset camera)", ["F"]),
+    a!(ActualSize, "actual_size", "Actual size 100%; again = fit (3D: reset camera)", ["A"]),
     a!(Fullscreen, "fullscreen", "Fullscreen / window", ["F11", "Alt+Enter"]),
     a!(Slideshow, "slideshow", "Slideshow on / off", ["S"]),
     a!(Shuffle, "shuffle", "Slideshow shuffle", ["R"]),
@@ -246,6 +272,28 @@ pub const ACTIONS: &[ActionInfo] = &[
     a!(ToggleControls, "controls", "Keep the playback controls visible", ["C"]),
     a!(DiskMonitor, "disk_monitor", "Disk read / write speed on screen", ["D"]),
     a!(FlipUp, "flip_up", "3D: other axis is up", ["U"]),
+    a!(Zoom1, "zoom_1", "Zoom 1x (of fit, or of 100% - whichever is selected)", ["1"]),
+    a!(Zoom2, "zoom_2", "Zoom 2x", ["2"]),
+    a!(Zoom3, "zoom_3", "Zoom 3x", ["3"]),
+    a!(Zoom4, "zoom_4", "Zoom 4x", ["4"]),
+    a!(Zoom5, "zoom_5", "Zoom 5x", ["5"]),
+    a!(ZoomReset, "zoom_reset", "Reset zoom", ["`"]),
+    a!(RotatePlus45, "rotate_plus", "Rotate +45 degrees", ["]"]),
+    a!(RotateMinus45, "rotate_minus", "Rotate -45 degrees", ["["]),
+    a!(RotateCw90, "rotate_cw90", "Rotate +90 degrees", ["Shift+]"]),
+    a!(RotateCcw90, "rotate_ccw90", "Rotate -90 degrees", ["Shift+["]),
+    a!(SaveRotation, "save_rotation", "Save the rotated picture", ["Ctrl+S"]),
+    a!(ToggleSidebar, "sidebar", "Viewer controls (left edge bar) on / off", ["V"]),
+    a!(Edit, "edit", "NuEditor", ["E"]),
+    a!(ToggleTexture, "model_texture", "3D: texture on / off", ["T"]),
+    a!(ToggleNormalMap, "model_normal_map", "3D: normal map on / off", ["N"]),
+    a!(ToggleWireframe, "model_wireframe", "3D: wireframe on / off", ["W"]),
+    a!(ToggleShadow, "model_shadow", "3D: shadow on / off", ["Shift+S"]),
+    a!(CycleShading, "model_shading", "3D: next shading (combined, diffuse, cartoon ...)", ["Shift+T"]),
+    a!(ToggleProjection, "model_projection", "3D: perspective / orthographic", ["O"]),
+    a!(ModelRotX, "model_rot_x", "3D: turn the model 90 degrees about X (Shift = other way)", ["X", "Shift+X"]),
+    a!(ModelRotY, "model_rot_y", "3D: turn the model 90 degrees about Y (Shift = other way)", ["Y", "Shift+Y"]),
+    a!(ModelRotZ, "model_rot_z", "3D: turn the model 90 degrees about Z (Shift = other way)", ["Z", "Shift+Z"]),
     a!(Info, "info", "Info / EXIF panel", ["I"]),
     a!(Help, "help", "Help", ["F1", "H"]),
     a!(Rename, "rename", "Rename", ["F2"]),
@@ -321,6 +369,9 @@ mod tests {
         assert_eq!(Chord::parse("+").unwrap().format(), "+");
         assert_eq!(Chord::parse("Ctrl++").unwrap().format(), "Ctrl++");
         assert_eq!(Chord::parse("PageDown").unwrap().format(), "PgDn");
+        assert_eq!(Chord::parse("`").unwrap().vk, 0xC0);
+        assert_eq!(Chord::parse("~").unwrap().format(), "`");
+        assert_eq!(Chord::parse("Shift+]").unwrap().format(), "Shift+]");
         assert!(Chord::parse("Hyper+X").is_none());
         assert!(Chord::parse("Ctrl+Banana").is_none());
         assert!(Chord::parse("").is_none());
