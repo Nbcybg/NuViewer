@@ -44,13 +44,14 @@ pub fn recycle(hwnd: HWND, path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Plain OK message box (no owner window), for command-line modes that have no window of their own.
+/// OK message box. Owned by the viewer's window when there is one (so it stays on top of it and Alt+Tab finds it),
+/// otherwise a plain box for the command-line modes that have no window of their own.
 pub fn message(text: &str) {
     use windows::Win32::UI::WindowsAndMessaging::{MB_ICONINFORMATION, MB_OK};
     let mut t: Vec<u16> = text.encode_utf16().collect();
     t.push(0);
     unsafe {
-        MessageBoxW(None, PCWSTR(t.as_ptr()), w!("NuViewer"), MB_OK | MB_ICONINFORMATION);
+        MessageBoxW(crate::dialog_parent(), PCWSTR(t.as_ptr()), w!("NuViewer"), MB_OK | MB_ICONINFORMATION);
     }
 }
 

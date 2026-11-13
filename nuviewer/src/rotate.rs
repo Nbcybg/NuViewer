@@ -30,6 +30,9 @@ impl App {
 
     /// Clockwise degrees the picture on screen is turned by and that are not saved yet (0 = upright).
     pub fn rotation(&self) -> f32 {
+        if self.read.on {
+            return 0.0; // read mode does not turn pages
+        }
         if self.edits_for.is_some() && self.edits_for == self.current_picture_id() { self.edits.only_rotation().unwrap_or(0.0) } else { 0.0 }
     }
 
@@ -39,6 +42,9 @@ impl App {
 
     /// The size the view logic works with: the picture, or the box around it when it is turned.
     pub fn view_size(&self) -> Option<(u32, u32)> {
+        if let Some(sv) = self.spread_view() {
+            return Some(sv.virt); // read mode: the pair of pages is one picture
+        }
         let (w, h) = self.renderer.image_size()?;
         let turn = self.rotation();
         Some(if turn == 0.0 { (w, h) } else { raster::rotated_size(w, h, turn) })
@@ -50,6 +56,10 @@ impl App {
             return;
         }
         let Some(id) = self.current_picture_id() else { return };
+        if self.read.on {
+            self.toast("Turn read mode off (B) to rotate a picture");
+            return;
+        }
         if self.is_model() {
             self.toast("3D models are turned by dragging with the mouse");
             return;
@@ -162,7 +172,7 @@ impl App {
             save::Target::Overwrite { path, .. } => match save::backup_copy(path, &backup_dir()) {
                 Ok(b) => Some(b),
                 Err(e) => {
-                    self.toast(format!("Couldn't save: no backup possible ({e})"));
+                    self.toast(crate::hud::failure(7004, format!("Couldn't save: no backup possible ({e})")));
                     return false;
                 }
             },
@@ -172,7 +182,7 @@ impl App {
             if let Some(b) = &backup {
                 let _ = std::fs::remove_file(b);
             }
-            self.toast(format!("Couldn't save: {e}"));
+            self.toast(crate::hud::failure(7004, format!("Couldn't save: {e}")));
             invalidate(self.hwnd);
             return false;
         }
@@ -216,7 +226,7 @@ impl App {
     /// Ctrl+Z on a saved turn: put the backed-up original back.
     pub fn restore_backup(&mut self, path: &Path, backup: &Path) {
         match std::fs::read(backup).and_then(|bytes| save::write_atomic(path, &bytes)) {
-            Err(e) => self.toast(format!("Couldn't restore the original: {e}")),
+            Err(e) => self.toast(crate::hud::failure(7005, format!("Couldn't restore the original: {e}"))),
             Ok(()) => {
                 let _ = std::fs::remove_file(backup);
                 self.forget_picture(path_id(path));

@@ -10,6 +10,10 @@ use nv_win::menu::{self, Entry};
 const ACTION_BASE: u32 = 0x2000_0000;
 const EXTERNAL_BASE: u32 = 0x3000_0000;
 const MENU_FILE_TYPES: u32 = 0x1000_0002;
+/// "Sort by" submenu: `MENU_SORT + index in SortKey::ALL`, then ascending / descending.
+const MENU_SORT: u32 = 0x1000_0010;
+const MENU_SORT_ASC: u32 = 0x1000_0020;
+const MENU_SORT_DESC: u32 = 0x1000_0021;
 
 impl App {
     // ---- wheel ------------------------------------------------------------------------------------
@@ -32,6 +36,11 @@ impl App {
     /// One step forward (+1) or back (-1): a page of the current document if there is one, else a file.
     /// Past the last page (or before the first) it carries on into the neighbouring file.
     pub fn step(&mut self, d: isize) {
+        // Read mode: a step is a whole spread (one or two pages).
+        if self.read.on && self.mode == Mode::Viewer && self.doc_pages().is_none() && !self.is_model() {
+            self.read_step(d);
+            return;
+        }
         if let Some((p, n)) = self.doc_pages() {
             let q = p as isize + d;
             if (1..=n as isize).contains(&q) {
@@ -242,6 +251,14 @@ impl App {
         } else {
             Entry::Submenu { text: "Open with".into(), items: externals, enabled: has_file }
         };
+        let order = self.folder.order;
+        let sort_menu = {
+            let mut items: Vec<Entry> = nv_core::SortKey::ALL.iter().enumerate().map(|(i, k)| Entry::checked(MENU_SORT + i as u32, k.label(), order.shuffle.is_none() && order.key == *k)).collect();
+            items.push(Entry::Separator);
+            items.push(Entry::checked(MENU_SORT_ASC, "Ascending", !order.descending));
+            items.push(Entry::checked(MENU_SORT_DESC, "Descending", order.descending));
+            Entry::Submenu { text: "Sort by".into(), items, enabled: has_file && many }
+        };
         let entries = vec![
             self.action_entry(Action::Prev, "Previous picture").enabled(viewer && many),
             self.action_entry(Action::Next, "Next picture").enabled(viewer && many),
@@ -253,6 +270,10 @@ impl App {
             checked(self.action_entry(Action::Slideshow, "Slideshow").enabled(many), self.slide.on),
             self.action_entry(Action::PlayPause, "Play / pause").enabled(playable),
             checked(self.action_entry(Action::ToggleSequences, "Fold image sequences"), self.settings.sequences),
+            checked(self.action_entry(Action::FilmStrip, "Film strip").enabled(viewer && many), self.strip.pinned),
+            checked(self.action_entry(Action::ReadMode, "Read mode (two pages)").enabled(viewer && many), self.read.on),
+            sort_menu,
+            checked(self.action_entry(Action::Shuffle, "Shuffle").enabled(many), order.shuffle.is_some()),
             checked(self.action_entry(Action::Info, "Info / EXIF").enabled(has_file), self.hud.show_info),
             Entry::Separator,
             self.action_entry(Action::Rename, "Rename…").enabled(has_file),
@@ -278,10 +299,17 @@ impl App {
             return;
         };
         match id {
-            MENU_FILE_TYPES => {
-                if let Ok(exe) = std::env::current_exe() {
-                    let _ = std::process::Command::new(exe).arg("--associate").spawn();
-                }
+            // In this process, so the chooser is owned by the viewer window like every other dialog.
+            MENU_FILE_TYPES => associate_dialog(),
+            MENU_SORT_ASC | MENU_SORT_DESC => {
+                let o = self.folder.order;
+                self.apply_order(nv_core::Order { key: o.key, descending: id == MENU_SORT_DESC, shuffle: None });
+                self.settings.sort_desc = id == MENU_SORT_DESC;
+                let _ = self.settings.save();
+                self.toast(format!("Sorted by {}", self.order_text()));
+            }
+            i if (MENU_SORT..MENU_SORT + nv_core::SortKey::ALL.len() as u32).contains(&i) => {
+                self.set_sort_key(nv_core::SortKey::ALL[(i - MENU_SORT) as usize]);
             }
             i if i >= EXTERNAL_BASE => {
                 let program = self.settings.external.get((i - EXTERNAL_BASE) as usize).cloned();

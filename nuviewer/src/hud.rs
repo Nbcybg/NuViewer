@@ -23,7 +23,10 @@ const HELP: &[&str] = &[
     "Right click: menu (Open with…, Settings…)  ·  middle click: close  ·  top edge: info bar",
     "G  Tab  Enter     gallery  ·  arrows select, wheel scrolls, Ctrl+wheel sets the size",
     "Q  fold numbered pictures into image sequences (gallery)  ·  P play / pause  ·  C pin the controls  ·  D disk speed",
-    "F11 / Alt+Enter fullscreen   I info/EXIF   S slideshow   + / − faster / slower   R shuffle",
+    "F11 / Alt+Enter fullscreen   I info/EXIF   S slideshow   + / − faster / slower",
+    "Order: J sort by name / date / size / type  ·  Shift+J ascending / descending  ·  R shuffle (random order, R again restores the sort)",
+    "Film strip: pointer at the right edge (or L)  ·  click a thumbnail to jump  ·  wheel scrolls it  ·  its header sorts and shuffles",
+    "Read mode (books): B two pages side by side, no gap  ·  Shift+B pairs start at this page  ·  Ctrl+B left-to-right / right-to-left",
     "F2 rename   Del Recycle Bin   Shift+Del delete permanently   Ctrl+Z undo   F5 copy to…   F6 / M move to…",
     "Ctrl+C copy image + file   Ctrl+Shift+C copy path   Ctrl+E show in Explorer",
     "Ctrl+,  /  F9  settings        Esc  close this / stop slideshow / back / quit        F1 / H  this help",
@@ -46,6 +49,11 @@ impl Hud {
     pub fn new() -> Self {
         Hud { toast: None, show_info: false, show_help: false, info_rows: Vec::new(), info_for: None, used: HashSet::new(), size_cache: None }
     }
+}
+
+/// A failure message with its error code on the end: "Couldn't delete: access denied  [NV-7002]".
+pub fn failure(code: u16, text: String) -> String {
+    format!("{text}  [{}]", nv_codecs::errors::label(code))
 }
 
 /// Keep long values (paths) readable: "…tail".
@@ -120,6 +128,10 @@ impl App {
                 None => format!("{} × {}", m.width, m.height),
             };
             rows.insert(at, ("Dimensions".to_string(), dims));
+        }
+        if let Some(e) = self.failed.get(&id) {
+            rows.insert(0, ("Error".to_string(), nv_codecs::errors::headline(e)));
+            rows.insert(1, ("Details".to_string(), nv_codecs::errors::plain(e).to_string()));
         }
         rows.push(("Position".to_string(), format!("{} of {}", i + 1, self.folder.files.len())));
         self.hud.info_rows = rows;
@@ -216,6 +228,7 @@ impl App {
         // Playback bar, the viewer controls on the left edge, the NuEditor mock-up.
         self.draw_controls();
         self.draw_sidebar();
+        self.draw_strip();
         self.draw_editor();
 
         // Toast (bottom-left).
@@ -283,7 +296,12 @@ impl App {
         if !disk.is_empty() {
             parts.push(disk);
         }
-        parts.push(format!("{}/{}", i + 1, self.folder.files.len()));
+        parts.push(self.position_text());
+        if self.folder.order.shuffle.is_some() {
+            parts.push("shuffled".to_string());
+        } else if self.folder.order != Default::default() {
+            parts.push(format!("sorted by {}", self.order_text()));
+        }
         let mut speed = Vec::new();
         if let Some(m) = self.meta.get(&id) {
             speed.push(format!("decode {:.0} ms", m.decode_ms));

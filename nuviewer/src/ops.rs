@@ -20,8 +20,7 @@ pub struct Rename {
 pub struct Slideshow {
     pub on: bool,
     pub secs: f32,
-    pub shuffle: bool,
-    /// Image to show next when shuffling (known early so it can be prefetched).
+    /// Image to show next (known early so it can be prefetched).
     pub next: Option<usize>,
     /// When the current picture appeared (the playback bar shows how far through the interval we are).
     pub since: Instant,
@@ -29,7 +28,7 @@ pub struct Slideshow {
 
 impl Slideshow {
     pub fn new() -> Self {
-        Slideshow { on: false, secs: 3.0, shuffle: false, next: None, since: Instant::now() }
+        Slideshow { on: false, secs: 3.0, next: None, since: Instant::now() }
     }
 }
 
@@ -48,7 +47,7 @@ impl App {
         nv_win::instance::bring_to_front(self.hwnd);
         let Some(path) = path.map(PathBuf::from) else { return };
         if !path.exists() {
-            self.toast(format!("Not found: {}", path.display()));
+            self.toast(crate::hud::failure(1001, format!("Not found: {}", path.display())));
             return;
         }
         if !self.settle_rotation() {
@@ -77,8 +76,9 @@ impl App {
             }
         }
 
-        match FolderList::open(&path) {
-            Err(e) => self.toast(format!("Couldn't open: {e}")),
+        let order = nv_core::Order { key: self.settings.sort, descending: self.settings.sort_desc, shuffle: self.folder.order.shuffle };
+        match FolderList::open_with(&path, order) {
+            Err(e) => self.toast(crate::hud::failure(nv_codecs::errors::classify(&e, ""), format!("Couldn't open: {e}"))),
             Ok(list) => {
                 self.replace_folder(list);
                 if gallery {
@@ -95,6 +95,9 @@ impl App {
         self.rename = None;
         self.hud.info_for = None;
         self.folder = list;
+        self.strip.requested = None;
+        self.strip.scroll = 0.0;
+        self.read_folder_changed();
         self.dir = 1;
         self.meta.clear();
         self.failed.clear();
@@ -160,7 +163,9 @@ impl App {
     /// Re-sync the view after files were added to / removed from the list.
     pub fn after_list_change(&mut self) {
         self.hud.info_for = None;
+        self.strip.requested = None;
         self.rebuild_items();
+        self.read_settle(); // read mode: the current page must start its spread
         if self.folder.files.is_empty() {
             self.loader.request(Vec::new());
             set_title(self.hwnd, "NuViewer — no images");
@@ -266,7 +271,7 @@ impl App {
         let old = r.path.clone();
         match fileops::rename_file(&old, &new_name) {
             Err(e) => {
-                r.error = Some(e);
+                r.error = Some(crate::hud::failure(7001, e));
                 invalidate(self.hwnd);
             }
             Ok(new) => {
@@ -321,7 +326,7 @@ impl App {
                     self.drop_file_at(i);
                     self.toast(format!("Deleted {name} permanently"));
                 }
-                Err(e) => self.toast(format!("Couldn't delete: {e}")),
+                Err(e) => self.toast(crate::hud::failure(7002, format!("Couldn't delete: {e}"))),
             }
         } else {
             match shell::recycle(self.hwnd, &path) {
@@ -330,7 +335,7 @@ impl App {
                     self.drop_file_at(i);
                     self.toast(format!("Moved {name} to the Recycle Bin — Ctrl+Z to undo"));
                 }
-                Err(e) => self.toast(format!("Couldn't delete: {e}")),
+                Err(e) => self.toast(crate::hud::failure(7002, format!("Couldn't delete: {e}"))),
             }
         }
         invalidate(self.hwnd);
@@ -355,7 +360,7 @@ impl App {
         };
         let result = if mv { fileops::move_file(&src, &dest) } else { fileops::copy_file(&src, &dest) };
         match result {
-            Err(e) => self.toast(format!("Couldn't {}: {e}", if mv { "move" } else { "copy" })),
+            Err(e) => self.toast(crate::hud::failure(7003, format!("Couldn't {}: {e}", if mv { "move" } else { "copy" }))),
             Ok(new) => {
                 self.last_dest = Some(dest.clone());
                 let dest_name = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| dest.display().to_string());
@@ -402,7 +407,7 @@ impl App {
                     fileops::move_file(&to, from.parent().unwrap_or(Path::new("."))).map(|p| p)
                 };
                 match back {
-                    Err(e) => self.toast(format!("Couldn't undo: {e}")),
+                    Err(e) => self.toast(crate::hud::failure(7005, format!("Couldn't undo: {e}"))),
                     Ok(restored) => {
                         if self.folder.position(&to).is_some() {
                             if to.parent() == restored.parent() {
@@ -418,7 +423,7 @@ impl App {
                 }
             }
             UndoOp::Copied { copy } => match shell::recycle(self.hwnd, &copy) {
-                Err(e) => self.toast(format!("Couldn't undo: {e}")),
+                Err(e) => self.toast(crate::hud::failure(7005, format!("Couldn't undo: {e}"))),
                 Ok(()) => {
                     if let Some(i) = self.folder.position(&copy) {
                         self.drop_file_at(i);
@@ -430,7 +435,7 @@ impl App {
             UndoOp::Deleted { original } => match shell::recycle_restore(&original) {
                 Err(e) => {
                     // Keep it on the stack: the user can still restore it from the Recycle Bin by hand.
-                    self.toast(format!("Couldn't restore automatically ({e}) — open the Recycle Bin"));
+                    self.toast(crate::hud::failure(7005, format!("Couldn't restore automatically ({e}) — open the Recycle Bin")));
                 }
                 Ok(()) => {
                     self.reveal_in_list(original.clone());
@@ -449,18 +454,18 @@ impl App {
         if path_only {
             match shell::clipboard_copy_text(self.hwnd, &path.display().to_string()) {
                 Ok(()) => self.toast("Copied the file path"),
-                Err(e) => self.toast(format!("Couldn't copy: {e}")),
+                Err(e) => self.toast(crate::hud::failure(7006, format!("Couldn't copy: {e}"))),
             }
             return;
         }
         match nv_codecs::decode_file_first_frame(&path).map(nv_codecs::Image::finish_for_cpu) {
-            Err(e) => self.toast(format!("Couldn't copy: {e}")),
+            Err(e) => self.toast(crate::hud::failure(7006, format!("Couldn't copy: {e}"))),
             Ok(img) => {
                 let mut bgra = img.rgba;
                 bgra.chunks_exact_mut(4).for_each(|p| p.swap(0, 2));
                 match shell::clipboard_copy_image_and_file(self.hwnd, &path, img.width, img.height, &bgra) {
                     Ok(()) => self.toast("Copied image and file"),
-                    Err(e) => self.toast(format!("Couldn't copy: {e}")),
+                    Err(e) => self.toast(crate::hud::failure(7006, format!("Couldn't copy: {e}"))),
                 }
             }
         }
@@ -489,7 +494,7 @@ impl App {
         self.pick_next();
         set_timer(self.hwnd, TIMER_SLIDE, (self.slide.secs * 1000.0) as u32);
         self.refresh(); // include the upcoming image in the prefetch set
-        self.toast(format!("Slideshow {:.0} s — S/Esc stop · +/- speed · R shuffle", self.slide.secs));
+        self.toast(format!("Slideshow {:.0} s — S/Esc stop · +/- speed · R shuffle the order", self.slide.secs));
     }
 
     pub fn stop_slideshow(&mut self, announce: bool) {
@@ -515,22 +520,14 @@ impl App {
         self.toast(format!("Slideshow interval {:.0} s", self.slide.secs));
     }
 
-    fn next_random(&mut self) -> usize {
-        // xorshift64*; quality is irrelevant here, we only need "not the same image twice".
-        let n = self.folder.files.len();
-        let mut x = self.rng;
-        x ^= x >> 12;
-        x ^= x << 25;
-        x ^= x >> 27;
-        self.rng = x;
-        let r = (x.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 33) as usize;
-        if n <= 1 { 0 } else { (self.folder.index + 1 + r % (n - 1)) % n }
-    }
-
-    /// Decide the next image now (so it can be prefetched).
+    /// Decide the next image now (so it can be prefetched). It is the next one in the list, which is in random order
+    /// while shuffle is on, and the next spread in read mode.
     pub fn pick_next(&mut self) {
         let n = self.folder.files.len();
-        self.slide.next = (n > 1).then(|| if self.slide.shuffle { self.next_random() } else { (self.folder.index + 1) % n });
+        self.slide.next = (n > 1).then(|| {
+            let (start, len) = self.current_spread();
+            (start + len) % n
+        });
     }
 
     pub fn slideshow_tick(&mut self) {
@@ -538,7 +535,10 @@ impl App {
             return;
         }
         let n = self.folder.files.len();
-        let to = self.slide.next.filter(|&i| i < n).unwrap_or((self.folder.index + 1) % n);
+        let to = self.slide.next.filter(|&i| i < n).unwrap_or_else(|| {
+            let (start, len) = self.current_spread();
+            (start + len) % n
+        });
         self.slide.since = Instant::now();
         self.navigate_with_dir(to, 1);
         self.pick_next();

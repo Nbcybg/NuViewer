@@ -721,9 +721,25 @@ impl Renderer {
     /// `draw_current`, with the picture turned clockwise by `degrees` about the centre of `dst`. `dst` is the rectangle
     /// of the *unturned* picture (so for a quarter turn it is the picture's own shape, not the turned one).
     pub fn draw_current_turned(&mut self, dst: [f32; 4], nearest: bool, degrees: f32) -> Result<(), String> {
-        let Some((srv, tw, th, mips, orientation, ow)) =
-            self.current.and_then(|id| self.textures.get(&id)).map(|t| (t.srv().clone(), t.width, t.height, t.mips, t.orientation, t.oriented_size().0))
-        else {
+        match self.current {
+            Some(id) => self.draw_image_turned(id, dst, nearest, degrees),
+            None => Ok(()),
+        }
+    }
+
+    /// Draw the cached picture `id` (not necessarily the displayed one) into `dst`; nothing happens if it isn't uploaded.
+    /// Read mode uses this to put two pages side by side.
+    pub fn draw_image(&mut self, id: u64, dst: [f32; 4], nearest: bool) -> Result<(), String> {
+        self.draw_image_turned(id, dst, nearest, 0.0)
+    }
+
+    /// Displayed size of the cached picture `id` (its EXIF orientation applied).
+    pub fn image_size_of(&self, id: u64) -> Option<(u32, u32)> {
+        self.textures.get(&id).map(|t| t.oriented_size())
+    }
+
+    fn draw_image_turned(&mut self, id: u64, dst: [f32; 4], nearest: bool, degrees: f32) -> Result<(), String> {
+        let Some((srv, tw, th, mips, orientation, ow)) = self.textures.get(&id).map(|t| (t.srv().clone(), t.width, t.height, t.mips, t.orientation, t.oriented_size().0)) else {
             return Ok(());
         };
         // Pick the mip so that the remaining downscale factor is in [0.5, 1).

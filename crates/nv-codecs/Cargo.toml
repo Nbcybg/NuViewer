@@ -20,6 +20,11 @@ fbxcel-dom = "0.0.10"
 serde_json = "1.0.154"
 image = { version = "0.25.10", default-features = false, features = ["tga", "pnm", "hdr", "exr", "qoi"] }
 image_dds = { version = "0.7.2", default-features = false, features = ["ddsfile", "image"] }
+jxl-oxide = { version = "0.12", default-features = false }
+hayro-jpeg2000 = "0.5"
+flif = "0.4"
+icns = "0.5"
+flate2 = "1"
 
 [target.'cfg(windows)'.dependencies.windows]
 workspace = true

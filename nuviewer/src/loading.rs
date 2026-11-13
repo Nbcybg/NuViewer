@@ -18,6 +18,25 @@ const DISK_TICK_MS: u32 = 500;
 /// Drive busy percentage from which reading is called disk-bound.
 const BUSY_BOTTLENECK: f64 = 85.0;
 
+/// Break `text` into lines of at most `width` characters at spaces.
+pub fn wrap(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut cur = String::new();
+    for word in text.split_whitespace() {
+        if !cur.is_empty() && cur.chars().count() + 1 + word.chars().count() > width {
+            lines.push(std::mem::take(&mut cur));
+        }
+        if !cur.is_empty() {
+            cur.push(' ');
+        }
+        cur.push_str(word);
+    }
+    if !cur.is_empty() {
+        lines.push(cur);
+    }
+    lines
+}
+
 /// "37.2 MB/s".
 fn rate(bytes_per_sec: f64) -> String {
     format!("{}/s", fmt_bytes(bytes_per_sec.max(0.0) as u64))
@@ -204,6 +223,41 @@ impl App {
                 }
             }
         }
+    }
+
+    /// The picture the user asked for could not be opened: say so on the picture area, with its error code (`errors`),
+    /// the decoder's own words and what to try. Without this a failed file left the old picture or an empty window up.
+    pub fn draw_error(&mut self) {
+        if self.mode != Mode::Viewer || self.folder.files.is_empty() {
+            return;
+        }
+        let id = self.id_at(self.folder.index);
+        let Some(msg) = self.failed.get(&id).cloned() else { return };
+        let (w, h) = self.renderer.size();
+        let (w, h) = (w as f32, h as f32);
+        let d = self.gallery.dpi;
+        if self.renderer.image_size().is_some() {
+            let _ = self.renderer.fill_rect([0.0, 0.0, w, h], srgb(0x000000, 0.7));
+        }
+        let code = nv_codecs::errors::code_of(&msg).unwrap_or(9999);
+        let info = nv_codecs::errors::info(code);
+        let mut lines = vec![format!("Can't open  {}", clip(&file_name_of(&self.folder.files[self.folder.index]), 56)), String::new()];
+        lines.push(format!("{}  {}", nv_codecs::errors::label(code), info.map(|i| i.title).unwrap_or("Unexpected error")));
+        lines.push(String::new());
+        lines.push(format!("Decoder said: {}", clip(nv_codecs::errors::plain(&msg), 84)));
+        if let Some(i) = info {
+            lines.push(String::new());
+            lines.extend(wrap(i.advice, 76));
+        }
+        lines.push(String::new());
+        lines.push("Next / Previous carry on  ·  I  info  ·  codes are listed in docs/error-codes.md".to_string());
+        let Some((key, tw, th)) = self.overlay(&lines) else { return };
+        let pad = 10.0 * d;
+        let (pw, ph) = (tw.max(380.0 * d) + 2.0 * pad, th + 2.0 * pad);
+        let (x, y) = (((w - pw) / 2.0).round(), ((h - ph) / 2.0).round());
+        let _ = self.renderer.fill_rect([x, y, x + pw, y + ph], srgb(0x0E0E0E, 0.94));
+        let _ = self.renderer.fill_rect([x, y, x + 4.0 * d, y + ph], srgb(0xFF6B6B, 1.0));
+        let _ = self.renderer.draw_overlay(key, x + pad, y + pad, srgb(0xF2F2F2, 1.0));
     }
 
     /// Bottom-right readout of the drive's read / write speed (the setting / `D`). Called from `draw_hud`.

@@ -24,12 +24,12 @@ function Key-Mods([int]$vk, [int]$mods) { [void][In]::PostMessage($script:win, 0
 function Hover([int]$x, [int]$y) { [void][In]::PostMessage($script:win, 0x0200, [IntPtr]0, (Pack $x $y)); Start-Sleep -Milliseconds 250 }
 function Signature { $b = Grab; $s = New-Object System.Text.StringBuilder; for ($y = 20; $y -lt $b.Height; $y += [int]($b.Height / 24)) { for ($x = 20; $x -lt $b.Width; $x += [int]($b.Width / 40)) { $c = $b.GetPixel($x, $y); [void]$s.Append("$($c.R / 8)$($c.G / 8)$($c.B / 8),") } }; $b.Dispose(); $s.ToString() }
 function Img-Size([string]$path) { $i = [System.Drawing.Image]::FromFile($path); $r = @($i.Width, $i.Height); $i.Dispose(); $r }
-# Centre of button $i of the left-edge bar (14 buttons), mirroring sidebar.rs.
+# Centre of button $i of the left-edge bar (16 buttons), mirroring sidebar.rs.
 function Bar-Button([int]$i) {
     $d = [In]::GetDpiForWindow($script:win) / 96.0
     $h = $scr.Height
-    $btn = [math]::Min(44 * $d, ($h - 16 * $d - 12 * $d - 13 * 3 * $d) / 14)
-    $total = 14 * $btn + 13 * 3 * $d + 12 * $d
+    $btn = [math]::Min(44 * $d, ($h - 16 * $d - 12 * $d - 15 * 3 * $d) / 16)
+    $total = 16 * $btn + 15 * 3 * $d + 12 * $d
     $y0 = ($h - $total) / 2
     @([int](6 * $d + 6 * $d + $btn / 2), [int]($y0 + 6 * $d + $i * ($btn + 3 * $d) + $btn / 2))
 }

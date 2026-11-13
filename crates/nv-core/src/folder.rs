@@ -1,21 +1,90 @@
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 
-/// Images in one directory, naturally sorted, plus the index of the current one.
+/// What the pictures of a folder are ordered by. One order serves everything that walks the list: next / previous, the
+/// gallery, the film strip, the slideshow.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SortKey {
+    /// File name, "natural" (img2 before img10), ignoring case. The default.
+    #[default]
+    Name,
+    /// Date modified, oldest first.
+    Modified,
+    /// File size, smallest first.
+    Size,
+    /// File type (extension), then name.
+    Type,
+}
+
+impl SortKey {
+    pub const ALL: [SortKey; 4] = [SortKey::Name, SortKey::Modified, SortKey::Size, SortKey::Type];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            SortKey::Name => "name",
+            SortKey::Modified => "date",
+            SortKey::Size => "size",
+            SortKey::Type => "type",
+        }
+    }
+
+    pub fn from_id(v: &str) -> Option<SortKey> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "name" => SortKey::Name,
+            "date" | "modified" => SortKey::Modified,
+            "size" => SortKey::Size,
+            "type" | "ext" => SortKey::Type,
+            _ => return None,
+        })
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SortKey::Name => "Name",
+            SortKey::Modified => "Date",
+            SortKey::Size => "Size",
+            SortKey::Type => "Type",
+        }
+    }
+
+    /// The next key in the cycle Name > Date > Size > Type > Name.
+    pub fn next(self) -> SortKey {
+        let i = Self::ALL.iter().position(|k| *k == self).unwrap_or(0);
+        Self::ALL[(i + 1) % Self::ALL.len()]
+    }
+}
+
+/// How a folder list is ordered: by a key (ascending or descending), or shuffled.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Order {
+    pub key: SortKey,
+    pub descending: bool,
+    /// `Some(seed)`: a random order that stays the same while the seed does (and for files that are added later).
+    /// `key` is kept underneath, so switching the shuffle off returns to it.
+    pub shuffle: Option<u64>,
+}
+
+/// Images in one directory in the chosen order (name by default), plus the index of the current one.
 pub struct FolderList {
     /// The directory being browsed (empty for "nothing open").
     pub dir: PathBuf,
     pub files: Vec<PathBuf>,
     pub index: usize,
+    pub order: Order,
 }
 
 impl FolderList {
     pub fn empty() -> Self {
-        FolderList { dir: PathBuf::new(), files: Vec::new(), index: 0 }
+        FolderList { dir: PathBuf::new(), files: Vec::new(), index: 0, order: Order::default() }
     }
 
     /// `path` may be an image file (list its folder, select it) or a directory (select first image).
     pub fn open(path: &Path) -> Result<Self, String> {
+        Self::open_with(path, Order::default())
+    }
+
+    /// Like `open`, in the given order.
+    pub fn open_with(path: &Path, order: Order) -> Result<Self, String> {
         if !path.exists() {
             return Err(format!("not found: {}", path.display()));
         }
@@ -37,14 +106,28 @@ impl FolderList {
             .map(|e| e.path())
             .filter(|p| p.extension().and_then(|x| x.to_str()).map(nv_codecs::is_supported_ext).unwrap_or(false))
             .collect();
-        files.sort_by(|a, b| cmp_paths(a, b));
+        sort_files(&mut files, order);
         let index = target
             .and_then(|t| {
                 let t = t.to_string_lossy().to_lowercase();
                 files.iter().position(|f| f.file_name().map(|n| n.to_string_lossy().to_lowercase() == t).unwrap_or(false))
             })
             .unwrap_or(0);
-        Ok(FolderList { dir, files, index })
+        Ok(FolderList { dir, files, index, order })
+    }
+
+    /// Put the files in another order. The current picture stays current.
+    pub fn set_order(&mut self, order: Order) {
+        let cur = self.current().cloned();
+        self.order = order;
+        sort_files(&mut self.files, order);
+        self.follow(cur);
+    }
+
+    /// Where `p` belongs in the current order, among the files already listed.
+    fn place_of(&self, p: &Path) -> usize {
+        let order = self.order;
+        self.files.partition_point(|f| compare(order, f, p) == Ordering::Less)
     }
 
     pub fn current(&self) -> Option<&PathBuf> {
@@ -78,7 +161,7 @@ impl FolderList {
             return i;
         }
         let cur = self.current().cloned();
-        let at = self.files.partition_point(|f| cmp_paths(f, &p) == Ordering::Less);
+        let at = self.place_of(&p);
         self.files.insert(at, p);
         self.follow(cur);
         at
@@ -105,7 +188,7 @@ impl FolderList {
         let was_current = i == self.index;
         let cur = self.current().cloned();
         self.files.remove(i);
-        let at = self.files.partition_point(|f| cmp_paths(f, &new) == Ordering::Less);
+        let at = self.place_of(&new);
         self.files.insert(at, new);
         if was_current {
             self.index = at;
@@ -113,6 +196,65 @@ impl FolderList {
             self.follow(cur);
         }
         at
+    }
+}
+
+/// A well mixed number for `path` under `seed`: sorting by it gives a random but repeatable order.
+fn shuffle_key(path: &Path, seed: u64) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325 ^ seed;
+    for b in path.file_name().unwrap_or_default().to_string_lossy().to_lowercase().bytes() {
+        h = (h ^ b as u64).wrapping_mul(0x100_0000_01b3);
+    }
+    // splitmix64 finaliser
+    h = (h ^ (h >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    h = (h ^ (h >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    h ^ (h >> 31)
+}
+
+fn extension_of(p: &Path) -> String {
+    p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default()
+}
+
+/// The number a file is ordered by for the date and size keys (0 when the file can't be read).
+fn stat_key(p: &Path, key: SortKey) -> u64 {
+    let Ok(m) = std::fs::metadata(p) else { return 0 };
+    match key {
+        SortKey::Size => m.len(),
+        SortKey::Modified => m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_nanos() as u64).unwrap_or(0),
+        _ => 0,
+    }
+}
+
+/// Order two paths the way `sort_files` would (reads the files' dates / sizes when that is the key).
+fn compare(order: Order, a: &Path, b: &Path) -> Ordering {
+    if let Some(seed) = order.shuffle {
+        return shuffle_key(a, seed).cmp(&shuffle_key(b, seed)).then_with(|| cmp_paths(a, b));
+    }
+    let o = match order.key {
+        SortKey::Name => cmp_paths(a, b),
+        SortKey::Type => extension_of(a).cmp(&extension_of(b)).then_with(|| cmp_paths(a, b)),
+        k => stat_key(a, k).cmp(&stat_key(b, k)).then_with(|| cmp_paths(a, b)),
+    };
+    if order.descending { o.reverse() } else { o }
+}
+
+/// Sort `files` in place. Dates and sizes are read once per file, not once per comparison.
+pub fn sort_files(files: &mut Vec<PathBuf>, order: Order) {
+    if let Some(seed) = order.shuffle {
+        files.sort_by(|a, b| shuffle_key(a, seed).cmp(&shuffle_key(b, seed)).then_with(|| cmp_paths(a, b)));
+        return;
+    }
+    match order.key {
+        SortKey::Name => files.sort_by(|a, b| cmp_paths(a, b)),
+        SortKey::Type => files.sort_by(|a, b| extension_of(a).cmp(&extension_of(b)).then_with(|| cmp_paths(a, b))),
+        k => {
+            let mut keyed: Vec<(u64, PathBuf)> = files.drain(..).map(|p| (stat_key(&p, k), p)).collect();
+            keyed.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| cmp_paths(&a.1, &b.1)));
+            files.extend(keyed.into_iter().map(|(_, p)| p));
+        }
+    }
+    if order.descending {
+        files.reverse();
     }
 }
 
@@ -173,7 +315,7 @@ mod tests {
     }
 
     fn list(names: &[&str], index: usize) -> FolderList {
-        FolderList { dir: PathBuf::from("d"), files: names.iter().map(|n| PathBuf::from(format!("d/{n}"))).collect(), index }
+        FolderList { dir: PathBuf::from("d"), files: names.iter().map(|n| PathBuf::from(format!("d/{n}"))).collect(), index, order: Order::default() }
     }
 
     fn names(l: &FolderList) -> Vec<String> {
@@ -240,6 +382,98 @@ mod tests {
     #[test]
     fn prefix_is_smaller() {
         assert_eq!(natural_cmp("a", "a1"), Ordering::Less);
+    }
+
+    /// A scratch folder with files of these names and sizes; modified times are 1 s apart in the given order of `age_rank`.
+    fn scratch(tag: &str, files: &[(&str, usize, u64)]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("nv_folder_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, size, secs_after_epoch) in files {
+            let p = dir.join(name);
+            std::fs::write(&p, vec![0u8; *size]).unwrap();
+            let f = std::fs::OpenOptions::new().write(true).open(&p).unwrap();
+            f.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000 + secs_after_epoch)).unwrap();
+        }
+        dir
+    }
+
+    fn listed(l: &FolderList) -> Vec<String> {
+        names(l)
+    }
+
+    #[test]
+    fn size_date_and_type_orders_read_the_files() {
+        let dir = scratch("orders", &[("a.png", 30, 5), ("b.jpg", 10, 9), ("c.gif", 20, 1)]);
+        let open = |key, descending| FolderList::open_with(&dir, Order { key, descending, shuffle: None }).unwrap();
+        assert_eq!(listed(&open(SortKey::Name, false)), ["a.png", "b.jpg", "c.gif"]);
+        assert_eq!(listed(&open(SortKey::Name, true)), ["c.gif", "b.jpg", "a.png"]);
+        assert_eq!(listed(&open(SortKey::Size, false)), ["b.jpg", "c.gif", "a.png"]);
+        assert_eq!(listed(&open(SortKey::Size, true)), ["a.png", "c.gif", "b.jpg"]);
+        assert_eq!(listed(&open(SortKey::Modified, false)), ["c.gif", "a.png", "b.jpg"]);
+        assert_eq!(listed(&open(SortKey::Modified, true)), ["b.jpg", "a.png", "c.gif"]);
+        assert_eq!(listed(&open(SortKey::Type, false)), ["c.gif", "b.jpg", "a.png"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn changing_the_order_keeps_the_current_picture() {
+        let dir = scratch("keep", &[("a.png", 30, 5), ("b.jpg", 10, 9), ("c.gif", 20, 1)]);
+        let mut l = FolderList::open(&dir.join("b.jpg")).unwrap();
+        assert_eq!(l.current().unwrap().file_name().unwrap(), "b.jpg");
+        l.set_order(Order { key: SortKey::Modified, descending: false, shuffle: None });
+        assert_eq!(listed(&l), ["c.gif", "a.png", "b.jpg"]);
+        assert_eq!(l.current().unwrap().file_name().unwrap(), "b.jpg", "still on b");
+        assert_eq!(l.index, 2);
+        l.set_order(Order::default());
+        assert_eq!(l.current().unwrap().file_name().unwrap(), "b.jpg");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn shuffle_is_repeatable_per_seed_and_reversible() {
+        let many: Vec<String> = (0..40).map(|i| format!("img{i:02}.jpg")).collect();
+        let refs: Vec<&str> = many.iter().map(|s| s.as_str()).collect();
+        let mut l = list(&refs, 5);
+        let by_name = names(&l);
+        let cur = l.current().cloned().unwrap();
+        l.set_order(Order { shuffle: Some(1), ..Order::default() });
+        let first = names(&l);
+        assert_ne!(first, by_name, "40 files are not left in name order");
+        assert_eq!(l.current().unwrap(), &cur, "the picture on screen does not change");
+        let mut sorted_back = first.clone();
+        sorted_back.sort_by(|a, b| natural_cmp(a, b));
+        assert_eq!(sorted_back, by_name, "same files, only the order differs");
+        l.set_order(Order { shuffle: Some(2), ..Order::default() });
+        assert_ne!(names(&l), first, "another seed, another order");
+        l.set_order(Order { shuffle: Some(1), ..Order::default() });
+        assert_eq!(names(&l), first, "the same seed gives the same order again");
+        l.set_order(Order::default());
+        assert_eq!(names(&l), by_name, "switching it off returns to the name order");
+    }
+
+    #[test]
+    fn files_added_while_shuffled_land_where_the_shuffle_puts_them() {
+        let mut l = list(&["a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg", "f.jpg"], 0);
+        l.set_order(Order { shuffle: Some(7), ..Order::default() });
+        let at = l.insert_sorted(PathBuf::from("d/zz.jpg"));
+        let mut fresh = list(&["a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg", "f.jpg", "zz.jpg"], 0);
+        fresh.set_order(Order { shuffle: Some(7), ..Order::default() });
+        assert_eq!(names(&l), names(&fresh), "same result as shuffling the whole list at once");
+        assert_eq!(l.files[at], PathBuf::from("d/zz.jpg"));
+    }
+
+    #[test]
+    fn sort_key_ids_round_trip_and_cycle() {
+        for k in SortKey::ALL {
+            assert_eq!(SortKey::from_id(k.id()), Some(k));
+        }
+        assert_eq!(SortKey::from_id("nonsense"), None);
+        let mut k = SortKey::Name;
+        for _ in 0..SortKey::ALL.len() {
+            k = k.next();
+        }
+        assert_eq!(k, SortKey::Name);
     }
 
     #[test]

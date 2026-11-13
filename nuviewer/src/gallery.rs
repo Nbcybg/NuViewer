@@ -65,6 +65,7 @@ impl App {
 
     /// Recompute which gallery tiles exist (after the folder or the sequence setting changed); keeps the selection on a tile.
     pub(crate) fn rebuild_items(&mut self) {
+        self.read.invalidate(); // the list changed: read mode's spreads must be worked out from the anchor again
         self.runs = if self.settings.sequences { sequence::find_runs(&self.folder.files, self.settings.sequence_min as usize) } else { Vec::new() };
         self.items = sequence::gallery_items(self.folder.files.len(), &self.runs);
         if !self.items.is_empty() {
@@ -138,6 +139,7 @@ impl App {
     pub(crate) fn leave_gallery(&mut self, open: bool) {
         self.mode = Mode::Viewer;
         self.thumb_request(Vec::new());
+        self.strip.requested = None; // the film strip asks for its own thumbnails again
         if open && self.gallery.selected != self.folder.index {
             // Don't leave the previously viewed picture on screen while the chosen one decodes.
             if !self.renderer.has(self.id_at(self.gallery.selected)) {

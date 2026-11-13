@@ -29,6 +29,7 @@ impl App {
             Action::PagePrev if gallery => self.gallery_select(self.tile_of(self.gallery.selected).saturating_sub(self.gallery_page())),
             Action::First | Action::FirstFile if gallery => self.gallery_select(0),
             Action::Last | Action::LastFile if gallery => self.gallery_select(usize::MAX),
+            Action::NextFile | Action::PrevFile if self.read.on => self.step(if a == Action::NextFile { 1 } else { -1 }),
             Action::NextFile => self.navigate(cur + 1),
             Action::PrevFile => self.navigate(cur - 1),
             Action::First | Action::Last if self.doc_pages().is_some() => {
@@ -107,15 +108,13 @@ impl App {
             }
             Action::Fullscreen => self.toggle_fullscreen_app(),
             Action::Slideshow => self.toggle_slideshow(),
-            Action::Shuffle => {
-                self.slide.shuffle = !self.slide.shuffle;
-                self.slide.next = None;
-                if self.slide.on {
-                    self.pick_next();
-                    self.refresh();
-                }
-                self.toast(if self.slide.shuffle { "Shuffle on" } else { "Shuffle off" });
-            }
+            Action::Shuffle => self.toggle_shuffle(),
+            Action::SortCycle => self.sort_cycle(),
+            Action::SortReverse => self.sort_reverse(),
+            Action::FilmStrip if !gallery => self.toggle_strip(),
+            Action::ReadMode if !gallery => self.toggle_read(),
+            Action::ReadStartHere if !gallery => self.read_start_here(),
+            Action::ReadDirection => self.toggle_read_direction(),
             Action::SpeedUp => self.adjust_playback(1),
             Action::SpeedDown => self.adjust_playback(-1),
             Action::PlayPause => self.toggle_play(),

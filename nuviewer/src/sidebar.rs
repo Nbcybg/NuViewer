@@ -14,7 +14,7 @@ struct Item {
 }
 
 /// In the order the bar shows them, top to bottom.
-const ITEMS: [Item; 14] = [
+const ITEMS: [Item; 16] = [
     Item { action: Action::Next, glyph: "\u{276F}", label: "Next picture" },
     Item { action: Action::Prev, glyph: "\u{276E}", label: "Previous picture" },
     Item { action: Action::FitReset, glyph: "\u{26F6}", label: "Fit to screen" },
@@ -26,6 +26,8 @@ const ITEMS: [Item; 14] = [
     Item { action: Action::Slideshow, glyph: "\u{25B6}", label: "Slideshow" },
     Item { action: Action::ToggleSequences, glyph: "\u{25A4}", label: "Image sequences" },
     Item { action: Action::Gallery, glyph: "\u{25A6}", label: "Gallery" },
+    Item { action: Action::FilmStrip, glyph: "\u{25A5}", label: "Film strip (also: pointer at the right edge)" },
+    Item { action: Action::ReadMode, glyph: "\u{25EB}", label: "Read mode: two pages, no gap" },
     Item { action: Action::Settings, glyph: "\u{2699}", label: "Settings" },
     Item { action: Action::Help, glyph: "?", label: "Help" },
     Item { action: Action::Quit, glyph: "\u{2715}", label: "Close the viewer" },
@@ -127,7 +129,7 @@ impl App {
     fn sidebar_enabled(&self, a: Action) -> bool {
         let many = self.folder.files.len() > 1;
         match a {
-            Action::Next | Action::Prev | Action::Slideshow => many,
+            Action::Next | Action::Prev | Action::Slideshow | Action::FilmStrip | Action::ReadMode => many,
             Action::FitReset | Action::ActualSize | Action::RotatePlus45 | Action::RotateMinus45 | Action::Edit => !self.is_model() || a == Action::FitReset || a == Action::ActualSize,
             _ => true,
         }
@@ -142,6 +144,8 @@ impl App {
             Action::Slideshow => self.slide.on,
             Action::ToggleSequences => self.settings.sequences,
             Action::Edit => self.editor.open,
+            Action::FilmStrip => self.strip.pinned,
+            Action::ReadMode => self.read.on,
             _ => false,
         }
     }

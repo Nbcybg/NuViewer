@@ -105,7 +105,7 @@ impl Loader {
                     if job.cancelled.load(Ordering::Relaxed) {
                         return Err(progress::CANCELLED.to_string());
                     }
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&path))).unwrap_or_else(|_| Err("decoder panicked".into()))
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&path))).unwrap_or_else(|_| Err(nv_codecs::errors::tag(6001, "decoder panicked")))
                 });
                 let decode_ms = t0.elapsed().as_secs_f64() * 1000.0;
                 shared.q.lock().unwrap().in_flight.remove(&path);

@@ -9,7 +9,7 @@ use image::{DynamicImage, ImageFormat, ImageReader};
 use std::io::Cursor;
 
 /// Extensions handled here (lowercase). `icb`, `vda` and `vst` are old names of TGA files.
-pub const EXTS: &[&str] = &["tga", "icb", "vda", "vst", "dds", "ppm", "pgm", "pbm", "pam", "pnm", "hdr", "exr", "qoi"];
+pub const EXTS: &[&str] = &["tga", "icb", "vda", "vst", "dds", "ppm", "pgm", "pbm", "pam", "pnm", "hdr", "rgbe", "exr", "qoi"];
 
 /// Floating-point pictures take 16 bytes a pixel while decoding: refuse the really huge ones.
 const MAX_FLOAT_PIXELS: u64 = 80_000_000;
@@ -22,7 +22,8 @@ fn format_of(ext: &str) -> Option<ImageFormat> {
     Some(match ext {
         "tga" | "icb" | "vda" | "vst" => ImageFormat::Tga,
         "ppm" | "pgm" | "pbm" | "pam" | "pnm" => ImageFormat::Pnm,
-        "hdr" => ImageFormat::Hdr,
+        "hdr" | "rgbe" => ImageFormat::Hdr, // Radiance RGBE
+
         "exr" => ImageFormat::OpenExr,
         "qoi" => ImageFormat::Qoi,
         _ => return None,

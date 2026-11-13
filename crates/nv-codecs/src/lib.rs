@@ -1,34 +1,46 @@
 //! Image decoders behind a single entry point. Everything decodes to straight-alpha RGBA8 in sRGB.
 //!
-//! Formats: JPEG, PNG/APNG, GIF, WebP (incl. animated), PSD, camera RAW (embedded preview),
-//! and on Windows anything WIC can open (HEIC/AVIF with the Store extensions, TIFF, BMP, ICO, ...).
+//! Formats: JPEG, PNG/APNG, GIF, WebP (incl. animated), PSD / PSB, JPEG XL, JPEG 2000, FLIF, PCX, DICOM, ICNS / ICO / CUR /
+//! DIB, camera RAW (embedded preview), and on Windows anything WIC can open (HEIC/HIF/AVIF with the Store extensions,
+//! TIFF, BMP, ...).
 
 use std::path::Path;
 
 mod develop;
+mod dicom;
+mod dims;
 #[cfg(windows)]
 mod eps;
+pub mod errors;
+mod flifdec;
 mod gifdec;
 pub mod icc;
+mod icon;
 mod imgfmt;
+mod jp2;
 mod jpeg;
+mod jxldec;
 pub mod model;
 #[cfg(windows)]
 mod metafile;
 pub mod metadata;
 mod orient;
+mod pcx;
 #[cfg(windows)]
 mod pdf;
 mod pngdec;
 mod psddec;
+mod psdraw;
 pub mod progress;
 mod raw;
 pub mod resize;
 mod svgdec;
+mod swf;
 #[cfg(windows)]
 mod wic;
 mod webpdec;
 
+pub use dims::peek_size;
 pub use resize::downscale;
 
 pub use icc::Profile;
@@ -227,13 +239,19 @@ impl Image {
 }
 
 const RAW_EXTS: &[&str] = &[
-    "cr2", "cr3", "crw", "nef", "nrw", "arw", "sr2", "srf", "dng", "orf", "rw2", "raf", "pef", "srw", "3fr", "erf", "kdc", "mrw", "raw", "rwl", "iiq",
+    "cr2", "cr3", "crw", "nef", "nrw", "arw", "sr2", "srf", "dng", "orf", "rw2", "raf", "pef", "srw", "3fr", "erf", "kdc", "mrw", "raw", "rwl", "iiq", "x3f",
 ];
 /// RAW extensions that are TIFF containers (everything in `RAW_EXTS` except RAF, CR3, CRW and MRW).
 const TIFF_RAW_EXTS: &[&str] = &["cr2", "nef", "nrw", "arw", "sr2", "srf", "dng", "orf", "rw2", "pef", "srw", "3fr", "erf", "kdc", "raw", "rwl", "iiq"];
 /// Formats we hand straight to WIC.
-const WIC_EXTS: &[&str] = &["heic", "heif", "avif", "tif", "tiff", "bmp", "ico", "jxr", "wdp", "hdp"];
+const WIC_EXTS: &[&str] = &["heic", "heif", "hif", "avif", "tif", "tiff", "bmp", "ico", "jxr", "wdp", "hdp"];
 const NATIVE_EXTS: &[&str] = &["jpg", "jpeg", "jpe", "jfif", "png", "apng", "gif", "webp", "psd"];
+/// Formats with a decoder of our own (see `decode_more`): Photoshop large documents, JPEG XL, JPEG 2000, FLIF, Apple icons,
+/// cursors, bare Windows bitmaps, PCX and DICOM.
+const MORE_EXTS: &[&str] = &["psb", "jxl", "jp2", "j2k", "j2c", "jpf", "jpx", "jpc", "flif", "icns", "cur", "dib", "pcx", "dcm", "dicom"];
+/// Formats that are listed in folders but not registered as file types: ECW (no decoder we can ship; Windows' codecs are
+/// asked, then the error says what to do) and Flash (only the largest bitmap inside a movie can be shown).
+const TRY_EXTS: &[&str] = &["ecw", "swf"];
 /// PDF and PDF-compatible Illustrator files, rendered by Windows (`Windows.Data.Pdf`).
 const DOC_EXTS: &[&str] = &["pdf", "ai"];
 /// SVG, rendered by resvg.
@@ -245,7 +263,7 @@ const EPS_EXTS: &[&str] = &["eps"];
 
 /// Every extension we can open (lowercase, no dot): what the file-association registration lists.
 pub fn supported_extensions() -> Vec<&'static str> {
-    let mut v: Vec<&'static str> = NATIVE_EXTS.iter().chain(RAW_EXTS.iter()).chain(model::EXTS.iter()).chain(imgfmt::EXTS.iter()).copied().collect();
+    let mut v: Vec<&'static str> = NATIVE_EXTS.iter().chain(RAW_EXTS.iter()).chain(MORE_EXTS.iter()).chain(model::EXTS.iter()).chain(imgfmt::EXTS.iter()).copied().collect();
     if cfg!(windows) {
         v.extend(WIC_EXTS);
         v.extend(DOC_EXTS);
@@ -259,7 +277,7 @@ pub fn supported_extensions() -> Vec<&'static str> {
 pub fn is_supported_ext(ext: &str) -> bool {
     let e = ext.to_ascii_lowercase();
     let e = e.as_str();
-    NATIVE_EXTS.contains(&e) || RAW_EXTS.contains(&e) || model::EXTS.contains(&e) || imgfmt::is_ext(e) || (cfg!(windows) && (WIC_EXTS.contains(&e) || DOC_EXTS.contains(&e) || META_EXTS.contains(&e) || EPS_EXTS.contains(&e))) || SVG_EXTS.contains(&e)
+    NATIVE_EXTS.contains(&e) || RAW_EXTS.contains(&e) || MORE_EXTS.contains(&e) || TRY_EXTS.contains(&e) || model::EXTS.contains(&e) || imgfmt::is_ext(e) || (cfg!(windows) && (WIC_EXTS.contains(&e) || DOC_EXTS.contains(&e) || META_EXTS.contains(&e) || EPS_EXTS.contains(&e))) || SVG_EXTS.contains(&e)
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -271,6 +289,11 @@ enum Kind {
     Psd,
     Raw,
     Wic,
+    Jxl,
+    Jp2,
+    Flif,
+    Icns,
+    Dicom,
 }
 
 fn sniff(b: &[u8]) -> Option<Kind> {
@@ -288,6 +311,16 @@ fn sniff(b: &[u8]) -> Option<Kind> {
         Some(if &b[8..12] == b"crx " { Kind::Raw } else { Kind::Wic })
     } else if b.starts_with(b"FUJIFILMCCD-RAW") {
         Some(Kind::Raw)
+    } else if jxldec::is_jxl(b) {
+        Some(Kind::Jxl)
+    } else if jp2::is_jp2(b) {
+        Some(Kind::Jp2)
+    } else if flifdec::is_flif(b) {
+        Some(Kind::Flif)
+    } else if b.starts_with(b"icns") {
+        Some(Kind::Icns)
+    } else if dicom::is_dicom(b) {
+        Some(Kind::Dicom)
     } else if b.starts_with(b"BM") || b.starts_with(&[0, 0, 1, 0]) || b.starts_with(b"II*\0") || b.starts_with(b"MM\0*") {
         Some(Kind::Wic)
     } else {
@@ -308,10 +341,24 @@ fn looks_like_pdf(path: &Path) -> bool {
 pub fn decode_file(path: &Path) -> Result<Image, String> {
     // Order matters for speed: shrink first, then colour-convert, so a 100-megapixel panorama is converted at the
     // size it will actually be shown (and orientation is left to the GPU).
-    decode_file_opts(path, false).and_then(check_buffers).map(fit_gpu_limits).map(|mut img| {
-        img.apply_display_colour();
-        img
-    })
+    decode_file_opts(path, false)
+        .and_then(check_buffers)
+        .map(fit_gpu_limits)
+        .map(|mut img| {
+            img.apply_display_colour();
+            img
+        })
+        .map_err(|e| with_code(path, e))
+}
+
+/// Attach the error code (see `errors`) to a decode failure of `path`.
+fn with_code(path: &Path, message: String) -> String {
+    let (real, _) = split_page(path);
+    let ext = real.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).unwrap_or_default();
+    if ext == "ecw" {
+        return errors::tag(2004, &message); // a format only its maker's component can read
+    }
+    errors::coded(&message, &ext)
 }
 
 /// Scale a still image down so it fits `GPU_MAX_DIM` and `GPU_MAX_PIXELS` (records the original size in
@@ -340,7 +387,7 @@ fn fit_within(img: Image, max_dim: u32, max_pixels: u64) -> Image {
 
 /// Decode only the first frame of animations (cheap; used for thumbnails).
 pub fn decode_file_first_frame(path: &Path) -> Result<Image, String> {
-    decode_file_opts(path, true).and_then(check_buffers)
+    decode_file_opts(path, true).and_then(check_buffers).map_err(|e| with_code(path, e))
 }
 
 /// Every decoder must hand back `width * height * 4` bytes per frame; the downscaler, the CPU preview and the GPU
@@ -362,8 +409,23 @@ fn decode_file_opts(path: &Path, first_only: bool) -> Result<Image, String> {
     let (real_path, page) = split_page(path);
     let path = real_path.as_path();
     let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).unwrap_or_default();
+    if ext == "ico" {
+        // Windows' own icon codec first; our reader for the odd files it refuses.
+        return decode_wic(path).or_else(|e| progress::read_file(path).and_then(|b| icon::decode_ico(&b)).map_err(|_| e));
+    }
     if WIC_EXTS.contains(&ext.as_str()) {
         return decode_wic(path);
+    }
+    if ext == "swf" {
+        return swf::decode(&progress::read_file(path)?);
+    }
+    if TRY_EXTS.contains(&ext.as_str()) {
+        // Nothing we can ship decodes these: Windows might have a codec installed for them, otherwise say what to do.
+        return decode_wic(path).map_err(|e| format!("unsupported format: .{ext} needs a codec from its maker ({e}). Convert it first, for example with GDAL: gdal_translate in.{ext} out.jp2"));
+    }
+    if MORE_EXTS.contains(&ext.as_str()) {
+        let bytes = progress::read_file(path)?;
+        return decode_more(&bytes, &ext, first_only);
     }
     #[cfg(windows)]
     if DOC_EXTS.contains(&ext.as_str()) {
@@ -448,7 +510,33 @@ fn decode_file_opts(path: &Path, first_only: bool) -> Result<Image, String> {
         Some(Kind::Psd) => psddec::decode(&bytes),
         Some(Kind::Raw) => raw::decode_preview(&bytes),
         Some(Kind::Wic) => decode_wic(path),
+        Some(Kind::Jxl) => jxldec::decode(&bytes, first_only),
+        Some(Kind::Jp2) => jp2::decode(&bytes),
+        Some(Kind::Flif) => flifdec::decode(&bytes),
+        Some(Kind::Icns) => icon::decode_icns(&bytes),
+        Some(Kind::Dicom) => dicom::decode(&bytes),
+        // A known extension whose contents match none of the formats: the file is not what its name says.
+        None if is_supported_ext(&ext) => Err(format!("not a valid .{ext} picture (unrecognised header)")),
         None => Err(format!("unsupported format: .{ext}")),
+    }
+}
+
+/// The formats with a decoder of our own, by extension (`MORE_EXTS`).
+fn decode_more(bytes: &[u8], ext: &str, first_only: bool) -> Result<Image, String> {
+    if bytes.is_empty() {
+        return Err("empty file".into());
+    }
+    match ext {
+        "psb" => psddec::decode(bytes),
+        "jxl" => jxldec::decode(bytes, first_only),
+        "jp2" | "j2k" | "j2c" | "jpf" | "jpx" | "jpc" => jp2::decode(bytes),
+        "flif" => flifdec::decode(bytes),
+        "icns" => icon::decode_icns(bytes),
+        "cur" => icon::decode_ico(bytes),
+        "dib" => icon::decode_dib_file(bytes),
+        "pcx" => pcx::decode(bytes),
+        "dcm" | "dicom" => dicom::decode(bytes),
+        _ => Err(format!("unsupported format: .{ext}")),
     }
 }
 
@@ -461,6 +549,8 @@ pub(crate) fn decode_image_bytes(bytes: &[u8], ext_hint: &str) -> Result<Image, 
         Some(Kind::Png) => pngdec::decode(bytes, true),
         Some(Kind::Webp) => webpdec::decode(bytes, true),
         Some(Kind::Gif) => gifdec::decode(bytes, true),
+        Some(Kind::Jxl) => jxldec::decode(bytes, true),
+        Some(Kind::Jp2) => jp2::decode(bytes),
         #[cfg(windows)]
         Some(Kind::Wic) => wic::decode_bytes(bytes),
         _ if bytes.starts_with(b"DDS ") => imgfmt::decode(bytes, "dds"),

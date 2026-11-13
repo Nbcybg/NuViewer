@@ -31,7 +31,7 @@ pub fn write_report(path: &Path, text: &str) {
 pub(crate) fn fatal(hwnd: windows::Win32::Foundation::HWND) {
     use windows::core::{w, PCWSTR};
     use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, PostQuitMessage, MB_ICONERROR, MB_OK};
-    let text = format!("NuViewer hit an internal error and has to close.\n\nDetails were saved to:\n{}", log_path().display());
+    let text = format!("NuViewer hit an internal error [NV-6002] and has to close.\n\nDetails were saved to:\n{}", log_path().display());
     let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
     unsafe {
         MessageBoxW(Some(hwnd), PCWSTR(wide.as_ptr()), w!("NuViewer"), MB_OK | MB_ICONERROR);
@@ -47,7 +47,7 @@ pub fn install() {
         let loc = info.location().map(|l| format!("{}:{}", l.file(), l.line())).unwrap_or_default();
         let thread = std::thread::current();
         let report = format!(
-            "panic on thread '{}': {msg}\n  at {loc}\nversion {}\n{}",
+            "NV-6002 panic on thread '{}': {msg}\n  at {loc}\nversion {}\n{}",
             thread.name().unwrap_or("?"),
             env!("CARGO_PKG_VERSION"),
             std::backtrace::Backtrace::force_capture()

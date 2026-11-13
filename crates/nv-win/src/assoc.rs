@@ -24,17 +24,23 @@ pub const FORMATS: &[Format] = &[
     f("PNG", &["png", "apng"], true),
     f("GIF", &["gif"], true),
     f("WebP", &["webp"], true),
-    f("HEIC / HEIF", &["heic", "heif"], true),
+    f("HEIC / HEIF", &["heic", "heif", "hif"], true),
     f("AVIF", &["avif"], true),
-    f("BMP", &["bmp"], true),
+    f("BMP / DIB", &["bmp", "dib"], true),
     f("TIFF", &["tif", "tiff"], false),
-    f("Icon", &["ico"], false),
+    f("Icon / cursor", &["ico", "cur"], false),
     f("JPEG XR", &["jxr", "wdp", "hdp"], false),
-    f("Photoshop", &["psd"], false),
+    f("Photoshop", &["psd", "psb"], false),
     f("Targa (TGA)", &["tga", "icb", "vda", "vst"], false),
     f("DDS texture", &["dds"], false),
     f("PNM (PPM, PGM, PBM, PAM)", &["ppm", "pgm", "pbm", "pam", "pnm"], false),
-    f("HDR / EXR / QOI", &["hdr", "exr", "qoi"], false),
+    f("HDR / EXR / QOI", &["hdr", "rgbe", "exr", "qoi"], false),
+    f("JPEG XL", &["jxl"], false),
+    f("JPEG 2000", &["jp2", "j2k", "j2c", "jpf", "jpx", "jpc"], false),
+    f("FLIF", &["flif"], false),
+    f("Apple icon", &["icns"], false),
+    f("PCX", &["pcx"], false),
+    f("DICOM", &["dcm", "dicom"], false),
     f("PDF / Illustrator", &["pdf", "ai"], false),
     f("SVG", &["svg", "svgz"], false),
     f("EPS", &["eps"], false),
@@ -53,15 +59,15 @@ pub const FORMATS: &[Format] = &[
     f("Pentax RAW", &["pef"], true),
     f("Samsung RAW", &["srw"], true),
     f("Adobe DNG", &["dng"], true),
-    f("Other RAW", &["3fr", "erf", "kdc", "mrw", "raw", "rwl", "iiq"], true),
+    f("Other RAW", &["3fr", "erf", "kdc", "mrw", "raw", "rwl", "iiq", "x3f"], true),
 ];
 
 /// The groups of the chooser: title and the range of `FORMATS` each one shows.
 pub const GROUPS: &[(&str, std::ops::Range<usize>)] = &[
-    ("Pictures", 0..15),
-    ("Documents and vector art", 15..19),
-    ("3D models", 19..24),
-    ("Camera RAW", 24..34),
+    ("Pictures", 0..21),
+    ("Documents and vector art", 21..25),
+    ("3D models", 25..30),
+    ("Camera RAW", 30..40),
 ];
 
 const ROW_HEIGHT: i32 = 20;
@@ -235,7 +241,8 @@ mod tests {
         let back = picked_for(&only_png);
         assert_eq!(back.iter().filter(|b| **b).count(), 1);
         assert!(picked_for(&[]).iter().all(|b| !b));
-        // Off by default: TIFF, Icon, JPEG XR, Photoshop, the four game / render formats (TGA, DDS, PNM, HDR/EXR/QOI), and every document / vector / 3D format (other programs own those).
-        assert_eq!(default_picks().iter().filter(|b| !**b).count(), 4 + 4 + 9);
+        // Off by default: TIFF, Icon, JPEG XR, Photoshop, the four game / render formats (TGA, DDS, PNM, HDR/EXR/QOI), the six
+        // specialist ones (JPEG XL, JPEG 2000, FLIF, Apple icon, PCX, DICOM) and every document / vector / 3D format (other programs own those).
+        assert_eq!(default_picks().iter().filter(|b| !**b).count(), 4 + 4 + 6 + 9);
     }
 }

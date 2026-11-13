@@ -343,6 +343,30 @@ pub fn quit() {
     unsafe { PostQuitMessage(0) }
 }
 
+static MAIN_WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+/// The form (Settings, the file-type chooser) that is open right now, innermost last (0 = none).
+pub(crate) static TOP_FORM: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+/// The window a new dialog should belong to: the form that is open (so a message box raised from Settings is modal to
+/// Settings), else the viewer's main window, else none.
+pub fn dialog_parent() -> Option<HWND> {
+    let h = TOP_FORM.load(std::sync::atomic::Ordering::Relaxed);
+    let form = HWND(h as *mut c_void);
+    if h != 0 && unsafe { IsWindow(Some(form)).as_bool() } {
+        return Some(form);
+    }
+    main_window()
+}
+
+/// The viewer's main window, once it exists. Dialogs and forms use it as their owner, so Windows keeps them above it,
+/// Alt+Tab shows one entry for the whole program and switching back lands on the dialog instead of on a window that
+/// is waiting for it and looks frozen.
+pub fn main_window() -> Option<HWND> {
+    let h = MAIN_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
+    let hwnd = HWND(h as *mut c_void);
+    (h != 0 && unsafe { IsWindow(Some(hwnd)).as_bool() }).then_some(hwnd)
+}
+
 static CLOSE_VETO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Call while handling `Event::Close` to keep the window open (e.g. the user answered Cancel to "save changes?").
@@ -392,6 +416,7 @@ where
             None,
         )
         .map_err(|e| e.to_string())?;
+        MAIN_WINDOW.store(hwnd.0 as isize, std::sync::atomic::Ordering::Relaxed);
 
         if fullscreen {
             toggle_fullscreen(hwnd);

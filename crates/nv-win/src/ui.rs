@@ -20,6 +20,12 @@ pub type Handler<'a> = dyn FnMut(&Form, u16) -> bool + 'a;
 
 pub struct Form {
     pub hwnd: HWND,
+    /// The program's main window while this form is open (disabled until the form closes), if there is one.
+    owner: Option<HWND>,
+    owner_disabled: std::cell::Cell<bool>,
+    /// The form that was the innermost one before this one opened (put back when it closes).
+    previous_top: std::cell::Cell<isize>,
+    top_registered: std::cell::Cell<bool>,
     font: HFONT,
     dpi: u32,
     /// Page that controls created from now on belong to (0 = always visible), see `show_page`.
@@ -59,22 +65,29 @@ impl Form {
             RegisterClassExW(&wc); // 0 when the class already exists (a second form in one process): fine
 
             let dpi = GetDpiForSystem().max(96);
-            let style = WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+            // With the viewer's window around, the form is *owned* by it: it stays above it, shares its Alt+Tab entry
+            // (switching back lands on the form) and cannot be minimised separately.
+            let owner = crate::dialog_parent();
+            let style = if owner.is_some() { WS_CAPTION | WS_SYSMENU } else { WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX };
             let mut rc = RECT { left: 0, top: 0, right: w * dpi as i32 / 96, bottom: h * dpi as i32 / 96 };
             let _ = AdjustWindowRectExForDpi(&mut rc, style, false, WINDOW_EX_STYLE(0), dpi);
             let (ww, wh) = (rc.right - rc.left, rc.bottom - rc.top);
-            let (sw, sh) = (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+            // Centred on the monitor the viewer is on (the primary one when there is no viewer window).
+            let (ml, mt, mr, mb) = match owner {
+                Some(o) => crate::monitor_rect(o),
+                None => (0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)),
+            };
             let t = wide(title);
             let hwnd = CreateWindowExW(
                 WINDOW_EX_STYLE(0),
                 class,
                 PCWSTR(t.as_ptr()),
                 style,
-                ((sw - ww) / 2).max(0),
-                ((sh - wh) / 2).max(0),
+                ml + ((mr - ml - ww) / 2).max(0),
+                mt + ((mb - mt - wh) / 2).max(0),
                 ww,
                 wh,
-                None,
+                owner,
                 None,
                 Some(hinst.into()),
                 None,
@@ -96,7 +109,31 @@ impl Form {
                 0,
                 w!("Segoe UI"),
             );
-            Ok(Form { hwnd, font, dpi, page: std::cell::Cell::new(0), tracked: std::cell::RefCell::new(Vec::new()) })
+            Ok(Form { hwnd, owner, owner_disabled: std::cell::Cell::new(false), previous_top: std::cell::Cell::new(0), top_registered: std::cell::Cell::new(false), font, dpi, page: std::cell::Cell::new(0), tracked: std::cell::RefCell::new(Vec::new()) })
+        }
+    }
+
+    /// Give the owner window back its input. Must happen *before* the form is destroyed, otherwise Windows hands the
+    /// activation to some other program's window and the viewer ends up behind it.
+    fn release_owner(&self) {
+        if self.owner_disabled.replace(false) {
+            if let Some(o) = self.owner {
+                unsafe {
+                    let _ = EnableWindow(o, true);
+                }
+            }
+        }
+        if self.top_registered.replace(false) {
+            // This form is no longer the one new dialogs belong to.
+            crate::TOP_FORM.store(self.previous_top.get(), std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    /// Release the owner and destroy the form's window.
+    fn close(&self) {
+        self.release_owner();
+        unsafe {
+            let _ = DestroyWindow(self.hwnd);
         }
     }
 
@@ -287,6 +324,12 @@ impl Form {
             let handler_ptr: *mut Handler<'static> = std::mem::transmute(handler as *mut Handler<'_>);
             let mut ctx = Ctx { form: &self, handler: handler_ptr, done: false };
             SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, &mut ctx as *mut Ctx as isize);
+            if let Some(o) = self.owner {
+                let _ = EnableWindow(o, false); // modal: the viewer behind it takes no input until the form closes
+                self.owner_disabled.set(true);
+            }
+            self.previous_top.set(crate::TOP_FORM.swap(self.hwnd.0 as isize, std::sync::atomic::Ordering::Relaxed));
+            self.top_registered.set(true);
             let _ = ShowWindow(self.hwnd, SW_SHOW);
             let _ = SetForegroundWindow(self.hwnd);
             // Focus the first control that takes input.
@@ -301,6 +344,7 @@ impl Form {
                 }
             }
             SetWindowLongPtrW(self.hwnd, GWLP_USERDATA, 0);
+            self.release_owner();
             if IsWindow(Some(self.hwnd)).as_bool() {
                 let _ = DestroyWindow(self.hwnd);
             }
@@ -323,7 +367,7 @@ unsafe extern "system" fn form_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
                     let handler = &mut *c.handler;
                     if handler(&*c.form, id) {
                         c.done = true;
-                        let _ = DestroyWindow(hwnd);
+                        (*c.form).close();
                     }
                 }
             }
@@ -334,7 +378,7 @@ unsafe extern "system" fn form_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
                 let handler = &mut *c.handler;
                 if handler(&*c.form, ID_CANCEL) {
                     c.done = true;
-                    let _ = DestroyWindow(hwnd);
+                    (*c.form).close();
                 }
             } else {
                 let _ = DestroyWindow(hwnd);

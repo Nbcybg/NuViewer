@@ -72,6 +72,14 @@ const K_EDIT: u16 = 411;
 const K_SET: u16 = 412;
 const K_RESET: u16 = 413;
 const K_RESET_ALL: u16 = 414;
+// Order, film strip and read mode (on the Mouse & keyboard page).
+const M_SORT: u16 = 420;
+const M_SORT_DESC: u16 = 421;
+const M_STRIP: u16 = 422;
+const M_READ_START: u16 = 423;
+const M_READ_RTL: u16 = 424;
+
+const SORT_ITEMS: [&str; 4] = ["Name (natural: img2 before img10)", "Date modified", "Size", "Type (extension)"];
 
 const HOLD_ITEMS: [&str; 5] = ["Automatic: 100%, 200% for small pictures", "Always 100%", "Always 200%", "Always 400%", "Off"];
 const HOLD_VALUES: [HoldZoom; 5] = [HoldZoom::Auto, HoldZoom::X100, HoldZoom::X200, HoldZoom::X400, HoldZoom::Off];
@@ -239,9 +247,11 @@ pub fn edit(current: &Settings) -> Option<Settings> {
     let registered = nv_win::registry::registered_exts(&nv_win::registry::Layout::real());
     let picked = if registered.is_empty() { nv_win::assoc::default_picks() } else { nv_win::assoc::picked_for(&registered) };
     let bottom = nv_win::assoc::build_checklist(&form, 12, 96, 696, &picked);
-    form.button(nv_win::assoc::ID_SELECT_ALL, 12, bottom + 4, 96, 26, "Select all", false);
-    form.button(nv_win::assoc::ID_SELECT_NONE, 116, bottom + 4, 96, 26, "Select none", false);
-    form.button(T_APPLY, 552, bottom + 4, 156, 26, "Apply file types", false);
+    // On the same row as OK / Cancel: the list of formats has grown, there is no room under it.
+    let row = bottom - 2;
+    form.button(nv_win::assoc::ID_SELECT_ALL, 12, row, 96, 26, "Select all", false);
+    form.button(nv_win::assoc::ID_SELECT_NONE, 116, row, 96, 26, "Select none", false);
+    form.button(T_APPLY, 224, row, 156, 26, "Apply file types", false);
 
     // ---- page 3: external programs ----
     form.begin_page(3);
@@ -272,6 +282,14 @@ pub fn edit(current: &Settings) -> Option<Settings> {
     form.button(K_RESET, 574, 461, 60, 26, "Reset", false);
     form.button(K_RESET_ALL, 640, 461, 56, 26, "All", false);
     form.label(24, 494, 672, 40, "Separate several keys with commas (Right, Space). Modifiers: Ctrl+  Shift+  Alt+ (Ctrl+Shift+C). Leave it empty to unbind.");
+    form.group(12, 548, 696, 108, "Order, film strip and read mode");
+    form.label(28, 576, 120, 20, "Sort pictures by:");
+    form.combo(M_SORT, 140, 572, 250, 120, &SORT_ITEMS, nv_core::SortKey::ALL.iter().position(|k| *k == c.sort).unwrap_or(0));
+    form.check(M_SORT_DESC, 404, 574, 290, 22, "Descending (newest / largest / Z first)", c.sort_desc);
+    form.check(M_STRIP, 28, 602, 660, 22, "Film strip when the pointer touches the right edge  (L keeps it open)", c.film_strip);
+    form.label(28, 630, 270, 20, "Read mode (B): first pair starts at page:");
+    form.edit(M_READ_START, 300, 626, 50, 24, &c.read_start.to_string());
+    form.check(M_READ_RTL, 372, 628, 320, 22, "Right to left (manga): first page on the right", c.read_rtl);
 
     // Buttons (always visible).
     form.begin_page(0);
@@ -459,6 +477,11 @@ pub fn edit(current: &Settings) -> Option<Settings> {
                 s.model.turns = [form.combo_index(D_TURN_X).min(3) as u8, form.combo_index(D_TURN_Y).min(3) as u8, form.combo_index(D_TURN_Z).min(3) as u8];
                 s.top_bar = form.is_checked(M_TOPBAR);
                 s.taskbar_edge = form.is_checked(M_TASKBAR);
+                s.sort = nv_core::SortKey::ALL[form.combo_index(M_SORT).min(nv_core::SortKey::ALL.len() - 1)];
+                s.sort_desc = form.is_checked(M_SORT_DESC);
+                s.film_strip = form.is_checked(M_STRIP);
+                s.read_start = parse_percent(&form.text(M_READ_START), 1, 9999, cur.read_start);
+                s.read_rtl = form.is_checked(M_READ_RTL);
                 result = Some(s);
                 return true;
             }
@@ -489,7 +512,16 @@ impl App {
         let textures_changed = s.model_textures != self.settings.model_textures;
         nv_codecs::set_model_textures(s.model_textures);
         self.fps = s.fps;
+        let order_changed = s.sort != self.settings.sort || s.sort_desc != self.settings.sort_desc;
         self.settings = s;
+        if order_changed {
+            // Shuffle (if it is on) stays on; the sort underneath it changes.
+            let shuffle = self.folder.order.shuffle;
+            self.apply_order(nv_core::Order { key: self.settings.sort, descending: self.settings.sort_desc, shuffle });
+        }
+        if !self.settings.film_strip {
+            self.strip.hover = false;
+        }
         self.sync_loading();
         if textures_changed || colour_changed {
             self.reload_models();
@@ -498,10 +530,10 @@ impl App {
             }
         }
         if let Some(e) = colour_error {
-            self.toast(format!("Colour settings not applied: {e}"));
+            self.toast(crate::hud::failure(8001, format!("Colour settings not applied: {e}")));
         }
         if let Err(e) = self.settings.save() {
-            self.toast(format!("Settings not saved: {e}"));
+            self.toast(crate::hud::failure(7007, format!("Settings not saved: {e}")));
         }
         if !self.settings.top_bar {
             self.top_bar = false;

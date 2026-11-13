@@ -10,9 +10,12 @@ mod loading;
 mod model3d;
 mod mouse;
 mod ops;
+mod order;
+mod read;
 mod rotate;
 mod settings_ui;
 mod sidebar;
+mod strip;
 
 use gallery::{Gallery, GALLERY_CELL, GALLERY_CELL_MAX, GALLERY_CELL_MIN, GALLERY_GAP};
 use hud::Hud;
@@ -327,6 +330,9 @@ struct App {
     edits_for: Option<u64>,
     /// The viewer controls on the left edge (see `sidebar.rs`).
     sidebar: sidebar::Sidebar,
+    /// The film strip on the right edge (see `strip.rs`) and read mode, two pages without a gap (see `read.rs`).
+    strip: strip::Strip,
+    read: read::Read,
     /// The NuEditor mock-up is open (see `editor_ui.rs`).
     editor: editor_ui::Editor,
     /// Dragging the playback seek bar.
@@ -396,6 +402,9 @@ impl App {
 
     /// Indices to keep decoded, most important first: current, next in travel direction, previous, then further ahead.
     fn wanted(&self) -> Vec<usize> {
+        if self.read.on && self.mode == Mode::Viewer && !self.folder.files.is_empty() {
+            return self.read_wanted(); // both pages of the spread on screen, then the neighbouring spreads
+        }
         let n = self.folder.files.len() as isize;
         let cur = self.folder.index as isize;
         let d = self.dir;
@@ -421,13 +430,15 @@ impl App {
         }
         let Some(path) = self.folder.current() else { return "NuViewer — no images".into() };
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let pos = format!("{}/{}", self.folder.index + 1, self.folder.files.len());
+        let pos = self.position_text();
         let id = self.id_at(self.folder.index); // the page being shown, not just the file
         let frames = match self.renderer.frame_count(id) {
             n if n > 1 => format!(" — frame {}/{n}", self.renderer.frame_index(id) + 1),
             _ => String::new(),
         };
-        let slide = if self.slide.on { format!(" — slideshow {:.0}s{}", self.slide.secs, if self.slide.shuffle { " shuffle" } else { "" }) } else { String::new() };
+        let slide = if self.slide.on { format!(" — slideshow {:.0}s", self.slide.secs) } else { String::new() };
+        let slide = if self.folder.order.shuffle.is_some() { format!("{slide} — shuffled") } else { slide };
+        let slide = if self.read.on { format!("{slide} — read mode") } else { slide };
         let first = format!(
             "{frames}{slide}{}{}",
             self.first_image_ms.map(|m| format!(" — first image {m:.0} ms")).unwrap_or_default(),
@@ -538,6 +549,7 @@ impl App {
         self.sync_anim();
         self.sync_loading();
         set_title(self.hwnd, &self.title());
+        self.strip_follow(); // the film strip keeps the current picture in view
         invalidate(self.hwnd);
     }
 
@@ -556,7 +568,12 @@ impl App {
 
     /// Go to image `to`, prefetching in direction `dir` (slideshow wraps from last to first, which is still "forward").
     fn navigate_with_dir(&mut self, to: usize, dir: isize) {
-        if to >= self.folder.files.len() || to == self.folder.index {
+        if to >= self.folder.files.len() {
+            return;
+        }
+        // Read mode shows whole spreads: any page of one leads to the spread's first page.
+        let to = if self.read.on && self.mode == Mode::Viewer { self.spread_at(to).0 } else { to };
+        if to == self.folder.index {
             return;
         }
         // A rotated picture is saved (or dropped) first. Saving a copy adds a file to the list, so aim by path, not by number.
@@ -616,12 +633,13 @@ impl App {
                 match self.renderer.upload(id, &img) {
                     Ok(()) => return self.finish_ingest(id, img, l.decode_ms, read),
                     Err(e) => {
-                        self.failed.insert(id, e);
+                        self.failed.insert(id, nv_codecs::errors::tag(5001, &e));
                     }
                 }
             }
             Err(e) => {
                 self.failed.insert(id, e);
+                self.hud.info_for = None; // the info panel gains its "Error" rows
             }
         }
         false
@@ -638,6 +656,8 @@ impl App {
             }
         }
         let shown = !self.folder.files.is_empty() && id == self.id_at(self.folder.index);
+        // The second page of a spread arriving also needs a redraw (it is drawn next to the first, not shown by itself).
+        let partner = self.read.on && !self.folder.files.is_empty() && self.folder.index + 1 < self.folder.files.len() && id == self.id_at(self.folder.index + 1);
         if shown {
             self.renderer.show(id);
             if let Some((ow, oh)) = img.reduced_from {
@@ -652,7 +672,7 @@ impl App {
         if img.rgba.len() >= 32 * 1024 * 1024 {
             std::thread::spawn(move || drop(img));
         }
-        shown
+        shown || partner
     }
 
     /// Copy queued big pictures to the GPU in bands, a few milliseconds at a time, so the window keeps answering.
@@ -679,7 +699,7 @@ impl App {
                 match self.renderer.begin_upload(s.id, s.img, 0.0) {
                     Ok(()) => self.uploading = Some((s.id, s.decode_ms, s.read)),
                     Err((_, e)) => {
-                        self.failed.insert(s.id, e);
+                        self.failed.insert(s.id, nv_codecs::errors::tag(5001, &e));
                         continue;
                     }
                 }
@@ -692,7 +712,7 @@ impl App {
                 Ok(None) => break,
                 Err(e) => {
                     if let Some(u) = self.uploading.take() {
-                        self.failed.insert(u.0, e);
+                        self.failed.insert(u.0, nv_codecs::errors::tag(5001, &e));
                     }
                 }
             }
@@ -750,6 +770,10 @@ impl App {
             }
             set_title(self.hwnd, &self.title());
             invalidate(self.hwnd);
+        }
+
+        if got_thumb && self.strip_visible() {
+            invalidate(self.hwnd); // a thumbnail for the film strip arrived
         }
 
         let mut shown_new = false;
@@ -827,9 +851,12 @@ impl App {
         // of the previous picture or an empty window.
         let placeholder = if dst.is_none() { self.placeholder(win) } else { None };
         let model_id = if self.is_model() { Some(self.id_at(self.folder.index)) } else { None };
+        let spread = if model_id.is_none() { self.spread_view() } else { None };
         if self.renderer.begin(clear_color()) {
             if let Some(mid) = model_id {
                 let _ = self.renderer.draw_mesh(mid, &self.cam, &self.settings.model);
+            } else if let (Some(sv), Some(d)) = (&spread, dst) {
+                self.draw_spread(sv, d, nearest);
             } else if let Some(d) = dst {
                 if turn == 0.0 {
                     let _ = self.renderer.draw_current(d, nearest);
@@ -844,6 +871,7 @@ impl App {
                 let _ = self.renderer.draw_thumb(id, rect);
             }
             self.draw_loading();
+            self.draw_error();
             if let Some((a, b)) = self.view.area {
                 self.draw_area_box(a, b);
             }
@@ -873,6 +901,7 @@ impl App {
         }
         if let Event::MouseMove { x, y, left_down } = &ev {
             self.sidebar_hover(*x, *y, *left_down);
+            self.strip_hover(*x, *y, *left_down);
             self.editor_hover(*x, *y);
         }
         if let Event::MouseMove { y, left_down: false, .. } = &ev {
@@ -974,6 +1003,10 @@ impl App {
                 if self.sidebar_blocks(x, y) {
                     return; // the wheel over the controls does nothing
                 }
+                if self.strip_blocks(x, y) {
+                    self.strip_wheel(delta); // the wheel over the film strip scrolls it
+                    return;
+                }
                 // Ctrl swaps what the wheel does (zoom <-> pages), whichever one the settings made the default.
                 let zoom = match (self.settings.wheel, ctrl) {
                     (WheelAction::Pages, true) | (WheelAction::Zoom, false) => true,
@@ -991,7 +1024,7 @@ impl App {
             }
             // A quick second click arrives as DoubleClick: for these gestures it is just another press.
             Event::MouseDown { x, y, ctrl } | Event::DoubleClick { x, y, ctrl } => {
-                if !self.sidebar_press(x, y) && !self.editor_press(x, y) && !self.controls_press(x, y) {
+                if !self.sidebar_press(x, y) && !self.strip_press(x, y) && !self.editor_press(x, y) && !self.controls_press(x, y) {
                     self.viewer_press(x, y, ctrl);
                 }
             }
@@ -1076,6 +1109,8 @@ impl App {
             edits: nv_editor::EditStack::new(),
             edits_for: None,
             sidebar: sidebar::Sidebar::new(),
+            strip: strip::Strip::new(),
+            read: read::Read::new(),
             editor: editor_ui::Editor::new(),
             seek_drag: false,
             keep_view_once: false,
@@ -1250,7 +1285,7 @@ impl Boot {
                 if self.gpu.is_none() {
                     match self.gpu_rx.try_recv() {
                         Ok(Ok(gpu)) => self.gpu = Some(gpu),
-                        Ok(Err(e)) => set_title(self.hwnd, &format!("NuViewer — GPU init failed: {e}")),
+                        Ok(Err(e)) => set_title(self.hwnd, &format!("NuViewer — GPU init failed: {e}  [NV-5002]")),
                         Err(_) => {}
                     }
                 }
@@ -1280,7 +1315,7 @@ impl Boot {
                             }
                             return Step::Go(Box::new(app));
                         }
-                        Err(e) => set_title(self.hwnd, &format!("NuViewer — renderer failed: {e}")),
+                        Err(e) => set_title(self.hwnd, &format!("NuViewer — renderer failed: {e}  [NV-5002]")),
                     }
                 }
             }
@@ -1297,7 +1332,7 @@ fn settings_only() {
     }
     if let Some(s) = settings_ui::edit(&Settings::load()) {
         if let Err(e) = s.save() {
-            nv_win::shell::message(&format!("Settings not saved: {e}"));
+            nv_win::shell::message(&hud::failure(7007, format!("Settings not saved: {e}")));
         }
     }
 }
@@ -1423,9 +1458,10 @@ fn main() {
     let (folder_tx, folder_rx) = mpsc::channel();
     {
         let (wake, arg) = (wake.clone(), arg.clone());
+        let order = nv_core::Order { key: startup_settings.sort, descending: startup_settings.sort_desc, shuffle: None };
         std::thread::spawn(move || {
             let r = match &arg {
-                Some(p) => FolderList::open(p),
+                Some(p) => FolderList::open_with(p, order),
                 None => Ok(FolderList::empty()),
             };
             let _ = folder_tx.send(r);

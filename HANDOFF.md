@@ -213,6 +213,47 @@ New crate `crates/nv-editor` (16 tests): `raster` (rotate / flip / flatten), `op
 rotations), `save` (encode, EXIF patch, backup, atomic write), `tools` (the catalogue). The keyboard list has 59 actions now.
 Tests: nv-core 44, nv-codecs 92 (8 new camera / light / shadow / MTL tests), nv-editor 16, nv-win 13.
 
+### Session 8 (2026-11-13): alt-tab fix, error codes, new formats, sort / shuffle / film strip, read mode
+
+The user's 7-point list. Tests: unit tests in every crate (nv-core 57, nv-codecs 139 + 7 integration with real encoder output,
+nv-win 14), `tools\test\e2e-session8.ps1` (49 checks, messages only), older e2e scripts updated for the new counts.
+
+1. **Alt+Tab confusion.** Settings and every other form (`nv_win::ui::Form`) were top-level windows with no owner, so Alt+Tab
+   landed on the main window, which sat in the form's nested message loop and looked frozen. Now `nv_win::main_window()`
+   (set in `nv_win::run`) is the owner of every `Form` and of `shell::message`; the form disables the owner while it runs and
+   re-enables it *before* destroying itself (`Form::close`), is centred on the viewer's monitor and has no minimise box. "File
+   types…" in the context menu runs in-process (`associate_dialog()`) instead of spawning `--associate`. Message boxes and the
+   folder picker already had `self.hwnd` as owner. Verified: `GetWindow(form, GW_OWNER) == viewer`, viewer disabled while open.
+2. **Error codes** `nv_codecs::errors` (`NV-xxxx`, 29 codes, table `TABLE`, user page `docs/error-codes.md`, a unit test keeps
+   the two in step). `decode_file` / `decode_file_first_frame` tag failures (`errors::coded` classifies the decoder's text), the
+   loader tags a panicking decoder 6001, GPU upload failures 5001, file operations / settings / colour use `hud::failure(code, text)`
+   (toasts end with `[NV-7002]`), the crash dialog and `crash.log` say NV-6002. A picture that fails now gets an **on-screen panel**
+   (`loading.rs: draw_error`: code, title, the decoder's words, advice) and `I` shows "Error" rows.
+3. **Formats** (`crates/nv-codecs`): PSB + a PSD fallback reader `psdraw.rs` (merged image, raw / RLE / ZIP, 8 / 16 bit, RGB / CMYK /
+   grey / indexed / Lab); JPEG XL `jxldec.rs` (jxl-oxide, animated); JPEG 2000 `jp2.rs` (hayro-jpeg2000: jp2 j2k j2c jpf jpx jpc); FLIF
+   `flifdec.rs` (flif crate); `icon.rs` = DIB, ICO fallback, CUR, ICNS (PNG / JP2 payloads, old types via the icns crate); `pcx.rs`;
+   `dicom.rs` (first frame; uncompressed, RLE, JPEG baseline, JPEG 2000; window / rescale; palette, RGB, YBR); `swf.rs` (largest
+   embedded bitmap only); RGBE = `.rgbe` through the HDR decoder; `.hif` via WIC; X3F joined `RAW_EXTS`. APNG, JPE, SVGZ, DDS, PNM, WMF,
+   the other RAW extensions, DNG already worked. **ECW** is proprietary: listed in folders (`TRY_EXTS`), asks WIC, else NV-2004 with
+   a "convert with GDAL" hint. OptiPNG outputs are plain PNGs. Not verified on real files: FLIF (no encoder here), DICOM, PSB
+   (synthetic tests only), X3F. `MORE_EXTS` / `TRY_EXTS` / the chooser (`assoc.rs`, now 40 formats; Settings > File types buttons moved to the
+   OK row) must stay in step: `nuviewer/tests/formats.rs` checks it.
+4. **Order** (`nv_core::folder`: `SortKey`, `Order`, `FolderList::set_order`): name (natural, the old and default order), date,
+   size, type, descending, and **shuffle** = a seeded hash order (stable, files added later land where the shuffle puts them).
+   One list drives next / previous, gallery, film strip, slideshow (the slideshow's own shuffle is gone: `R` shuffles the list).
+   Keys `J`, `Shift+J`, `R`; context menu "Sort by"; Settings > Mouse & keyboard; `sort` / `sort_desc` saved, shuffle not.
+   `nuviewer/src/order.rs`.
+5. **Film strip** `strip.rs`: right edge (6 px) or `L`; header chips = sort keys, direction, shuffle; thumbnails reuse the gallery's worker pool,
+   disk cache and `renderer.upload_thumb`; only visible rows ± a few are requested (`strip_request_thumbs`). Hit-testing is shared by
+   hover, click and wheel (`strip_hit`). Setting `film_strip`.
+6. **Read mode** `read.rs` + `nv_core::spread` (pure pairing logic, tested): `B`, `Shift+B` (pairs start here), `Ctrl+B` (direction),
+   settings `read_start` (default 2: cover alone) and `read_rtl`. Wide scans (`peek_size`, header-only, cached) stand alone. The pair is
+   drawn as one virtual picture (`SpreadView`; `view_size()` returns it) so zoom / pan / hold-zoom work; the seam is snapped to a whole pixel
+   (verified: no gap). New renderer calls `draw_image(id, rect)` and `image_size_of(id)`. Rotation is off in read mode.
+7. Answer to "what do next / previous walk": the folder's files in **natural name order**; there was no other order before this session.
+
+New keys: `J`, `Shift+J`, `L`, `B`, `Shift+B`, `Ctrl+B` (R now shuffles the list). Sidebar has 16 buttons (film strip, read mode after Gallery).
+
 ## 2. Build, test, run
 
 ```powershell

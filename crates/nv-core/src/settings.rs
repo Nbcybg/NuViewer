@@ -2,6 +2,7 @@
 //! variable `NUVIEWER_SETTINGS` points somewhere else, which is what the tests use). Unknown keys are kept out of the
 //! way, bad values fall back to the defaults, so an old or hand-edited file never stops the viewer from starting.
 
+use crate::folder::SortKey;
 use nv_codecs::model::{LightMode, ModelStyle, Shading, UpAxis};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -115,6 +116,16 @@ pub struct Settings {
     pub model_textures: bool,
     /// Rotating a picture: save it when moving on, or ask first.
     pub rotate_save: RotateSave,
+    /// How the pictures of a folder are ordered (next / previous, gallery, film strip), and whether that is reversed.
+    pub sort: SortKey,
+    pub sort_desc: bool,
+    /// The film strip appears when the pointer touches the right edge of the window.
+    pub film_strip: bool,
+    /// Read mode (two pages side by side without a gap): right-to-left books (manga) put the first page on the right.
+    pub read_rtl: bool,
+    /// Read mode: the page (1-based) the first spread starts at. 2 = the cover stands alone and the pairs are 2+3, 4+5 ...;
+    /// 1 = the pairs are 1+2, 3+4 ...
+    pub read_start: u32,
     /// How 3D models are shaded, lit and projected.
     pub model: ModelStyle,
     pub external: Vec<External>,
@@ -145,6 +156,11 @@ impl Default for Settings {
             disk_monitor: false,
             model_textures: true,
             rotate_save: RotateSave::Ask,
+            sort: SortKey::Name,
+            sort_desc: false,
+            film_strip: true,
+            read_rtl: false,
+            read_start: 2,
             model: ModelStyle::default(),
             external: Vec::new(),
             keys: HashMap::new(),
@@ -239,6 +255,11 @@ impl Settings {
                         _ => s.rotate_save,
                     }
                 }
+                "sort" => s.sort = SortKey::from_id(v).unwrap_or(s.sort),
+                "sort_desc" => s.sort_desc = parse_bool(v).unwrap_or(s.sort_desc),
+                "film_strip" => s.film_strip = parse_bool(v).unwrap_or(s.film_strip),
+                "read_rtl" => s.read_rtl = parse_bool(v).unwrap_or(s.read_rtl),
+                "read_start" => s.read_start = v.parse().ok().filter(|p| (1..=9999).contains(p)).unwrap_or(s.read_start),
                 "model_shading" => s.model.shading = Shading::from_id(v).unwrap_or(s.model.shading),
                 "model_light" => {
                     s.model.light = match v.to_ascii_lowercase().as_str() {
@@ -325,6 +346,7 @@ impl Settings {
                 RotateSave::Auto => "auto",
             }
         );
+        out += &format!("sort = {}\nsort_desc = {}\nfilm_strip = {}\nread_rtl = {}\nread_start = {}\n", self.sort.id(), b(self.sort_desc), b(self.film_strip), b(self.read_rtl), self.read_start);
         let m = &self.model;
         out += &format!(
             "model_shading = {}\nmodel_light = {}\nmodel_light_az = {}\nmodel_light_el = {}\nmodel_ortho = {}\nmodel_up = {}\n",
@@ -403,6 +425,11 @@ mod tests {
         s.wheel = WheelAction::Zoom;
         s.sidebar = false;
         s.rotate_save = RotateSave::Auto;
+        s.sort = SortKey::Modified;
+        s.sort_desc = true;
+        s.film_strip = false;
+        s.read_rtl = true;
+        s.read_start = 5;
         s.model = ModelStyle {
             shading: Shading::Cartoon,
             light: LightMode::World,

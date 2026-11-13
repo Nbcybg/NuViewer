@@ -11,13 +11,13 @@ A very fast, very light image viewer for Windows. Written in Rust on Win32 + Dir
 
 ## Formats
 
-- **Photos:** JPEG, PNG/APNG, GIF (animated), WebP (incl. animated), PSD, camera RAW (embedded preview, developed from the
+- **Photos:** JPEG / JPE, PNG/APNG (also optimised PNGs from OptiPNG and friends: they are ordinary PNGs), GIF (animated), WebP (incl. animated), PSD and **PSB** (Photoshop large documents; the merged picture, 8/16 bit, RGB / CMYK / greyscale / indexed / Lab), **JPEG XL** (`.jxl`, animated too), **JPEG 2000** (`.jp2` `.j2k` `.j2c` `.jpf` `.jpx` `.jpc`), FLIF, PCX, DICOM (`.dcm`: uncompressed / RLE / JPEG / JPEG 2000 data, window centre and width applied), camera RAW (embedded preview, developed from the
   sensor data when there is none), and, through Windows' own codecs: AVIF, HEIC (needs the Microsoft *HEVC Video
-  Extensions*), TIFF, BMP, ICO, JPEG XR. Colour managed: a picture's embedded ICC profile (e.g. Display P3) is converted to the output profile you choose in
+  Extensions*; `.hif` too), TIFF, BMP, JPEG XR. **Icons and bitmaps:** ICO, CUR (cursors), ICNS (Apple icons), DIB (Windows bitmaps without a file header). Camera RAW covers CR2 CR3 CRW NEF NRW PEF RAF RWL MRW ORF SRW X3F ARW SR2 SRF RW2 DNG and more. **Limits:** `.ecw` (ERDAS' compression is proprietary: NuViewer lists the files and says to convert them, e.g. `gdal_translate in.ecw out.jp2`; it does open them if you have an ECW codec for Windows installed), playing Flash `.swf` (it is a program: NuViewer shows the largest bitmap stored inside the movie, and says so when there is none). FLIF / JPEG XL / DICOM / PSB files that use rarely seen features are refused with an error code. Colour managed: a picture's embedded ICC profile (e.g. Display P3) is converted to the output profile you choose in
   Settings > Colour (sRGB, this PC's display profile from Windows, or any `.icc` / `.icm` file), and you decide what a
   JPEG / PNG / WebP *without* a profile is (sRGB, Display P3, Adobe RGB or a file). Switchable.
 - **Game / render formats:** TGA (also `.icb`, `.vda`, `.vst`; RLE, colour-mapped, 16/24/32 bit), DDS (uncompressed and
-  block-compressed BC1-BC7), PNM (PPM, PGM, PBM, PAM), Radiance HDR and OpenEXR (tone mapped to a normal picture), QOI.
+  block-compressed BC1-BC7), PNM (PPM, PGM, PBM, PAM), Radiance HDR / RGBE (`.hdr` `.rgbe`) and OpenEXR (tone mapped to a normal picture), QOI.
 - **Documents:** PDF, one page at a time (rendered by Windows' own PDF engine, so text and vector graphics stay sharp);
   Adobe Illustrator `.ai` saved with PDF compatibility (the default).
 - **Vector art:** SVG / SVGZ (resvg, with system fonts), Windows metafiles EMF / WMF, EPS and old PostScript-style `.ai`
@@ -43,6 +43,24 @@ scaled down to fit and say so; anything over 250 megapixels is refused.
 page they carry on into the neighbouring file. `Home` / `End` jump to the first / last page, `Ctrl+←/→` skip the
 pages and go to the previous / next file. The gallery shows page 1. Pages are rendered at about 1.5 x the screen's
 long side, so zooming in far gets soft (re-rendering at the zoom level is not done yet).
+
+## Order, film strip and read mode
+
+**What next / previous walk.** One list per folder, **by name** ("natural": `img2` before `img10`, ignoring case) unless you change it.
+`J` steps through name → date modified → size → type, `Shift+J` reverses, `R` shuffles. The gallery, the film strip, the
+slideshow and the arrow keys all use that same list, so what the film strip shows is exactly what the arrow keys will visit.
+The sort is remembered (Settings > Mouse & keyboard, or `sort =` / `sort_desc =` in `settings.ini`); shuffle never is. RAW and JPG of one
+shot are always separate entries.
+
+**Film strip** (pointer on the right edge, or `L`, or the viewer-controls button): thumbnails come from the gallery's cache, only the
+rows on screen are made. The current picture is outlined; click a thumbnail to jump, wheel over the strip scrolls it.
+
+**Read mode** (`B`) shows two pages side by side as one picture, so zoom, hold-to-zoom and panning work on the pair.
+How pages pair up: from the *start page* on they go two at a time (2+3, 4+5 ...), pages before it (the cover) stand alone, and a
+wide scan (more than 1.2 × as wide as tall, i.e. a double-page spread already) stands alone and the pairing carries on after it.
+*Setting the start page:* the default is page 2 (cover alone), changed in Settings; if a book comes out wrong, go to the page that
+should be the **first of a pair** and press `Shift+B`: pairs now start there (remembered for that folder during the run).
+`Ctrl+B` swaps the sides for right-to-left books. Next / previous move a whole spread; the slideshow too.
 
 ## Keys and mouse
 
@@ -72,7 +90,10 @@ Press **F1** (or **H**) in the app for this list; these are the defaults and **S
 | `G` · Tab · Enter | gallery (arrows select, wheel scrolls, Ctrl+wheel changes size) |
 | `F11` · `Alt+Enter` | windowed ↔ fullscreen (pictures open fullscreen; the pointer hides when idle) |
 | `I` | file info and EXIF |
-| `S` · `+` `-` · `R` | slideshow · faster / slower · shuffle |
+| `S` · `+` `-` | slideshow · faster / slower |
+| `J` · `Shift+J` · `R` | sort by name → date → size → type · ascending / descending · **shuffle** (random order; `R` again restores the sort). Next / previous, the gallery, the film strip and the slideshow all follow this order |
+| Pointer on the right edge · `L` | **film strip**: a vertical column of thumbnails of the folder. Click one to jump to it, wheel over it scrolls it, its header sorts (Name / Date / Size / Type, ▲▼) and shuffles. It closes when the pointer leaves; `L` keeps it open |
+| `B` · `Shift+B` · `Ctrl+B` | **read mode** (books, comics): two pages side by side with no gap · pairs start at the page on screen · left-to-right / right-to-left (manga) |
 | `Q` | fold numbered pictures into image sequences / show every picture (gallery) |
 | `P` · `C` | play / pause a sequence or animation · keep the playback bar on screen |
 | `F2` | rename (the name part is pre-selected) |
@@ -103,7 +124,12 @@ Press **F1** (or **H**) in the app for this list; these are the defaults and **S
   90° turn per axis for models that arrive face-down. The T / N / W / Shift+S / O / X / Y / Z keys change the same values.
 - **Mouse and keyboard:** wheel action (pages / zoom / nothing), the top info bar,
   the taskbar reveal, and every keyboard shortcut (several keys per action, conflicts are refused, Reset restores
-  the default).
+  the default). Also here: the sort order (name / date / size / type, descending), the film strip on the right
+  edge, and read mode (the page its first pair starts at, right-to-left).
+
+All dialogs (Settings, the file-type chooser, questions) belong to the viewer window: Alt+Tab shows one NuViewer entry and
+switching back lands on the dialog that is waiting, not on a window that looks frozen. Errors carry a code
+(`NV-xxxx`, see `docs/error-codes.md`).
 
 Everything is stored in `%APPDATA%\NuViewer\settings.ini`, a plain `key = value` file you can also edit by hand
 (unknown or invalid lines are ignored). The environment variable `NUVIEWER_SETTINGS` points to another file.
