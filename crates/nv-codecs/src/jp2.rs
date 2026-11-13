@@ -25,25 +25,25 @@ pub fn decode(bytes: &[u8]) -> Result<Image, String> {
         return Err(format!("jp2: decoder returned {} samples for {w}x{h} with {channels} channels", data.len()));
     }
     let mut rgba = Vec::with_capacity(px * 4);
-    let mut icc = None;
     let colour = channels - usize::from(alpha);
+    // Four colour channels without alpha are CMYK ink amounts (JP2 enumerated colour space 12, or a CMYK ICC profile):
+    // they go out raw, the colour engine converts them.
+    let cmyk = colour == 4;
     for p in data.chunks_exact(channels).take(px) {
         let a = if alpha { p[colour] } else { 255 };
         match colour {
             1 | 2 => rgba.extend_from_slice(&[p[0], p[0], p[0], a]),
             3 => rgba.extend_from_slice(&[p[0], p[1], p[2], a]),
-            _ => {
-                // Four or more: treat the first four as CMYK ink amounts.
-                let k = 255 - p[3] as u32;
-                rgba.extend_from_slice(&[((255 - p[0] as u32) * k / 255) as u8, ((255 - p[1] as u32) * k / 255) as u8, ((255 - p[2] as u32) * k / 255) as u8, a]);
-            }
+            _ => rgba.extend_from_slice(&[p[0], p[1], p[2], p[3]]),
         }
     }
-    if let (ColorSpace::Icc { profile, num_channels: 3 }, 3) = (&space, colour) {
-        icc = Some(profile.clone());
-    }
     let mut img = Image::new(w, h, rgba);
-    img.icc = icc;
+    if let ColorSpace::Icc { profile, num_channels } = &space {
+        if *num_channels as usize == colour && (colour == 3 || colour == 4) {
+            img.icc = Some(profile.clone());
+        }
+    }
+    img.cmyk = cmyk;
     img.profile_assumable = true;
     Ok(img)
 }

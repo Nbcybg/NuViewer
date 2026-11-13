@@ -4,13 +4,15 @@ use crate::{icc, Image, MAX_ANIM_BYTES};
 use png::{BlendOp, ColorType, DisposeOp};
 use std::io::Cursor;
 
+/// Samples of any layout to RGBA, written straight into a buffer of the final size (no per-pixel push).
 fn to_rgba(data: &[u8], color: ColorType) -> Result<Vec<u8>, String> {
-    let mut out = Vec::with_capacity(data.len() / color.samples() * 4);
+    let n = data.len() / color.samples();
+    let mut out = vec![255u8; n * 4];
     match color {
-        ColorType::Rgba => out.extend_from_slice(data),
-        ColorType::Rgb => data.chunks_exact(3).for_each(|c| out.extend_from_slice(&[c[0], c[1], c[2], 255])),
-        ColorType::GrayscaleAlpha => data.chunks_exact(2).for_each(|c| out.extend_from_slice(&[c[0], c[0], c[0], c[1]])),
-        ColorType::Grayscale => data.iter().for_each(|&g| out.extend_from_slice(&[g, g, g, 255])),
+        ColorType::Rgba => out.copy_from_slice(&data[..n * 4]),
+        ColorType::Rgb => out.chunks_exact_mut(4).zip(data.chunks_exact(3)).for_each(|(d, c)| d[..3].copy_from_slice(c)),
+        ColorType::GrayscaleAlpha => out.chunks_exact_mut(4).zip(data.chunks_exact(2)).for_each(|(d, c)| d.copy_from_slice(&[c[0], c[0], c[0], c[1]])),
+        ColorType::Grayscale => out.chunks_exact_mut(4).zip(data).for_each(|(d, &g)| d[..3].fill(g)),
         ColorType::Indexed => return Err("png: indexed not expanded".into()),
     }
     Ok(out)
@@ -21,6 +23,8 @@ pub fn decode(bytes: &[u8], first_only: bool) -> Result<Image, String> {
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     // Default is 64 MiB of decoder memory, far too small for big scans/panoramas. The real guard is `check_size`.
     decoder.set_limits(png::Limits { bytes: 3 << 30 });
+    // A viewer has no use for the CRC and Adler checks: a damaged picture shows its damage, and skipping them is faster.
+    decoder.ignore_checksums(true);
     let mut reader = decoder.read_info().map_err(|e| format!("png: {e}"))?;
     crate::check_size(reader.info().width as u64, reader.info().height as u64)?;
     let icc_profile = reader.info().icc_profile.as_ref().map(|c| c.to_vec());

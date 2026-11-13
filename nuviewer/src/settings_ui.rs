@@ -1,10 +1,11 @@
-//! The Settings window (Ctrl+, / F9 / right click > Settings / `nuviewer.exe --settings`) with five pages:
-//! Viewer, 3D, File types, External programs, Mouse & keyboard. OK saves to the settings file and applies at once.
+//! The Settings window (Ctrl+, / F9 / right click > Settings / `nuviewer.exe --settings`) with these pages:
+//! Viewer, Colour, CMYK & RAW, 3D, File types, External programs, Mouse & keyboard. OK saves to the settings file and applies at once.
 
 use super::*;
 use nv_core::keys::{self, ACTIONS};
 use nv_codecs::model::{LightMode, Shading, UpAxis};
-use nv_core::settings::{External, HoldZoom, ProfileChoice, RotateSave, Settings, WheelAction};
+use nv_codecs::{Intent, RawMode};
+use nv_core::settings::{CmykChoice, External, HoldZoom, ProfileChoice, RotateSave, Settings, WheelAction};
 use nv_win::ui::{Form, ID_CANCEL, ID_OK, SELECTION_CHANGED};
 
 // Page tabs.
@@ -14,6 +15,7 @@ const TAB_EXTERNAL: u16 = 12;
 const TAB_INPUT: u16 = 13;
 const TAB_3D: u16 = 14;
 const TAB_COLOUR: u16 = 15;
+const TAB_PRINT: u16 = 16;
 // Viewer page.
 const V_CANVAS: u16 = 101;
 const V_PICK: u16 = 102;
@@ -28,6 +30,7 @@ const V_DISK: u16 = 111;
 const V_MODEL_TEX: u16 = 112;
 const V_SIDEBAR: u16 = 113;
 const V_ROTATE_SAVE: u16 = 114;
+const V_DOCS: u16 = 115;
 // Colour page.
 const C_ENABLE: u16 = 701;
 const C_OUT: u16 = 702;
@@ -38,6 +41,15 @@ const C_UNT: u16 = 706;
 const C_UNT_FILE: u16 = 707;
 const C_UNT_BROWSE: u16 = 708;
 const C_UNT_STATUS: u16 = 709;
+// CMYK & RAW page.
+const P_CMYK: u16 = 801;
+const P_CMYK_FILE: u16 = 802;
+const P_CMYK_BROWSE: u16 = 803;
+const P_CMYK_STATUS: u16 = 804;
+const P_INTENT: u16 = 805;
+const P_BPC: u16 = 806;
+const P_RAW: u16 = 807;
+const P_RAW_THUMBS: u16 = 808;
 // 3D page.
 const D_SHADING: u16 = 601;
 const D_TEXTURE: u16 = 602;
@@ -87,6 +99,12 @@ const OUT_ITEMS: [&str; 3] = ["sRGB (the default: pictures stay as they are)", "
 const OUT_VALUES: [ProfileChoice; 3] = [ProfileChoice::Srgb, ProfileChoice::System, ProfileChoice::File];
 const UNT_ITEMS: [&str; 4] = ["sRGB (the default)", "Display P3", "Adobe RGB (1998)", "A profile file (.icc / .icm)"];
 const UNT_VALUES: [ProfileChoice; 4] = [ProfileChoice::Srgb, ProfileChoice::DisplayP3, ProfileChoice::AdobeRgb, ProfileChoice::File];
+const CMYK_ITEMS: [&str; 3] = ["Coated FOGRA39 (ISO 12647-2:2004), built in: the default", "SWOP (the reference profile that comes with Windows)", "A CMYK profile file (.icc / .icm)"];
+const CMYK_VALUES: [CmykChoice; 3] = [CmykChoice::Fogra39, CmykChoice::Swop, CmykChoice::File];
+const INTENT_ITEMS: [&str; 4] = ["Relative colorimetric (the default; what ColorSync does)", "Perceptual", "Saturation", "Absolute colorimetric (the paper's own white is shown)"];
+const INTENT_VALUES: [Intent; 4] = [Intent::Relative, Intent::Perceptual, Intent::Saturation, Intent::Absolute];
+const RAW_ITEMS: [&str; 3] = ["Developed from the sensor data, full resolution (the default)", "Developed from the sensor data, half size (faster)", "The camera's embedded preview (fastest; the camera's own rendering)"];
+const RAW_VALUES: [RawMode; 3] = [RawMode::Full, RawMode::Half, RawMode::Preview];
 const WHEEL_ITEMS: [&str; 3] = ["Previous / next picture (Ctrl+wheel zooms)", "Zoom (Ctrl+wheel: previous / next)", "Nothing"];
 const WHEEL_VALUES: [WheelAction; 3] = [WheelAction::Pages, WheelAction::Zoom, WheelAction::Off];
 const ROTATE_ITEMS: [&str; 2] = ["Ask me every time (Save / Discard / Stay)", "Save automatically"];
@@ -121,6 +139,12 @@ fn colour_fields(form: &Form, s: &mut Settings) {
     s.icc_output_file = form.text(C_OUT_FILE).trim().trim_matches('"').to_string();
     s.icc_untagged = UNT_VALUES[form.combo_index(C_UNT).min(UNT_VALUES.len() - 1)];
     s.icc_untagged_file = form.text(C_UNT_FILE).trim().trim_matches('"').to_string();
+    s.cmyk = CMYK_VALUES[form.combo_index(P_CMYK).min(CMYK_VALUES.len() - 1)];
+    s.cmyk_file = form.text(P_CMYK_FILE).trim().trim_matches('"').to_string();
+    s.intent = INTENT_VALUES[form.combo_index(P_INTENT).min(INTENT_VALUES.len() - 1)];
+    s.bpc = form.is_checked(P_BPC);
+    s.raw_mode = RAW_VALUES[form.combo_index(P_RAW).min(RAW_VALUES.len() - 1)];
+    s.raw_thumbs = form.is_checked(P_RAW_THUMBS);
 }
 
 /// Refresh the "In use" lines of the colour page and grey out the file boxes that don't apply.
@@ -136,6 +160,13 @@ fn colour_status(form: &Form, base: &Settings) {
         form.enable(file_box, choice == ProfileChoice::File);
         form.enable(browse, choice == ProfileChoice::File);
     }
+    let text = match crate::colour::resolve_cmyk(s.cmyk, &s.cmyk_file) {
+        Ok(found) => format!("In use: {}", found.text),
+        Err(e) => format!("Can't use this yet: {e}"),
+    };
+    form.set_text(P_CMYK_STATUS, &text);
+    form.enable(P_CMYK_FILE, s.cmyk == CmykChoice::File);
+    form.enable(P_CMYK_BROWSE, s.cmyk == CmykChoice::File);
 }
 
 fn parse_degrees(text: &str, lo: f32, hi: f32, fallback: f32) -> f32 {
@@ -154,7 +185,7 @@ pub fn edit(current: &Settings) -> Option<Settings> {
     // Tabs (always visible).
     form.begin_page(0);
     let mut tab_x = 12;
-    for (i, (id, name, width)) in [(TAB_VIEWER, "Viewer", 84), (TAB_COLOUR, "Colour", 84), (TAB_3D, "3D", 56), (TAB_TYPES, "File types", 100), (TAB_EXTERNAL, "External programs", 152), (TAB_INPUT, "Mouse && keyboard", 160)].iter().enumerate() {
+    for (i, (id, name, width)) in [(TAB_VIEWER, "Viewer", 70), (TAB_COLOUR, "Colour", 70), (TAB_PRINT, "CMYK && RAW", 104), (TAB_3D, "3D", 44), (TAB_TYPES, "File types", 90), (TAB_EXTERNAL, "External programs", 140), (TAB_INPUT, "Mouse && keyboard", 150)].iter().enumerate() {
         form.tab(*id, tab_x, 10, *width, 30, name, i == 0, i == 0);
         tab_x += *width + 4;
     }
@@ -166,7 +197,7 @@ pub fn edit(current: &Settings) -> Option<Settings> {
     form.edit(V_CANVAS, 262, 74, 100, 24, &format!("{:06X}", c.canvas));
     form.button(V_PICK, 372, 73, 90, 26, "Choose…", false);
     form.check(V_FULLSCREEN, 28, 106, 660, 22, "Open pictures fullscreen (Alt+Enter or F11 switches)", c.start_fullscreen);
-    form.label(28, 134, 660, 20, "Colour profiles (ICC): output and untagged-picture profiles are on the Colour tab.");
+    form.check(V_DOCS, 28, 134, 660, 22, "List documents too (zip / cbz, docx / xlsx / pptx / odt, txt, Affinity): their preview, or a card with name and size", c.documents);
     form.label(28, 164, 150, 20, "Hold the left button:");
     form.combo(V_HOLD, 182, 160, 270, 160, &HOLD_ITEMS, HOLD_VALUES.iter().position(|h| *h == c.hold_zoom).unwrap_or(0));
     form.label(464, 164, 170, 20, "\"Small\" = up to (% of screen):");
@@ -205,8 +236,28 @@ pub fn edit(current: &Settings) -> Option<Settings> {
     form.edit(C_UNT_FILE, 28, 404, 566, 24, &c.icc_untagged_file);
     form.button(C_UNT_BROWSE, 602, 403, 94, 26, "Browse…", false);
     form.label_id(C_UNT_STATUS, 28, 436, 660, 36, "");
-    form.label(28, 474, 660, 28, "A picture with its own profile always uses it. SVG, PDF and other renders are always sRGB.");
+    form.label(28, 474, 660, 28, "A picture with its own profile always uses it. SVG and other renders are always sRGB. CMYK pictures and rendering intent: see the CMYK && RAW tab.");
     form.label(14, 516, 690, 70, "Rotated pictures that are saved, and the clipboard, stay sRGB. Thumbnails and the picture on screen follow the output profile. A changed profile reloads the open pictures when you press OK.");
+
+    // ---- page 7: CMYK & RAW ----
+    form.begin_page(7);
+    form.group(12, 52, 696, 226, "CMYK pictures (JPEG, TIFF, PSD / PSB, JPEG 2000)");
+    form.label(28, 80, 660, 20, "A CMYK picture without a profile of its own is read as:");
+    form.combo(P_CMYK, 28, 104, 480, 110, &CMYK_ITEMS, CMYK_VALUES.iter().position(|v| *v == c.cmyk).unwrap_or(0));
+    form.edit(P_CMYK_FILE, 28, 136, 566, 24, &c.cmyk_file);
+    form.button(P_CMYK_BROWSE, 602, 135, 94, 26, "Browse…", false);
+    form.label_id(P_CMYK_STATUS, 28, 168, 660, 36, "");
+    form.label(28, 206, 660, 66, "A picture with its own profile always uses it. When a profile has to be assumed the viewer says so (a message when the picture opens, and a line in the info panel). Decoders hand the four inks over untouched; the colour engine converts them once, through the profile.");
+    form.group(12, 288, 696, 150, "Rendering intent and black point compensation (every profile conversion)");
+    form.label(28, 316, 150, 20, "Rendering intent:");
+    form.combo(P_INTENT, 180, 312, 440, 110, &INTENT_ITEMS, INTENT_VALUES.iter().position(|v| *v == c.intent).unwrap_or(0));
+    form.check(P_BPC, 28, 346, 660, 22, "Black point compensation (relative colorimetric, CMYK pictures)", c.bpc);
+    form.label(28, 376, 660, 56, "The default is what ColorSync does. Perceptual and saturation already map the black of the profile; absolute colorimetric shows the paper's own white. PDF pages are drawn by Windows and are not converted by this program.");
+    form.group(12, 448, 696, 150, "Camera RAW");
+    form.label(28, 476, 200, 20, "Show RAW files as:");
+    form.combo(P_RAW, 28, 500, 600, 110, &RAW_ITEMS, RAW_VALUES.iter().position(|v| *v == c.raw_mode).unwrap_or(0));
+    form.check(P_RAW_THUMBS, 28, 532, 660, 22, "Develop the gallery thumbnails from the sensor data too (slow: whole files are read)", c.raw_thumbs);
+    form.label(28, 562, 660, 32, "Development uses only what the camera wrote: black and white level, as-shot white balance, colour matrix. No automatic exposure, no tone curve.");
 
     // ---- page 5: 3D ----
     form.begin_page(5);
@@ -318,6 +369,18 @@ pub fn edit(current: &Settings) -> Option<Settings> {
                 let current = form.text(file_box);
                 if let Some(p) = nv_win::shell::pick_profile(form.hwnd, Some(std::path::Path::new(current.trim()))) {
                     form.set_text(file_box, &p.display().to_string());
+                    colour_status(form, &cur);
+                }
+            }
+            TAB_PRINT => {
+                colour_status(form, &cur);
+                form.show_page(7);
+            }
+            x if x == P_CMYK | SELECTION_CHANGED => colour_status(form, &cur),
+            P_CMYK_BROWSE => {
+                let current = form.text(P_CMYK_FILE);
+                if let Some(p) = nv_win::shell::pick_profile(form.hwnd, Some(std::path::Path::new(current.trim()))) {
+                    form.set_text(P_CMYK_FILE, &p.display().to_string());
                     colour_status(form, &cur);
                 }
             }
@@ -447,8 +510,8 @@ pub fn edit(current: &Settings) -> Option<Settings> {
                 colour_fields(form, &mut s);
                 if s.icc {
                     if let Err(e) = crate::colour::check(&s, Some(form.hwnd)) {
-                        nv_win::shell::message(&format!("{e}\n\nChoose another profile on the Colour tab."));
-                        form.show_page(6);
+                        nv_win::shell::message(&format!("{e}\n\nChoose another profile on the Colour or the CMYK && RAW tab."));
+                        form.show_page(if e.contains("CMYK") { 7 } else { 6 });
                         colour_status(form, &cur);
                         return false;
                     }
@@ -461,6 +524,7 @@ pub fn edit(current: &Settings) -> Option<Settings> {
                 s.controls_always = form.is_checked(V_CONTROLS);
                 s.disk_monitor = form.is_checked(V_DISK);
                 s.model_textures = form.is_checked(V_MODEL_TEX);
+                s.documents = form.is_checked(V_DOCS);
                 s.wheel = WHEEL_VALUES[form.combo_index(M_WHEEL).min(WHEEL_VALUES.len() - 1)];
                 s.sidebar = form.is_checked(V_SIDEBAR);
                 s.rotate_save = ROTATE_VALUES[form.combo_index(V_ROTATE_SAVE).min(ROTATE_VALUES.len() - 1)];
@@ -507,9 +571,12 @@ impl App {
         let sequences_changed = s.sequences != self.settings.sequences || s.sequence_min != self.settings.sequence_min;
         self.keymap = Keymap::new(&s.keys);
         CANVAS.store(s.canvas, Ordering::Relaxed);
-        let colour_changed = (s.icc, s.icc_output, &s.icc_output_file, s.icc_untagged, &s.icc_untagged_file) != (self.settings.icc, self.settings.icc_output, &self.settings.icc_output_file, self.settings.icc_untagged, &self.settings.icc_untagged_file);
+        let colour_key = |s: &Settings| (s.icc, s.icc_output, s.icc_output_file.clone(), s.icc_untagged, s.icc_untagged_file.clone(), s.cmyk, s.cmyk_file.clone(), s.intent, s.bpc, s.raw_mode, s.raw_thumbs);
+        let colour_changed = colour_key(&s) != colour_key(&self.settings);
         let colour_error = crate::colour::apply(&s, Some(self.hwnd)).err();
         let textures_changed = s.model_textures != self.settings.model_textures;
+        let documents_changed = s.documents != self.settings.documents;
+        nv_core::folder::set_include_documents(s.documents);
         nv_codecs::set_model_textures(s.model_textures);
         self.fps = s.fps;
         let order_changed = s.sort != self.settings.sort || s.sort_desc != self.settings.sort_desc;
@@ -540,6 +607,19 @@ impl App {
         }
         if !self.settings.sidebar {
             self.sidebar.hover = false;
+        }
+        if documents_changed {
+            // Another set of files belongs in the list: list the folder again, staying on the same picture.
+            if let Some(cur) = self.folder.current().cloned() {
+                let order = self.folder.order;
+                if let Ok(list) = FolderList::open_with(&cur, order) {
+                    let gallery = self.mode == Mode::Gallery;
+                    self.replace_folder(list);
+                    if gallery {
+                        self.enter_gallery();
+                    }
+                }
+            }
         }
         if sequences_changed {
             self.rebuild_items();

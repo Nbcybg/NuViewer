@@ -87,6 +87,16 @@ unsafe fn finish(factory: &IWICImagingFactory, decoder: &IWICBitmapDecoder) -> R
         }
         let (frame, _) = best.ok_or("wic: no readable frame")?;
 
+        let icc = embedded_profile(factory, &frame);
+        // CMYK TIFFs (and JPEG XR): read the inks themselves. WIC's own CMYK -> RGB conversion knows nothing about the
+        // file's profile, so it is not used; the colour engine converts the raw inks (see `cmyk`).
+        if let Ok(native) = frame.GetPixelFormat() {
+            if [GUID_WICPixelFormat32bppCMYK, GUID_WICPixelFormat64bppCMYK, GUID_WICPixelFormat40bppCMYKAlpha, GUID_WICPixelFormat80bppCMYKAlpha].contains(&native) {
+                if let Some(img) = copy_cmyk(factory, &frame, icc.clone()) {
+                    return Ok(img);
+                }
+            }
+        }
         let converter = factory.CreateFormatConverter().map_err(describe)?;
         converter
             .Initialize(&frame, &GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, None, 0.0, WICBitmapPaletteTypeCustom)
@@ -96,6 +106,58 @@ unsafe fn finish(factory: &IWICImagingFactory, decoder: &IWICBitmapDecoder) -> R
         crate::check_size(w as u64, h as u64)?;
         let mut rgba = vec![0u8; w as usize * h as usize * 4];
         converter.CopyPixels(std::ptr::null(), w * 4, &mut rgba).map_err(describe)?;
-        Ok(Image::new(w, h, rgba))
+        let mut img = Image::new(w, h, rgba);
+        // A TIFF / HEIC with a profile of its own (Adobe RGB, Display P3, ...): the colour engine uses it. One without
+        // is read as the user's "pictures without a profile" choice, like a JPEG.
+        img.icc = icc;
+        img.profile_assumable = true;
+        Ok(img)
     }
+}
+
+/// The frame's embedded ICC profile (the first colour context of type "profile"), if it has one.
+unsafe fn embedded_profile(factory: &IWICImagingFactory, frame: &IWICBitmapFrameDecode) -> Option<Vec<u8>> {
+    // WIC fills colour contexts the caller has created: ask how many there are, make that many, ask again.
+    let mut count = 0u32;
+    frame.GetColorContexts(&mut [], &mut count).ok()?;
+    if count == 0 {
+        return None;
+    }
+    let mut contexts: Vec<Option<IWICColorContext>> = (0..count.min(8)).map(|_| factory.CreateColorContext().ok()).collect();
+    let mut filled = 0u32;
+    frame.GetColorContexts(&mut contexts, &mut filled).ok()?;
+    for ctx in contexts.iter().take(filled as usize).flatten() {
+        if ctx.GetType().ok()? != WICColorContextProfile {
+            continue;
+        }
+        // With no buffer WIC may answer "too small" while still telling how big the profile is.
+        let mut size = 0u32;
+        let _ = ctx.GetProfileBytes(&mut [], &mut size);
+        if size == 0 || size > 64 << 20 {
+            continue;
+        }
+        let mut bytes = vec![0u8; size as usize];
+        let mut got = 0u32;
+        ctx.GetProfileBytes(&mut bytes, &mut got).ok()?;
+        bytes.truncate(got as usize);
+        if bytes.get(36..40) == Some(b"acsp") {
+            return Some(bytes);
+        }
+    }
+    None
+}
+
+/// The frame as 8-bit CMYK (WIC converts between its CMYK formats; alpha is dropped), as raw ink amounts.
+unsafe fn copy_cmyk(factory: &IWICImagingFactory, frame: &IWICBitmapFrameDecode, icc: Option<Vec<u8>>) -> Option<Image> {
+    let converter = factory.CreateFormatConverter().ok()?;
+    converter.Initialize(frame, &GUID_WICPixelFormat32bppCMYK, WICBitmapDitherTypeNone, None, 0.0, WICBitmapPaletteTypeCustom).ok()?;
+    let (mut w, mut h) = (0u32, 0u32);
+    converter.GetSize(&mut w, &mut h).ok()?;
+    crate::check_size(w as u64, h as u64).ok()?;
+    let mut inks = vec![0u8; w as usize * h as usize * 4];
+    converter.CopyPixels(std::ptr::null(), w * 4, &mut inks).ok()?;
+    let mut img = Image::new(w, h, inks);
+    img.cmyk = true;
+    img.icc = icc;
+    Some(img)
 }

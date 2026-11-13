@@ -10,12 +10,9 @@ pub fn decode(bytes: &[u8], fallback_orientation: Option<u32>) -> Result<Image, 
     let opts = DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGBA).set_max_width(1 << 16).set_max_height(1 << 16);
     let mut dec = JpegDecoder::new_with_options(bytes, opts);
     dec.decode_headers().map_err(|e| format!("jpeg: {e:?}"))?;
-    // CMYK / YCCK (print-oriented JPEGs): the decoder's CMYK -> RGBA conversion writes 3-byte pixels into a 4-byte
-    // layout, which scrambles the picture and leaves alpha at 0 (invisible). Its RGB conversion is fine, so ask for that.
-    if matches!(dec.get_input_colorspace(), Some(ColorSpace::CMYK | ColorSpace::YCCK)) {
-        let rgb = opts.jpeg_set_out_colorspace(ColorSpace::RGB);
-        dec = JpegDecoder::new_with_options(bytes, rgb);
-        dec.decode_headers().map_err(|e| format!("jpeg: {e:?}"))?;
+    // CMYK / YCCK (print-oriented JPEGs): hand the ink amounts over raw, the colour engine converts them (see `cmyk`).
+    if let Some(space @ (ColorSpace::CMYK | ColorSpace::YCCK)) = dec.get_input_colorspace() {
+        return decode_cmyk(bytes, space, fallback_orientation);
     }
     if let Some((w, h)) = dec.dimensions() {
         crate::check_size(w as u64, h as u64)?;
@@ -30,6 +27,99 @@ pub fn decode(bytes: &[u8], fallback_orientation: Option<u32>) -> Result<Image, 
     // (rotation), so the image just carries what's needed to do them later.
     img.icc = dec.icc_profile();
     img.profile_assumable = true;
+    img.orientation = orient::exif_orientation(bytes).or(fallback_orientation).unwrap_or(1).clamp(1, 8) as u8;
+    Ok(img)
+}
+
+/// A JPEG for a thumbnail: decoded with the DCT scaled down (1/2, 1/4 or 1/8, whichever still leaves at least `want` pixels on
+/// the long side), which skips most of the inverse-transform work and, above all, the memory traffic of a full-size picture.
+/// `None` when the file isn't a plain three-component or grey JPEG (CMYK, 12-bit, ...) or the scaled decode fails: the caller
+/// then decodes it in full. Colour profile and orientation are carried like in `decode`.
+pub fn decode_scaled(bytes: &[u8], want: u32, fallback_orientation: Option<u32>) -> Option<Image> {
+    use jpeg_decoder::PixelFormat;
+    let mut dec = jpeg_decoder::Decoder::new(std::io::Cursor::new(bytes));
+    dec.read_info().ok()?;
+    let info = dec.info()?;
+    if !matches!(info.pixel_format, PixelFormat::RGB24 | PixelFormat::L8) {
+        return None;
+    }
+    crate::check_size(info.width as u64, info.height as u64).ok()?;
+    // Only worth it when it shrinks the work: below 2x the wanted size a full decode is as good.
+    if (info.width.max(info.height) as u32) < want * 2 {
+        return None;
+    }
+    let aspect = info.height as f64 / info.width as f64;
+    let (rw, rh) = if aspect <= 1.0 { (want as f64, want as f64 * aspect) } else { (want as f64 / aspect, want as f64) };
+    let (sw, sh) = dec.scale((rw.ceil() as u16).max(1), (rh.ceil() as u16).max(1)).ok()?;
+    let pixels = dec.decode().ok()?;
+    let rgba = match info.pixel_format {
+        PixelFormat::L8 => to_rgba(pixels, sw as usize, sh as usize).ok()?,
+        _ => to_rgba(pixels, sw as usize, sh as usize).ok()?,
+    };
+    let mut img = Image::new(sw as u32, sh as u32, rgba);
+    img.icc = dec.icc_profile();
+    img.profile_assumable = true;
+    img.orientation = orient::exif_orientation(bytes).or(fallback_orientation).unwrap_or(1).clamp(1, 8) as u8;
+    Some(img)
+}
+
+/// The transform byte of the Adobe APP14 marker (0 = CMYK, 1 = YCbCr, 2 = YCCK), if the file has the marker. Its presence
+/// is what tells that the four-channel samples are stored the Adobe way: **inverted**, 255 = no ink (Photoshop, and
+/// everything that writes CMYK JPEGs for it). Without the marker the samples are plain ink amounts.
+pub(crate) fn adobe_marker(bytes: &[u8]) -> Option<u8> {
+    let mut i = 2;
+    while i + 4 <= bytes.len() && bytes[i] == 0xFF {
+        let marker = bytes[i + 1];
+        if marker == 0xFF {
+            i += 1; // fill byte
+            continue;
+        }
+        if marker == 0xDA || marker == 0xD9 {
+            break; // image data starts: no more headers
+        }
+        let len = u16::from_be_bytes([bytes[i + 2], bytes[i + 3]]) as usize;
+        if marker == 0xEE && len >= 14 && bytes.get(i + 4..i + 9) == Some(b"Adobe") {
+            return bytes.get(i + 4 + 11).copied();
+        }
+        i += 2 + len.max(2);
+    }
+    None
+}
+
+/// A four-component JPEG as raw ink amounts (0 = no ink): Adobe's inversion undone, YCCK turned back into CMYK (the
+/// first three components of YCCK are YCbCr of the inverted C, M, Y).
+fn decode_cmyk(bytes: &[u8], space: ColorSpace, fallback_orientation: Option<u32>) -> Result<Image, String> {
+    let opts = DecoderOptions::default().jpeg_set_out_colorspace(space).set_max_width(1 << 16).set_max_height(1 << 16);
+    let mut dec = JpegDecoder::new_with_options(bytes, opts);
+    dec.decode_headers().map_err(|e| format!("jpeg: {e:?}"))?;
+    if let Some((w, h)) = dec.dimensions() {
+        crate::check_size(w as u64, h as u64)?;
+    }
+    let mut px = dec.decode().map_err(|e| format!("jpeg: {e:?}"))?;
+    let info = dec.info().ok_or("jpeg: no header info")?;
+    let (w, h) = (info.width as usize, info.height as usize);
+    if w * h == 0 || px.len() != w * h * 4 {
+        return Err(format!("jpeg: CMYK decoder returned {} bytes for {w}x{h}", px.len()));
+    }
+    let inverted = adobe_marker(bytes).is_some();
+    if space == ColorSpace::YCCK {
+        for p in px.chunks_exact_mut(4) {
+            let (y, cb, cr) = (p[0] as f32, p[1] as f32 - 128.0, p[2] as f32 - 128.0);
+            let r = (y + 1.402 * cr).round().clamp(0.0, 255.0) as u8;
+            let g = (y - 0.344_136 * cb - 0.714_136 * cr).round().clamp(0.0, 255.0) as u8;
+            let b = (y + 1.772 * cb).round().clamp(0.0, 255.0) as u8;
+            // stored C, M, Y = 255 - R, G, B; K as it is.
+            p[0] = 255 - r;
+            p[1] = 255 - g;
+            p[2] = 255 - b;
+        }
+    }
+    if inverted {
+        px.iter_mut().for_each(|v| *v = 255 - *v);
+    }
+    let mut img = Image::new(w as u32, h as u32, px);
+    img.cmyk = true;
+    img.icc = dec.icc_profile();
     img.orientation = orient::exif_orientation(bytes).or(fallback_orientation).unwrap_or(1).clamp(1, 8) as u8;
     Ok(img)
 }
@@ -75,15 +165,68 @@ mod tests {
     const CMYK_16X8: &[u8] = include_bytes!("../tests/cmyk_16x8.jpg");
 
     #[test]
-    fn cmyk_jpeg_is_converted_not_scrambled() {
+    fn cmyk_jpeg_is_raw_ink_not_rgb() {
+        // PIL stores CMYK JPEGs the Adobe way (inverted) and reads them back inverted too: the picture is a ramp with C, M, Y
+        // empty and the black ink falling from 255 (x = 0) to 15 (x = 15). Undoing the inversion must give exactly that.
         let img = decode(CMYK_16X8, None).expect("decodes");
         assert_eq!((img.width, img.height), (16, 8));
+        assert!(img.cmyk, "marked as raw CMYK");
         assert_eq!(img.rgba.len(), 16 * 8 * 4);
-        for (i, p) in img.rgba.chunks_exact(4).enumerate() {
-            assert_eq!(p[3], 255, "opaque");
-            let want = (i % 16) as i32 * 16;
-            assert!((p[0] as i32 - want).abs() <= 24 && (p[0] as i32 - p[1] as i32).abs() <= 4 && (p[1] as i32 - p[2] as i32).abs() <= 4, "pixel {i}: {p:?} should be near grey {want}");
+        for y in 0..8 {
+            for x in 0..16 {
+                let p = &img.rgba[(y * 16 + x) * 4..(y * 16 + x) * 4 + 4];
+                let want_k = 255 - 16 * x as i32;
+                assert!(p[..3].iter().all(|&v| v <= 12), "no colour ink at ({x},{y}): {p:?}");
+                assert!((p[3] as i32 - want_k).abs() <= 14, "black ink at ({x},{y}): {p:?}, want about {want_k}");
+            }
         }
+    }
+
+    /// A 32x16 picture, left half and right half each one flat ink mix, encoded as YCCK (the CMYK transform Photoshop uses
+    /// for its JPEGs) at top quality. jpeg-encoder, like libjpeg's Adobe mode, stores CMYK inverted (255 = no ink) itself.
+    fn ycck_jpeg(left: [u8; 4], right: [u8; 4]) -> Vec<u8> {
+        let mut px = Vec::new();
+        for _y in 0..16 {
+            for x in 0..32 {
+                px.extend_from_slice(&if x < 16 { left } else { right });
+            }
+        }
+        let mut out = Vec::new();
+        jpeg_encoder::Encoder::new(&mut out, 100).encode(&px, 32, 16, jpeg_encoder::ColorType::CmykAsYcck).expect("encodes");
+        out
+    }
+
+    #[test]
+    fn ycck_jpeg_comes_out_as_raw_inks_too() {
+        let jpg = ycck_jpeg([255, 0, 0, 0], [30, 120, 200, 90]);
+        assert_eq!(adobe_marker(&jpg), Some(2), "YCCK transform in the Adobe marker");
+        let img = decode(&jpg, None).expect("decodes");
+        assert!(img.cmyk);
+        let at = |x: usize| img.rgba[(8 * 32 + x) * 4..(8 * 32 + x) * 4 + 4].to_vec();
+        for (got, want) in [(at(6), [255i32, 0, 0, 0]), (at(24), [30, 120, 200, 90])] {
+            for c in 0..4 {
+                assert!((got[c] as i32 - want[c]).abs() <= 8, "ink {c}: {got:?} vs {want:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn without_the_adobe_marker_the_samples_are_plain_ink_amounts() {
+        // jpeg-encoder writes the marker for CMYK (and, like libjpeg, stores what it is given inverted for Adobe readers);
+        // cut the APP14 segment out to get a marker-less file whose stored samples are (200, 0, 0, 0).
+        let mut px = Vec::new();
+        for _ in 0..16 * 16 {
+            px.extend_from_slice(&[55u8, 255, 255, 255]);
+        }
+        let mut jpg = Vec::new();
+        jpeg_encoder::Encoder::new(&mut jpg, 100).encode(&px, 16, 16, jpeg_encoder::ColorType::Cmyk).expect("encodes");
+        assert_eq!(adobe_marker(&jpg), Some(0));
+        let marker_at = jpg.windows(2).position(|w| w == [0xFF, 0xEE]).expect("APP14");
+        jpg.drain(marker_at..marker_at + 2 + 14);
+        assert_eq!(adobe_marker(&jpg), None);
+        let img = decode(&jpg, None).expect("decodes");
+        assert!(img.cmyk);
+        assert!((img.rgba[0] as i32 - 200).abs() <= 6 && img.rgba[1] <= 6, "cyan 200 stays cyan 200: {:?}", &img.rgba[..4]);
     }
 
     #[test]

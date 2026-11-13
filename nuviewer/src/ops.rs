@@ -89,7 +89,7 @@ impl App {
     }
 
     /// Switch to a different folder: everything tied to the old list is dropped.
-    fn replace_folder(&mut self, list: FolderList) {
+    pub(crate) fn replace_folder(&mut self, list: FolderList) {
         self.stop_slideshow(false);
         self.undo.clear();
         self.rename = None;
@@ -182,7 +182,7 @@ impl App {
 
     /// Put `path` (back) into the list and select it.
     fn reveal_in_list(&mut self, path: PathBuf) {
-        if path.parent() != Some(self.folder.dir.as_path()) || !nv_codecs::is_supported_ext(path.extension().and_then(|e| e.to_str()).unwrap_or("")) {
+        if path.parent() != Some(self.folder.dir.as_path()) || !nv_core::folder::is_listed_ext(path.extension().and_then(|e| e.to_str()).unwrap_or("")) {
             return;
         }
         let idx = self.folder.insert_sorted(path);

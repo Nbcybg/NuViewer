@@ -12,7 +12,9 @@ pub fn decode(bytes: &[u8]) -> Result<Image, String> {
         crate::check_size(w, h)?;
     }
     let version = bytes.get(4..6).map(|v| u16::from_be_bytes([v[0], v[1]])).unwrap_or(0);
-    if version == 2 {
+    let mode = bytes.get(24..26).map(|v| u16::from_be_bytes([v[0], v[1]])).unwrap_or(0);
+    // PSB, and CMYK documents (the `psd` crate would convert those itself, without a profile): our reader.
+    if version == 2 || mode == 4 {
         return crate::psdraw::decode(bytes);
     }
     let via_crate = std::panic::catch_unwind(|| {
@@ -22,7 +24,10 @@ pub fn decode(bytes: &[u8]) -> Result<Image, String> {
         if rgba.len() != w as usize * h as usize * 4 {
             return Err("psd: unexpected composite size".to_string());
         }
-        Ok(Image::new(w, h, rgba))
+        let mut img = Image::new(w, h, rgba);
+        img.profile_assumable = true;
+        img.icc = crate::psdraw::icc_profile(bytes);
+        Ok(img)
     });
     match via_crate {
         Ok(Ok(img)) => Ok(img),

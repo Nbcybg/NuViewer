@@ -125,7 +125,7 @@ pub fn make_thumb(path: &Path) -> Result<Image, String> {
         }
     }
 
-    let full = nv_codecs::decode_file_first_frame(path)?;
+    let full = nv_codecs::decode_for_thumbnail(path)?;
     // Shrink first: colour conversion and rotation are then done on ~256 px instead of the full image.
     let small = nv_codecs::downscale(&full, THUMB_MAX).finish_for_thumb();
     drop(full);

@@ -6,9 +6,11 @@
 
 use std::path::Path;
 
+mod cmyk;
 mod develop;
 mod dicom;
 mod dims;
+mod docthumb;
 #[cfg(windows)]
 mod eps;
 pub mod errors;
@@ -34,6 +36,7 @@ mod psdraw;
 pub mod progress;
 mod raw;
 pub mod resize;
+pub mod stats;
 mod svgdec;
 mod swf;
 #[cfg(windows)]
@@ -41,24 +44,28 @@ mod wic;
 mod webpdec;
 
 pub use dims::peek_size;
+pub use docthumb::is_document_ext;
 pub use resize::downscale;
 
-pub use icc::Profile;
+pub use develop::{raw_mode, set_raw_mode, set_raw_thumbs_develop, RawMode};
+pub use icc::{ColourSettings, Intent, Profile};
 
-/// Colour management settings (see `icc`): on / off, the output profile (None = sRGB) and what pictures that carry no
-/// profile are taken to be (None = sRGB). Affects pictures decoded afterwards; on error nothing changes.
-pub fn configure_colour(enabled: bool, output: Option<Profile>, untagged: Option<Profile>) -> Result<(), String> {
-    icc::configure(enabled, output, untagged)
+/// Colour management settings (see `icc`): on / off, the output profile (None = sRGB), what pictures that carry no
+/// profile are taken to be (None = sRGB), what CMYK pictures without one are (None = Coated FOGRA39), the rendering
+/// intent and black point compensation. Affects pictures decoded afterwards; on error nothing changes.
+pub fn configure_colour(c: icc::ColourSettings) -> Result<(), String> {
+    icc::configure(c)
 }
 
 /// Would these colour choices be accepted by `configure_colour`? Changes nothing.
-pub fn check_colour(output: Option<Profile>, untagged: Option<Profile>) -> Result<(), String> {
-    icc::check(output, untagged)
+pub fn check_colour(c: icc::ColourSettings) -> Result<(), String> {
+    icc::check(c)
 }
 
 /// Part of a thumbnail cache key: changes when what an untagged picture's numbers mean changes.
 pub fn colour_signature() -> u64 {
-    icc::thumb_signature()
+    // RAW thumbnails made from the sensor data are not the embedded preview's: they must not share cache files.
+    icc::thumb_signature() ^ (((develop::raw_thumbs_develop() && develop::raw_mode() != RawMode::Preview) as u64) << 44)
 }
 
 static MODEL_TEXTURES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
@@ -98,6 +105,10 @@ pub fn page_path(path: &Path, _page: u32) -> std::path::PathBuf {
 pub fn split_page(path: &Path) -> (std::path::PathBuf, u32) {
     (path.to_path_buf(), 1)
 }
+
+/// A thumbnail source JPEG is decoded at no less than this many pixels on the long side (the thumbnails are 256: this is
+/// twice that, so the final shrink still averages real pixels).
+const THUMB_SOURCE_EDGE: u32 = 512;
 
 /// Largest texture dimension the renderer can create (D3D11 feature level 11_0).
 pub const GPU_MAX_DIM: u32 = 16384;
@@ -145,6 +156,17 @@ pub struct Image {
     /// A photo-style bitmap (JPEG, PNG, WebP): when it carries no profile the user's "pictures without a profile"
     /// choice applies. Renders (SVG, PDF, ...) are always sRGB.
     pub profile_assumable: bool,
+    /// The pixel buffer holds raw CMYK ink amounts (byte 0 = C ... byte 3 = K, 0 = no ink) that still have to be converted
+    /// to RGB through a profile (see `cmyk`). Every `apply_*` / `finish_for_*` below does that; until then the buffer is
+    /// not colours, so nothing may display or save it. `icc` then holds the CMYK profile of the file, if it has one.
+    pub cmyk: bool,
+    /// One line about how the colours were read, for the info panel (set when a CMYK picture is converted).
+    pub colour_note: Option<String>,
+    /// The picture had no profile and the user's CMYK choice was assumed: the viewer says so.
+    pub colour_assumed: bool,
+    /// How long the stages of decoding this picture took, in ms: ("decode", ..) (reading included), ("shrink", ..),
+    /// ("colour", ..). For the info panel; the process-wide table is in `stats`.
+    pub stages: Vec<(&'static str, f32)>,
     /// (page, page count) when this picture is one page of a multi-page document (PDF).
     pub page: Option<(u32, u32)>,
     /// For 3D models: the geometry (`pixels` hold a software-rendered preview). The viewer draws the mesh itself.
@@ -153,7 +175,7 @@ pub struct Image {
 
 impl Image {
     pub fn new(width: u32, height: u32, rgba: Vec<u8>) -> Self {
-        Image { width, height, rgba, delay_ms: 0, extra_frames: Vec::new(), reduced_from: None, orientation: 1, icc: None, profile_assumable: false, page: None, mesh: None }
+        Image { width, height, rgba, delay_ms: 0, extra_frames: Vec::new(), reduced_from: None, orientation: 1, icc: None, profile_assumable: false, cmyk: false, colour_note: None, colour_assumed: false, stages: Vec::new(), page: None, mesh: None }
     }
 
     pub fn frame_count(&self) -> usize {
@@ -166,29 +188,49 @@ impl Image {
     }
 
     /// Convert pixels that carry their own ICC profile to sRGB (what files, the clipboard and 3D textures need). Pictures
-    /// without a profile are left alone. No-op if there's nothing pending, or if colour management is switched off.
+    /// without a profile are left alone (CMYK ones are read as the user's CMYK choice: they have to become RGB). No-op if
+    /// there's nothing pending, or if colour management is switched off.
     pub fn apply_icc(&mut self) {
-        let icc = self.icc.take();
-        self.convert(icc::transform_for(icc.as_deref(), false, icc::Target::Srgb));
+        self.colour(false, icc::Target::Srgb);
     }
 
     /// Like `apply_icc`, but a photo without a profile is first read as what the user said such pictures are
     /// (thumbnails are cached as sRGB, so this is their conversion).
     pub fn apply_icc_assumed(&mut self) {
-        let icc = self.icc.take();
-        self.convert(icc::transform_for(icc.as_deref(), self.profile_assumable, icc::Target::Srgb));
+        self.colour(true, icc::Target::Srgb);
     }
 
     /// Bring the pixels to the output profile (the screen): from their own profile, the assumed one for a photo
     /// without a profile, or sRGB. Does nothing with the default settings and an sRGB picture.
     pub fn apply_display_colour(&mut self) {
-        let icc = self.icc.take();
-        self.convert(icc::transform_for(icc.as_deref(), self.profile_assumable, icc::Target::Display));
+        self.colour(true, icc::Target::Display);
     }
 
     /// sRGB pixels (a cached thumbnail) to the output profile.
     pub fn srgb_to_output(&mut self) {
         self.convert(icc::srgb_to_output());
+    }
+
+    fn colour(&mut self, assumable: bool, target: icc::Target) {
+        let icc = self.icc.take();
+        if self.cmyk {
+            self.cmyk = false;
+            if self.mesh.is_none() {
+                self.convert_cmyk(icc.as_deref(), target);
+            }
+            return;
+        }
+        self.convert(icc::transform_for(icc.as_deref(), assumable && self.profile_assumable, target));
+    }
+
+    /// Raw CMYK -> RGB (all frames), through the picture's own profile or the user's CMYK choice.
+    fn convert_cmyk(&mut self, profile: Option<&[u8]>, target: icc::Target) {
+        let outcome = cmyk::convert(&mut self.rgba, profile, target);
+        for f in &mut self.extra_frames {
+            cmyk::convert(&mut f.rgba, profile, target);
+        }
+        self.colour_note = Some(outcome.note);
+        self.colour_assumed = outcome.assumed;
     }
 
     fn convert(&mut self, t: Option<icc::Transform>) {
@@ -212,9 +254,9 @@ impl Image {
     /// Like `oriented`, but borrowing (copies the pixels when a rotation is needed).
     pub fn to_oriented(&self) -> Image {
         if (2..=8).contains(&(self.orientation as u32)) {
-            Image { rgba: self.rgba.clone(), extra_frames: Vec::new(), icc: None, page: self.page, mesh: self.mesh.clone(), ..*self }.oriented()
+            Image { rgba: self.rgba.clone(), extra_frames: Vec::new(), icc: None, page: self.page, mesh: self.mesh.clone(), colour_note: self.colour_note.clone(), stages: Vec::new(), ..*self }.oriented()
         } else {
-            Image { rgba: self.rgba.clone(), extra_frames: Vec::new(), icc: None, page: self.page, mesh: self.mesh.clone(), ..*self }
+            Image { rgba: self.rgba.clone(), extra_frames: Vec::new(), icc: None, page: self.page, mesh: self.mesh.clone(), colour_note: self.colour_note.clone(), stages: Vec::new(), ..*self }
         }
     }
 
@@ -234,7 +276,7 @@ impl Image {
     pub(crate) fn from_frames(width: u32, height: u32, frames: Vec<(Vec<u8>, u32)>) -> Option<Self> {
         let mut it = frames.into_iter();
         let (rgba, delay_ms) = it.next()?;
-        Some(Image { width, height, rgba, delay_ms, extra_frames: it.map(|(rgba, delay_ms)| Frame { rgba, delay_ms }).collect(), reduced_from: None, orientation: 1, icc: None, profile_assumable: false, page: None, mesh: None })
+        Some(Image { width, height, rgba, delay_ms, extra_frames: it.map(|(rgba, delay_ms)| Frame { rgba, delay_ms }).collect(), reduced_from: None, orientation: 1, icc: None, profile_assumable: false, cmyk: false, colour_note: None, colour_assumed: false, stages: Vec::new(), page: None, mesh: None })
     }
 }
 
@@ -341,14 +383,32 @@ fn looks_like_pdf(path: &Path) -> bool {
 pub fn decode_file(path: &Path) -> Result<Image, String> {
     // Order matters for speed: shrink first, then colour-convert, so a 100-megapixel panorama is converted at the
     // size it will actually be shown (and orientation is left to the GPU).
-    decode_file_opts(path, false)
-        .and_then(check_buffers)
-        .map(fit_gpu_limits)
-        .map(|mut img| {
+    let t0 = std::time::Instant::now();
+    let decoded = decode_file_opts(path, false, false).and_then(check_buffers);
+    let decode_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    decoded
+        .map(|img| {
+            let t = std::time::Instant::now();
+            let mut img = fit_gpu_limits(img);
+            let shrink_ms = t.elapsed().as_secs_f64() * 1000.0;
+            let t = std::time::Instant::now();
             img.apply_display_colour();
+            let colour_ms = t.elapsed().as_secs_f64() * 1000.0;
+            img.stages = vec![("decode", decode_ms as f32), ("shrink", shrink_ms as f32), ("colour", colour_ms as f32)];
+            record_stats("view", path, &img, decode_ms + shrink_ms + colour_ms);
+            stats::record_stage("shrink to GPU limits", shrink_ms);
+            stats::record_stage("colour conversion", colour_ms);
             img
         })
         .map_err(|e| with_code(path, e))
+}
+
+/// Add a finished decode to the process-wide table (`stats`).
+fn record_stats(kind: &str, path: &Path, img: &Image, ms: f64) {
+    let (real, _) = split_page(path);
+    let ext = real.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).unwrap_or_default();
+    let bytes = std::fs::metadata(&real).map(|m| m.len()).unwrap_or(0);
+    stats::record_decode(kind, &ext, ms, img.width, img.height, bytes);
 }
 
 /// Attach the error code (see `errors`) to a decode failure of `path`.
@@ -387,7 +447,25 @@ fn fit_within(img: Image, max_dim: u32, max_pixels: u64) -> Image {
 
 /// Decode only the first frame of animations (cheap; used for thumbnails).
 pub fn decode_file_first_frame(path: &Path) -> Result<Image, String> {
-    decode_file_opts(path, true).and_then(check_buffers).map_err(|e| with_code(path, e))
+    let t0 = std::time::Instant::now();
+    let r = decode_file_opts(path, true, false).and_then(check_buffers);
+    if let Ok(img) = &r {
+        record_stats("first frame", path, img, t0.elapsed().as_secs_f64() * 1000.0);
+    }
+    r.map_err(|e| with_code(path, e))
+}
+
+/// A picture to make a thumbnail from (the gallery, the film strip): the first frame, but only as big as a thumbnail needs
+/// it to be. A JPEG is decoded with its DCT scaled down (so the result can be smaller than the file's size, never smaller
+/// than twice the thumbnail); a RAW file gives its embedded preview, unless the setting asks for developing thumbnails too,
+/// then a half-size development. Use `decode_file_first_frame` when the whole picture is wanted (clipboard).
+pub fn decode_for_thumbnail(path: &Path) -> Result<Image, String> {
+    let t0 = std::time::Instant::now();
+    let r = decode_file_opts(path, true, true).and_then(check_buffers);
+    if let Ok(img) = &r {
+        record_stats("thumb", path, img, t0.elapsed().as_secs_f64() * 1000.0);
+    }
+    r.map_err(|e| with_code(path, e))
 }
 
 /// Every decoder must hand back `width * height * 4` bytes per frame; the downscaler, the CPU preview and the GPU
@@ -404,11 +482,15 @@ pub(crate) fn check_buffers(img: Image) -> Result<Image, String> {
     Ok(img)
 }
 
-fn decode_file_opts(path: &Path, first_only: bool) -> Result<Image, String> {
+fn decode_file_opts(path: &Path, first_only: bool, thumb: bool) -> Result<Image, String> {
     // A page of a multi-page document is addressed as "file.pdf?page=N": peel that off first.
     let (real_path, page) = split_page(path);
     let path = real_path.as_path();
     let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).unwrap_or_default();
+    // Archives, Office / OpenDocument files, Affinity files and text: the picture inside, or a card (never an error).
+    if docthumb::is_document_ext(&ext) {
+        return docthumb::decode(path, first_only);
+    }
     if ext == "ico" {
         // Windows' own icon codec first; our reader for the odd files it refuses.
         return decode_wic(path).or_else(|e| progress::read_file(path).and_then(|b| icon::decode_ico(&b)).map_err(|_| e));
@@ -456,6 +538,17 @@ fn decode_file_opts(path: &Path, first_only: bool) -> Result<Image, String> {
         let bytes = progress::read_file(path)?;
         return imgfmt::decode(&bytes, &ext);
     }
+    // Camera RAW: developed from the sensor data (what the camera recorded, with only what the camera wrote into the file
+    // applied), unless the user chose the embedded preview. Thumbnails only need a small picture: half size. A file that
+    // can't be developed (an unusual sensor, a damaged file) falls through to its embedded preview, as before.
+    if RAW_EXTS.contains(&ext.as_str()) {
+        let mode = develop::raw_mode();
+        if mode != RawMode::Preview && (!thumb || develop::raw_thumbs_develop()) {
+            if let Some(img) = catch_develop(path, if thumb { RawMode::Half } else { mode }) {
+                return Ok(img);
+            }
+        }
+    }
     // Fujifilm RAF: the preview JPEG is ~10% of the file, so read just that range instead of 56 MB (a big win on
     // slow disks). Anything unexpected falls through to the whole-file path below.
     if ext == "raf" {
@@ -478,7 +571,7 @@ fn decode_file_opts(path: &Path, first_only: bool) -> Result<Image, String> {
         if let Some(img) = raw::decode_tiff_skipping_sensor(path) {
             // A thumbnail-sized preview (Adobe DNG's 0.7 MP) looks blurry full screen: develop the sensor data at
             // half size instead, when that gives a clearly bigger picture.
-            if !first_only && (img.width as u64 * img.height as u64) < DEVELOP_BELOW_PX {
+            if !thumb && develop::raw_mode() == RawMode::Preview && (img.width as u64 * img.height as u64) < DEVELOP_BELOW_PX {
                 if let Some(dev) = try_develop(path, &img) {
                     return Ok(dev);
                 }
@@ -494,8 +587,8 @@ fn decode_file_opts(path: &Path, first_only: bool) -> Result<Image, String> {
         // Embedded preview first (fast); if there isn't one, let Windows' RAW codec try.
         return raw::decode_preview(&bytes).or_else(|e| {
             // No usable preview at all: develop the sensor data ourselves before asking Windows' RAW codec.
-            if !first_only {
-                if let Some(dev) = catch_develop(path) {
+            if !thumb && develop::raw_mode() == RawMode::Preview {
+                if let Some(dev) = catch_develop(path, RawMode::Half) {
                     return Ok(dev);
                 }
             }
@@ -503,7 +596,7 @@ fn decode_file_opts(path: &Path, first_only: bool) -> Result<Image, String> {
         });
     }
     match sniff(&bytes) {
-        Some(Kind::Jpeg) => jpeg::decode(&bytes, None),
+        Some(Kind::Jpeg) => thumb.then(|| jpeg::decode_scaled(&bytes, THUMB_SOURCE_EDGE, None)).flatten().map(Ok).unwrap_or_else(|| jpeg::decode(&bytes, None)),
         Some(Kind::Png) => pngdec::decode(&bytes, first_only),
         Some(Kind::Gif) => gifdec::decode(&bytes, first_only),
         Some(Kind::Webp) => webpdec::decode(&bytes, first_only),
@@ -559,22 +652,28 @@ pub(crate) fn decode_image_bytes(bytes: &[u8], ext_hint: &str) -> Result<Image, 
     }
 }
 
-/// Embedded previews below this many pixels are replaced by a half-size development of the sensor data. Kept at 1 MP
-/// on purpose (speed first): a Sony ARW's 1.7 MP preview opens in ~20 ms and is not developed (~170 ms), while an
-/// Adobe DNG's 0.7 MP preview is.
+/// In *preview* mode (the user chose the camera's embedded JPEG), a preview below this many pixels is still replaced by
+/// a half-size development of the sensor data: an Adobe DNG's 0.7 MP preview is a thumbnail, not a picture.
 const DEVELOP_BELOW_PX: u64 = 1_000_000;
 
-/// `develop::develop_half`, but a decoder panic or error just means "no result".
-fn catch_develop(path: &Path) -> Option<Image> {
-    if std::env::var_os("NUVIEWER_NO_DEVELOP").is_some() {
-        return None; // opt-out (and handy for comparing against the embedded preview)
+/// `develop::develop`, but a decoder panic or error just means "no result" (the caller falls back to the preview).
+/// `NUVIEWER_RAW_DEBUG=1` prints why a file wasn't developed.
+fn catch_develop(path: &Path, mode: RawMode) -> Option<Image> {
+    match std::panic::catch_unwind(|| develop::develop(path, mode)) {
+        Ok(Ok(img)) => Some(img),
+        Ok(Err(e)) => {
+            if std::env::var_os("NUVIEWER_RAW_DEBUG").is_some() {
+                eprintln!("raw develop failed: {e}");
+            }
+            None
+        }
+        Err(_) => None,
     }
-    std::panic::catch_unwind(|| develop::develop_half(path)).ok()?.ok()
 }
 
-/// Develop `path` if that yields a clearly larger picture than `preview`.
+/// Develop `path` (half size) if that yields a clearly larger picture than `preview`.
 fn try_develop(path: &Path, preview: &Image) -> Option<Image> {
-    let dev = catch_develop(path)?;
+    let dev = catch_develop(path, RawMode::Half)?;
     ((dev.width as u64 * dev.height as u64) * 2 > (preview.width as u64 * preview.height as u64) * 3).then_some(dev)
 }
 

@@ -256,6 +256,12 @@ struct Meta {
     normal_maps: usize,
     /// Bytes read from disk and the seconds that took (whole-file reads only).
     read: Option<(u64, f64)>,
+    /// How the colours were read (CMYK conversion, RAW development), for the info panel.
+    colour_note: Option<String>,
+    /// The picture had no profile and the user's CMYK choice was assumed.
+    assumed: bool,
+    /// Decode stage times in ms (decode, shrink, colour).
+    stages: Vec<(&'static str, f32)>,
 }
 
 /// A decoded picture waiting for its turn to be copied to the GPU.
@@ -649,7 +655,7 @@ impl App {
     fn finish_ingest(&mut self, id: u64, img: nv_codecs::Image, decode_ms: f64, read: Option<(u64, f64)>) -> bool {
         let (dw, dh) = img.display_size();
         let swap = |(w, h): (u32, u32)| if img.orientation >= 5 { (h, w) } else { (w, h) };
-        self.meta.insert(id, Meta { width: dw, height: dh, decode_ms, reduced_from: img.reduced_from.map(swap), page: img.page, tris: img.mesh.as_ref().map(|m| m.triangles()), textures: img.mesh.as_ref().map(|m| m.texture_count()).unwrap_or(0), normal_maps: img.mesh.as_ref().map(|m| m.parts.iter().filter(|p| p.normal_map.is_some()).count()).unwrap_or(0), read });
+        self.meta.insert(id, Meta { width: dw, height: dh, decode_ms, reduced_from: img.reduced_from.map(swap), page: img.page, tris: img.mesh.as_ref().map(|m| m.triangles()), textures: img.mesh.as_ref().map(|m| m.texture_count()).unwrap_or(0), normal_maps: img.mesh.as_ref().map(|m| m.parts.iter().filter(|p| p.normal_map.is_some()).count()).unwrap_or(0), read, colour_note: img.colour_note.clone(), assumed: img.colour_assumed, stages: img.stages.clone() });
         if let Some(mesh) = &img.mesh {
             if let Err(e) = self.renderer.upload_mesh(id, mesh) {
                 self.toast(format!("3D view unavailable: {e}"));
@@ -663,6 +669,12 @@ impl App {
             if let Some((ow, oh)) = img.reduced_from {
                 let (ow, oh) = swap((ow, oh));
                 self.toast(format!("Shown at {dw}x{dh} — the original {ow}x{oh} is more than the GPU can display"));
+            }
+            // A CMYK picture that carries no profile: say what it was taken to be, and where to change that.
+            if img.colour_assumed {
+                if let Some(note) = &img.colour_note {
+                    self.toast(format!("{note} — change it in Settings > CMYK & RAW"));
+                }
             }
             if self.first_image_ms.is_none() {
                 self.first_image_ms = Some(self.started.elapsed().as_secs_f64() * 1000.0);
@@ -1406,6 +1418,7 @@ fn main() {
     CANVAS.store(startup_settings.canvas, Ordering::Relaxed);
     colour::apply_at_startup(&startup_settings);
     nv_codecs::set_model_textures(startup_settings.model_textures);
+    nv_core::folder::set_include_documents(startup_settings.documents);
     let start_fullscreen = !flag("--windowed") && startup_settings.start_fullscreen;
     let actual_size = flag("--actual-size");
 
@@ -1507,6 +1520,8 @@ fn main() {
         }) as Box<dyn FnMut(Event)>)
     });
 
+    // The decode statistics of this session (per format and stage) for whoever wants to look at them.
+    nv_codecs::stats::save(&nv_codecs::stats::default_path());
     if let Err(e) = result {
         eprintln!("NuViewer error: {e}");
         std::process::exit(1);

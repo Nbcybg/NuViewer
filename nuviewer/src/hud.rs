@@ -128,6 +128,13 @@ impl App {
                 None => format!("{} × {}", m.width, m.height),
             };
             rows.insert(at, ("Dimensions".to_string(), dims));
+            if let Some(note) = &m.colour_note {
+                rows.insert(at + 1, ("Processing".to_string(), note.clone()));
+            }
+            if !m.stages.is_empty() {
+                let text = m.stages.iter().map(|(name, ms)| format!("{name} {ms:.0} ms")).collect::<Vec<_>>().join(", ");
+                rows.push(("Decoded in".to_string(), text));
+            }
         }
         if let Some(e) = self.failed.get(&id) {
             rows.insert(0, ("Error".to_string(), nv_codecs::errors::headline(e)));
@@ -281,6 +288,9 @@ impl App {
         let mut parts = vec![file_name_of(&path)];
         match self.meta.get(&id) {
             Some(m) => {
+                if m.assumed {
+                    parts.push("CMYK profile assumed".to_string());
+                }
                 let (w, h) = m.reduced_from.unwrap_or((m.width, m.height));
                 match m.tris {
                     Some(t) if m.textures > 0 => parts.push(format!("3D model, {t} triangles, {} texture{}", m.textures, if m.textures == 1 { "" } else { "s" })),

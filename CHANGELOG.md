@@ -3,6 +3,22 @@
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
 ### Added
+- **CMYK done properly.** Decoders (JPEG incl. YCCK, PSD / PSB, TIFF, JPEG 2000) hand over the raw inks; one colour engine
+  converts them through the embedded profile, or through the profile chosen in Settings > CMYK & RAW (Coated FOGRA39, built
+  in, by default; SWOP; any `.icc`) and the viewer says when it assumed one. Adobe's inverted CMYK / YCCK is handled; PSD /
+  TIFF profiles are read (RGB TIFFs now use theirs too). Verified against ColorSync's FOGRA39 values and LittleCMS
+  (`docs/colour-cmyk.md`). **Rendering intent** (relative colorimetric default, perceptual, saturation, absolute) and
+  **black point compensation** are settings. PDF pages still go through Windows' own CMYK conversion.
+- **RAW is developed from the sensor data** (full size by default, half size or the embedded preview as options): black /
+  white level, as-shot white balance and the camera's colour matrix only; the automatic exposure and highlight roll-off are
+  gone. Own multi-threaded demosaic (Bayer and X-Trans), ~270-350 ms for 18-26 MP (`docs/raw-development.md`).
+- **Thumbnails of documents:** zip / cbz / epub (first page / cover), docx / xlsx / pptx / odt / ods / odp (their saved
+  thumbnail, else the biggest picture), Affinity (the embedded preview), txt / md / log / csv (a card of the first lines), and
+  a card with the extension, name and size for anything without a picture. One ZIP reader, reading only the table of contents
+  and the one entry needed. Setting "List documents" (off by default).
+- **Decode statistics:** `nv_codecs::stats` (per format and per stage: count, average, min, max, MP/s), written to
+  `%LOCALAPPDATA%\NuViewer\decode-stats.txt`, the stage times of the picture on screen in the info panel (`I`), and the
+  `bench_decode` / `bench_colour` / `rawinfo` / `rawcheck` / `doccards` dev tools.
 - **Order of pictures.** One list per folder, shared by next / previous, the gallery, the film strip and the slideshow.
   Sort by name (natural, the default), date modified, size or type, ascending or descending (`J`, `Shift+J`, right-click >
   Sort by, Settings). **Shuffle** (`R`) puts the whole folder in a random order that stays until `R` is pressed again.
@@ -26,6 +42,11 @@ Notable changes to NuViewer, newest first. Details and measurements for each rou
 - "File types…" in the context menu opens in the same process instead of starting a second one.
 
 ### Changed
+- RAW thumbnails (gallery, film strip) still come from the embedded preview (setting `raw_thumbs` develops them too): development
+  reads the whole file, which is slow on slow disks.
+- PNG decoding skips the CRC / Adler checks and builds RGBA in one pass (~7% faster on 60 real PNGs); JPEG thumbnails of big
+  pictures are decoded with the DCT scaled down (15-25% faster).
+- `decode_file_first_frame` is the whole first frame (clipboard); the gallery uses `decode_for_thumbnail`.
 - `R` now shuffles the folder's order (it used to shuffle only the slideshow).
 - Settings > File types: the Select all / Select none / Apply buttons moved onto the OK / Cancel row to make room for the
   longer format list.

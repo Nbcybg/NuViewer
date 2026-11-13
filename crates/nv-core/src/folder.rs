@@ -64,6 +64,23 @@ pub struct Order {
     pub shuffle: Option<u64>,
 }
 
+static INCLUDE_DOCUMENTS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// List documents (zip / cbz, Office, OpenDocument, Affinity, text) next to the pictures when a folder is opened. They
+/// are shown by their preview picture or a card (see `nv_codecs::is_document_ext`). Affects folders opened afterwards.
+pub fn set_include_documents(on: bool) {
+    INCLUDE_DOCUMENTS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn include_documents() -> bool {
+    INCLUDE_DOCUMENTS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Is a file with this extension listed in a folder?
+pub fn is_listed_ext(ext: &str) -> bool {
+    nv_codecs::is_supported_ext(ext) || (include_documents() && nv_codecs::is_document_ext(ext))
+}
+
 /// Images in one directory in the chosen order (name by default), plus the index of the current one.
 pub struct FolderList {
     /// The directory being browsed (empty for "nothing open").
@@ -104,7 +121,7 @@ impl FolderList {
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
             .map(|e| e.path())
-            .filter(|p| p.extension().and_then(|x| x.to_str()).map(nv_codecs::is_supported_ext).unwrap_or(false))
+            .filter(|p| p.extension().and_then(|x| x.to_str()).map(is_listed_ext).unwrap_or(false))
             .collect();
         sort_files(&mut files, order);
         let index = target
@@ -400,6 +417,21 @@ mod tests {
 
     fn listed(l: &FolderList) -> Vec<String> {
         names(l)
+    }
+
+    #[test]
+    fn raw_and_jpg_of_one_shot_are_two_entries_and_documents_only_appear_when_asked() {
+        let dir = scratch("rawjpg", &[("DSCF0001.RAF", 10, 1), ("DSCF0001.JPG", 10, 2), ("notes.txt", 5, 3), ("book.cbz", 5, 4), ("pic.png", 5, 5)]);
+        let was = include_documents();
+        set_include_documents(false);
+        let pictures = listed(&FolderList::open(&dir).unwrap());
+        assert_eq!(pictures, ["DSCF0001.JPG", "DSCF0001.RAF", "pic.png"], "both files of the pair, no documents");
+        set_include_documents(true);
+        let with_docs = listed(&FolderList::open(&dir).unwrap());
+        assert_eq!(with_docs, ["book.cbz", "DSCF0001.JPG", "DSCF0001.RAF", "notes.txt", "pic.png"]);
+        assert!(is_listed_ext("docx") && is_listed_ext("jpg") && !is_listed_ext("exe"));
+        set_include_documents(was);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

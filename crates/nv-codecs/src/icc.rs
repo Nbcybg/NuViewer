@@ -16,8 +16,63 @@
 use moxcms::{ColorProfile, DataColorSpace, Layout, RenderingIntent, Transform8BitExecutor, TransformOptions};
 use std::sync::{Arc, OnceLock, RwLock};
 
+/// The ICC rendering intent used when a picture's colours are converted between two profiles.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Intent {
+    Perceptual,
+    /// Relative colorimetric (the default; what ColorSync does when it converts).
+    Relative,
+    Saturation,
+    Absolute,
+}
+
+impl Intent {
+    pub const ALL: [Intent; 4] = [Intent::Perceptual, Intent::Relative, Intent::Saturation, Intent::Absolute];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Intent::Perceptual => "perceptual",
+            Intent::Relative => "relative",
+            Intent::Saturation => "saturation",
+            Intent::Absolute => "absolute",
+        }
+    }
+
+    pub fn from_id(v: &str) -> Option<Intent> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "perceptual" => Intent::Perceptual,
+            "relative" | "relative colorimetric" => Intent::Relative,
+            "saturation" => Intent::Saturation,
+            "absolute" | "absolute colorimetric" => Intent::Absolute,
+            _ => return None,
+        })
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Intent::Perceptual => "perceptual",
+            Intent::Relative => "relative colorimetric",
+            Intent::Saturation => "saturation",
+            Intent::Absolute => "absolute colorimetric",
+        }
+    }
+
+    pub(crate) fn cms(self) -> RenderingIntent {
+        match self {
+            Intent::Perceptual => RenderingIntent::Perceptual,
+            Intent::Relative => RenderingIntent::RelativeColorimetric,
+            Intent::Saturation => RenderingIntent::Saturation,
+            Intent::Absolute => RenderingIntent::AbsoluteColorimetric,
+        }
+    }
+}
+
+/// Coated FOGRA39 (ISO 12647-2:2004), the European sheet-fed offset standard. It is the profile that was embedded in the
+/// user's "CMYK chart" PDF (output intent), kept here so a CMYK picture without a profile has a sensible reading.
+const FOGRA39_ICC: &[u8] = include_bytes!("../profiles/CoatedFOGRA39.icc");
+
 /// Pixels converted per call, so we never need a full-image scratch copy.
-const CHUNK_PIXELS: usize = 1 << 16;
+pub(crate) const CHUNK_PIXELS: usize = 1 << 16;
 
 pub type Transform = Arc<Transform8BitExecutor>;
 
@@ -30,19 +85,21 @@ pub struct Profile {
     is_srgb: bool,
     /// Identifies the profile in cache keys.
     id: u64,
+    /// A CMYK (four ink) profile; the others are RGB.
+    cmyk: bool,
 }
 
 impl Profile {
     pub fn srgb() -> Profile {
-        Profile { name: "sRGB".into(), profile: Arc::new(ColorProfile::new_srgb()), is_srgb: true, id: 1 }
+        Profile { name: "sRGB".into(), profile: Arc::new(ColorProfile::new_srgb()), is_srgb: true, id: 1, cmyk: false }
     }
 
     pub fn display_p3() -> Profile {
-        Profile { name: "Display P3".into(), profile: Arc::new(ColorProfile::new_display_p3()), is_srgb: false, id: 2 }
+        Profile { name: "Display P3".into(), profile: Arc::new(ColorProfile::new_display_p3()), is_srgb: false, id: 2, cmyk: false }
     }
 
     pub fn adobe_rgb() -> Profile {
-        Profile { name: "Adobe RGB (1998)".into(), profile: Arc::new(ColorProfile::new_adobe_rgb()), is_srgb: false, id: 3 }
+        Profile { name: "Adobe RGB (1998)".into(), profile: Arc::new(ColorProfile::new_adobe_rgb()), is_srgb: false, id: 3, cmyk: false }
     }
 
     /// Parse an ICC profile (the bytes of an `.icc` file). Only RGB profiles can describe or receive a colour picture.
@@ -53,11 +110,8 @@ impl Profile {
         }
         let name = profile_description(bytes).unwrap_or_else(|| "(unnamed profile)".into());
         let is_srgb = name.trim_start().to_ascii_lowercase().starts_with("srgb");
-        let mut id = 0xcbf2_9ce4_8422_2325u64;
-        for &b in bytes {
-            id = (id ^ b as u64).wrapping_mul(0x0000_0100_0000_01B3);
-        }
-        Ok(Profile { name, profile: Arc::new(parsed), is_srgb, id: id | 8 })
+        let id = hash_bytes(bytes);
+        Ok(Profile { name, profile: Arc::new(parsed), is_srgb, id: id | 8, cmyk: false })
     }
 
     pub fn from_file(path: &std::path::Path) -> Result<Profile, String> {
@@ -68,6 +122,54 @@ impl Profile {
     pub fn is_srgb(&self) -> bool {
         self.is_srgb
     }
+
+    pub fn is_cmyk(&self) -> bool {
+        self.cmyk
+    }
+
+    pub(crate) fn color_profile(&self) -> &ColorProfile {
+        &self.profile
+    }
+
+    pub(crate) fn id(&self) -> u64 {
+        self.id
+    }
+
+    /// Parse a CMYK ICC profile (printer / press profile such as FOGRA39 or SWOP).
+    pub fn cmyk_from_bytes(bytes: &[u8]) -> Result<Profile, String> {
+        let parsed = ColorProfile::new_from_slice(bytes).map_err(|e| format!("not a readable ICC profile ({e:?})"))?;
+        if parsed.color_space != DataColorSpace::Cmyk {
+            return Err(format!("it is a {:?} profile; a CMYK profile is needed", parsed.color_space));
+        }
+        let name = profile_description(bytes).unwrap_or_else(|| "(unnamed CMYK profile)".into());
+        Ok(Profile { name, profile: Arc::new(parsed), is_srgb: false, id: hash_bytes(bytes) | 16, cmyk: true })
+    }
+
+    pub fn cmyk_from_file(path: &std::path::Path) -> Result<Profile, String> {
+        let bytes = std::fs::read(path).map_err(|e| format!("can't read {}: {e}", path.display()))?;
+        Self::cmyk_from_bytes(&bytes).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    /// Coated FOGRA39, built in.
+    pub fn fogra39() -> Profile {
+        static P: OnceLock<Profile> = OnceLock::new();
+        P.get_or_init(|| Profile::cmyk_from_bytes(FOGRA39_ICC).expect("the built-in FOGRA39 profile parses")).clone()
+    }
+
+    /// Reference SWOP (the U.S. web offset standard), from the copy Windows ships (`RSWOP.icm`).
+    pub fn swop() -> Result<Profile, String> {
+        let dir = std::env::var_os("SystemRoot").map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"));
+        let path = dir.join("System32").join("spool").join("drivers").join("color").join("RSWOP.icm");
+        Self::cmyk_from_file(&path).map_err(|e| format!("The SWOP profile that comes with Windows could not be loaded ({e})"))
+    }
+}
+
+fn hash_bytes(bytes: &[u8]) -> u64 {
+    let mut id = 0xcbf2_9ce4_8422_2325u64;
+    for &b in bytes {
+        id = (id ^ b as u64).wrapping_mul(0x0000_0100_0000_01B3);
+    }
+    id
 }
 
 /// The text of an ICC profile's `desc` tag (v2 `desc` or v4 `mluc`), if it has a readable one.
@@ -101,16 +203,29 @@ pub fn profile_description(icc: &[u8]) -> Option<String> {
     None
 }
 
-fn make_transform(src: &ColorProfile, dst: &ColorProfile) -> Result<Transform, String> {
-    let options = TransformOptions { rendering_intent: RenderingIntent::RelativeColorimetric, ..Default::default() };
-    src.create_transform_8bit(Layout::Rgba, dst, Layout::Rgba, options).map_err(|e| format!("{e:?}"))
+pub(crate) fn make_transform(src: &ColorProfile, dst: &ColorProfile) -> Result<Transform, String> {
+    make_transform_with(src, dst, current().intent)
+}
+
+/// An 8-bit RGBA -> RGBA transform. If the profiles can't do `intent` (absolute colorimetric on a matrix profile, say)
+/// the conversion is made relative colorimetric rather than not at all.
+pub(crate) fn make_transform_with(src: &ColorProfile, dst: &ColorProfile, intent: Intent) -> Result<Transform, String> {
+    let try_intent = |i: RenderingIntent| {
+        let options = TransformOptions { rendering_intent: i, ..Default::default() };
+        src.create_transform_8bit(Layout::Rgba, dst, Layout::Rgba, options)
+    };
+    match try_intent(intent.cms()) {
+        Ok(t) => Ok(t),
+        Err(_) if intent != Intent::Relative => try_intent(RenderingIntent::RelativeColorimetric).map_err(|e| format!("{e:?}")),
+        Err(e) => Err(format!("{e:?}")),
+    }
 }
 
 /// Everything derived from the settings, ready to use. Built by `configure`.
-struct Config {
-    enabled: bool,
+pub(crate) struct Config {
+    pub(crate) enabled: bool,
     /// Profile of the output, None = sRGB.
-    output: Option<Profile>,
+    pub(crate) output: Option<Profile>,
     /// sRGB -> output; None = nothing to do (output is sRGB).
     srgb_to_out: Option<Transform>,
     /// What a profile-less photo-style bitmap becomes on the output; None = nothing to do.
@@ -119,14 +234,19 @@ struct Config {
     untagged_to_srgb: Option<Transform>,
     /// Changes whenever the meaning of a cached sRGB thumbnail changes.
     thumb_signature: u64,
+    /// What a CMYK picture without a profile is taken to be (None = built-in Coated FOGRA39).
+    pub(crate) cmyk: Option<Profile>,
+    pub(crate) intent: Intent,
+    /// Black point compensation for CMYK pictures under relative colorimetric intent.
+    pub(crate) bpc: bool,
 }
 
 fn lock() -> &'static RwLock<Arc<Config>> {
     static CONFIG: OnceLock<RwLock<Arc<Config>>> = OnceLock::new();
-    CONFIG.get_or_init(|| RwLock::new(Arc::new(Config { enabled: true, output: None, srgb_to_out: None, untagged_to_out: None, untagged_to_srgb: None, thumb_signature: 1 })))
+    CONFIG.get_or_init(|| RwLock::new(Arc::new(Config { enabled: true, output: None, srgb_to_out: None, untagged_to_out: None, untagged_to_srgb: None, thumb_signature: 1, cmyk: None, intent: Intent::Relative, bpc: false })))
 }
 
-fn current() -> Arc<Config> {
+pub(crate) fn current() -> Arc<Config> {
     lock().read().map(|g| g.clone()).unwrap_or_else(|e| e.into_inner().clone())
 }
 
@@ -137,36 +257,69 @@ fn install(cfg: Config) {
     }
 }
 
+/// Everything the colour settings decide.
+#[derive(Clone)]
+pub struct ColourSettings {
+    pub enabled: bool,
+    /// The profile of the screen; None = sRGB.
+    pub output: Option<Profile>,
+    /// What a JPEG / PNG / WebP without a profile is; None = sRGB.
+    pub untagged: Option<Profile>,
+    /// What a CMYK picture without a profile is; None = Coated FOGRA39.
+    pub cmyk: Option<Profile>,
+    pub intent: Intent,
+    pub bpc: bool,
+}
+
+impl ColourSettings {
+    /// The defaults with the three RGB-side choices (what the code before CMYK support had).
+    pub fn rgb(enabled: bool, output: Option<Profile>, untagged: Option<Profile>) -> ColourSettings {
+        ColourSettings { enabled, output, untagged, cmyk: None, intent: Intent::Relative, bpc: false }
+    }
+}
+
 /// Apply new colour settings (pictures decoded afterwards use them). `output` / `untagged` of None mean sRGB.
 /// On error nothing changes and the message says which profile can't be used and why.
-pub fn configure(enabled: bool, output: Option<Profile>, untagged: Option<Profile>) -> Result<(), String> {
-    install(build(enabled, output, untagged)?);
+pub fn configure(c: ColourSettings) -> Result<(), String> {
+    install(build(c)?);
     Ok(())
 }
 
 /// Would `configure` accept these? Changes nothing (for validating a settings form before it is saved).
-pub fn check(output: Option<Profile>, untagged: Option<Profile>) -> Result<(), String> {
-    build(true, output, untagged).map(|_| ())
+pub fn check(c: ColourSettings) -> Result<(), String> {
+    build(ColourSettings { enabled: true, ..c }).map(|_| ())
 }
 
-fn build(enabled: bool, output: Option<Profile>, untagged: Option<Profile>) -> Result<Config, String> {
+fn build(c: ColourSettings) -> Result<Config, String> {
+    let ColourSettings { enabled, output, untagged, cmyk, intent, bpc } = c;
+    if let Some(p) = &cmyk {
+        if !p.is_cmyk() {
+            return Err(format!("The profile \"{}\" is not a CMYK profile.", p.name));
+        }
+    }
     let srgb = ColorProfile::new_srgb();
     let output = output.filter(|p| !p.is_srgb);
     let out_profile = output.as_ref().map(|p| &*p.profile).unwrap_or(&srgb);
     let srgb_to_out = match &output {
-        Some(p) => Some(make_transform(&srgb, &p.profile).map_err(|e| format!("The output profile \"{}\" can't be used as a display profile ({e}).", p.name))?),
+        Some(p) => Some(make_transform_with(&srgb, &p.profile, intent).map_err(|e| format!("The output profile \"{}\" can't be used as a display profile ({e}).", p.name))?),
         None => None,
     };
     let untagged = untagged.filter(|p| !p.is_srgb);
     let (untagged_to_out, untagged_to_srgb) = match &untagged {
         Some(p) => (
-            Some(make_transform(&p.profile, out_profile).map_err(|e| format!("The profile \"{}\" can't be used for pictures without a profile ({e}).", p.name))?),
-            Some(make_transform(&p.profile, &srgb).map_err(|e| format!("The profile \"{}\" can't be used for pictures without a profile ({e}).", p.name))?),
+            Some(make_transform_with(&p.profile, out_profile, intent).map_err(|e| format!("The profile \"{}\" can't be used for pictures without a profile ({e}).", p.name))?),
+            Some(make_transform_with(&p.profile, &srgb, intent).map_err(|e| format!("The profile \"{}\" can't be used for pictures without a profile ({e}).", p.name))?),
         ),
         None => (srgb_to_out.clone(), None),
     };
-    let thumb_signature = (enabled as u64) ^ untagged.as_ref().map(|p| p.id).unwrap_or(0).rotate_left(1);
-    Ok(Config { enabled, output, srgb_to_out, untagged_to_out, untagged_to_srgb, thumb_signature })
+    // Cached thumbnails are sRGB: they depend on how pictures are *read* (untagged RGB, untagged CMYK, intent, BPC), not
+    // on the screen's profile.
+    let thumb_signature = (enabled as u64)
+        ^ untagged.as_ref().map(|p| p.id).unwrap_or(0).rotate_left(1)
+        ^ cmyk.as_ref().map(|p| p.id).unwrap_or(0).rotate_left(7)
+        ^ ((intent as u64 + 1) << 56)
+        ^ ((bpc as u64) << 60);
+    Ok(Config { enabled, output, srgb_to_out, untagged_to_out, untagged_to_srgb, thumb_signature, cmyk, intent, bpc })
 }
 
 /// Colour management on or off, as last configured.
@@ -235,23 +388,31 @@ pub fn srgb_to_output() -> Option<Transform> {
     if cfg.enabled { cfg.srgb_to_out.clone() } else { None }
 }
 
-/// Converts `rgba` in place with `t`. Big images are split across threads (the transform is immutable and shareable).
-pub fn apply(rgba: &mut [u8], t: &Transform) {
+/// Runs `f` over `rgba`, in parts, on several threads when the picture is big. `f` gets a whole number of pixels.
+pub(crate) fn par_parts(rgba: &mut [u8], f: impl Fn(&mut [u8]) + Sync) {
     let pixels = rgba.len() / 4;
     let threads = if pixels < 1_000_000 { 1 } else { std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).clamp(1, 6) };
     let per_thread = (pixels.div_ceil(threads)).max(1) * 4;
     let background = crate::progress::is_background();
+    let f = &f;
     std::thread::scope(|scope| {
         for part in rgba.chunks_mut(per_thread) {
             scope.spawn(move || {
                 crate::progress::set_background(background);
-                let mut tmp = vec![0u8; CHUNK_PIXELS * 4];
-                for chunk in part.chunks_mut(CHUNK_PIXELS * 4) {
-                    let n = chunk.len();
-                    tmp[..n].copy_from_slice(chunk);
-                    let _ = t.transform(&tmp[..n], chunk);
-                }
+                f(part);
             });
+        }
+    });
+}
+
+/// Converts `rgba` in place with `t`. Big images are split across threads (the transform is immutable and shareable).
+pub fn apply(rgba: &mut [u8], t: &Transform) {
+    par_parts(rgba, |part| {
+        let mut tmp = vec![0u8; CHUNK_PIXELS * 4];
+        for chunk in part.chunks_mut(CHUNK_PIXELS * 4) {
+            let n = chunk.len();
+            tmp[..n].copy_from_slice(chunk);
+            let _ = t.transform(&tmp[..n], chunk);
         }
     });
 }
@@ -285,7 +446,7 @@ mod tests {
     #[test]
     fn defaults_leave_pictures_alone() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        configure(true, None, None).unwrap();
+        configure(ColourSettings::rgb(true, None, None)).unwrap();
         assert!(transform_for(None, true, Target::Display).is_none());
         assert!(transform_for(None, false, Target::Display).is_none());
         assert!(srgb_to_output().is_none());
@@ -295,7 +456,7 @@ mod tests {
     #[test]
     fn output_profile_changes_srgb_pictures_and_embedded_ones() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        configure(true, Some(Profile::display_p3()), None).unwrap();
+        configure(ColourSettings::rgb(true, Some(Profile::display_p3()), None)).unwrap();
         // An sRGB saturated red is *less* saturated in P3 numbers.
         let mut px = [255u8, 0, 0, 255];
         apply(&mut px, &transform_for(None, true, Target::Display).expect("untagged photo is converted"));
@@ -311,25 +472,25 @@ mod tests {
         let mut to_srgb = [200u8, 80, 40, 255];
         apply(&mut to_srgb, &transform_for(Some(&icc), false, Target::Srgb).expect("p3 -> srgb"));
         assert!(to_srgb[0] != 200 || to_srgb[1] != 80);
-        configure(true, None, None).unwrap();
+        configure(ColourSettings::rgb(true, None, None)).unwrap();
     }
 
     #[test]
     fn assumed_profile_for_untagged_photos() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        configure(true, None, Some(Profile::adobe_rgb())).unwrap();
+        configure(ColourSettings::rgb(true, None, Some(Profile::adobe_rgb()))).unwrap();
         assert!(transform_for(None, true, Target::Display).is_some(), "untagged photo is read as Adobe RGB");
         assert!(transform_for(None, false, Target::Display).is_none(), "a render stays sRGB");
         assert!(transform_for(None, true, Target::Srgb).is_some());
-        configure(true, None, None).unwrap();
+        configure(ColourSettings::rgb(true, None, None)).unwrap();
     }
 
     #[test]
     fn switched_off_means_numbers_as_they_are() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        configure(false, Some(Profile::display_p3()), None).unwrap();
+        configure(ColourSettings::rgb(false, Some(Profile::display_p3()), None)).unwrap();
         assert!(transform_for(Some(&p3_icc()), true, Target::Display).is_none());
-        configure(true, None, None).unwrap();
+        configure(ColourSettings::rgb(true, None, None)).unwrap();
     }
 
     #[test]
@@ -346,12 +507,12 @@ mod tests {
     #[test]
     fn thumbnail_signature_follows_the_input_side_only() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        configure(true, None, None).unwrap();
+        configure(ColourSettings::rgb(true, None, None)).unwrap();
         let base = thumb_signature();
-        configure(true, Some(Profile::display_p3()), None).unwrap();
+        configure(ColourSettings::rgb(true, Some(Profile::display_p3()), None)).unwrap();
         assert_eq!(thumb_signature(), base, "the output profile is applied after the cache");
-        configure(true, None, Some(Profile::adobe_rgb())).unwrap();
+        configure(ColourSettings::rgb(true, None, Some(Profile::adobe_rgb()))).unwrap();
         assert_ne!(thumb_signature(), base);
-        configure(true, None, None).unwrap();
+        configure(ColourSettings::rgb(true, None, None)).unwrap();
     }
 }

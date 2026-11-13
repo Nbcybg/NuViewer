@@ -254,6 +254,45 @@ nv-win 14), `tools\test\e2e-session8.ps1` (49 checks, messages only), older e2e 
 
 New keys: `J`, `Shift+J`, `L`, `B`, `Shift+B`, `Ctrl+B` (R now shuffles the list). Sidebar has 16 buttons (film strip, read mode after Gallery).
 
+### Session 9 (2026-11-14): RAW developed, CMYK through profiles, document thumbnails, decode statistics
+
+The user's 11-point list. Details and numbers: `docs/raw-development.md`, `docs/colour-cmyk.md`, `docs/gallery-split.md`.
+
+1. **RAW.** `develop.rs` rewritten: the main path is development from the sensor data, `RawMode::{Full (default), Half, Preview}`
+   (setting `raw_mode`, env `NUVIEWER_RAW`). Only camera metadata is applied (levels, as-shot WB, colour matrix interpolated A..D65
+   at the WB's temperature, sRGB curve); **auto exposure and highlight roll-off removed**. Own threaded demosaic (Malvar-He-Cutler for
+   Bayer, 3x3 same-colour average for X-Trans, binned half size). Found and fixed on the way: the old code took
+   `HashMap::values().next()` as the colour matrix (random illuminant). Time before / after (warm): CR2 67 -> 349 ms, RAF 81 -> 273,
+   DNG 169 -> 332 (full), 223 / 123 / 169 (half). RAW thumbnails stay preview-based (`raw_thumbs` develops them; reads whole files).
+2. **Gallery / viewer survey and decisions** (`docs/gallery-split.md`): counts of every coupling, film strip stays in the viewer, Esc =
+   close viewer and raise NuGallery with the last seen picture selected (viewer sends `seen <path>`), no shared list (both build it:
+   0.4-1.9 ms), documents only in the gallery's list. Nothing split yet; `dpi` living in `Gallery` is the first thing to move.
+3. **Document thumbnails** `docthumb.rs`: own ZIP reader (central directory + one entry, zip64) for zip / cbz / epub / Office / OpenDocument,
+   Affinity preview PNG scan (**not verified on a real Affinity file**), text cards (GDI), fallback cards (badge, name, size). Setting
+   `documents` (off) -> `nv_core::folder::set_include_documents`. `decode_for_thumbnail` is new; `decode_file_first_frame` stays the whole
+   first frame (the clipboard uses it).
+4-7. **CMYK raw out of decoders**, converted in `cmyk.rs` through the embedded profile or the assumed one (FOGRA39 built in from the
+   user's PDF / SWOP from Windows / file), notice shown (toast + top bar + info panel row *Processing*); Adobe inversion for JPEG (marker
+   presence), YCCK, PSD / PSB (+ ICC resource 1039), TIFF via WIC native CMYK, JP2 (**untested on a real CMYK JP2**). moxcms does
+   support CMYK; BPC and absolute are done in `cmyk.rs` in float.
+8. PSD / PSB, TIFF, JP2: through profiles. **PDF / AI / EPS: no** (Windows.Data.Pdf converts itself; measured C100 -> 0,158,213).
+9. Settings > **CMYK & RAW** tab: CMYK profile, rendering intent, BPC, RAW mode, RAW thumbnails. Viewer tab: List documents.
+10. Validation `crates/nv-codecs/tests/cmyk_fogra39.rs`: the user's ColorSync values reproduce exactly with *relative colorimetric, no BPC*
+    (default), LittleCMS agreement within 1 level (4 with BPC, 12 absolute).
+11. Optimisation + statistics: `stats.rs` (table per format and stage, `Image::stages`, info panel *Decoded in*, saved to
+    `%LOCALAPPDATA%\NuViewer\decode-stats.txt` on exit). PNG: checksums off + one-pass RGBA (~7% warm). JPEG thumbnails: DCT-scaled
+    decode (15-25%). Measured and **not** worth it: zune-jpeg 0.5 (0.92-1.05x), colour conversion is already fast (12 MP: P3 ~9 ms,
+    CMYK ~33 ms, BPC ~105 ms).
+
+Tests: nv-codecs 160 unit + 8 (cmyk_fogra39) + 7, nv-core 58, nv-editor 16, nv-win 14, nuviewer 3; e2e: `e2e-features` 60, `e2e-session7` 64,
+`e2e-session8` 55, new `tools/test/e2e-session9.ps1` 16 (CMYK pixels on screen, RAW sizes, documents in the gallery). Dev tools in
+`crates/nv-codecs/examples`: `bench_decode`, `bench_colour`, `rawinfo`, `rawcheck`, `doccards`; `crates/nv-core/examples/scan_time`;
+`tools/extract-pdf-icc.py`, `tools/lcms-reference.py`.
+**Gotchas:** the Bash tool turns `\\n` inside heredoc python into a real newline (again): patch files containing backslashes with
+the Write / Edit tools. The repo mixes CRLF and LF files: edit with line-ending-preserving tools only.
+**Not done / ideas:** an exposure setting for RAW (the developed picture is darker than the camera JPEG by design); PDF through our
+profiles needs our own renderer; CBZ page navigation (`file.cbz?page=N`); the actual gallery split.
+
 ## 2. Build, test, run
 
 ```powershell

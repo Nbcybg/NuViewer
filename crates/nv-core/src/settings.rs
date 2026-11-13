@@ -4,6 +4,7 @@
 
 use crate::folder::SortKey;
 use nv_codecs::model::{LightMode, ModelStyle, Shading, UpAxis};
+use nv_codecs::{Intent, RawMode};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -46,6 +47,36 @@ impl ProfileChoice {
             "adobe" | "adobergb" => ProfileChoice::AdobeRgb,
             "system" => ProfileChoice::System,
             "file" => ProfileChoice::File,
+            _ => return None,
+        })
+    }
+}
+
+/// What a CMYK picture without a profile of its own is taken to be.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CmykChoice {
+    /// Coated FOGRA39 (ISO 12647-2:2004), built in.
+    Fogra39,
+    /// Reference SWOP, the copy Windows ships (`RSWOP.icm`).
+    Swop,
+    /// A CMYK `.icc` / `.icm` file the user picked.
+    File,
+}
+
+impl CmykChoice {
+    pub fn id(self) -> &'static str {
+        match self {
+            CmykChoice::Fogra39 => "fogra39",
+            CmykChoice::Swop => "swop",
+            CmykChoice::File => "file",
+        }
+    }
+
+    pub fn from_id(v: &str) -> Option<CmykChoice> {
+        Some(match v.trim().to_ascii_lowercase().as_str() {
+            "fogra39" | "fogra" => CmykChoice::Fogra39,
+            "swop" => CmykChoice::Swop,
+            "file" => CmykChoice::File,
             _ => return None,
         })
     }
@@ -94,6 +125,18 @@ pub struct Settings {
     /// What a JPEG / PNG / WebP without a profile is taken to be: sRGB, Display P3, Adobe RGB or a file.
     pub icc_untagged: ProfileChoice,
     pub icc_untagged_file: String,
+    /// What a CMYK picture without a profile is: FOGRA39, SWOP or a file (`cmyk_file`). The viewer says when it assumes this.
+    pub cmyk: CmykChoice,
+    pub cmyk_file: String,
+    /// Rendering intent of every profile conversion, and black point compensation (CMYK pictures, relative colorimetric).
+    pub intent: Intent,
+    pub bpc: bool,
+    /// How camera RAW files are shown: developed from the sensor data (full / half size) or the embedded preview.
+    pub raw_mode: RawMode,
+    /// Gallery thumbnails of RAW files are developed too (slow: the whole file is read); off = from the embedded preview.
+    pub raw_thumbs: bool,
+    /// Folders also list documents (zip / cbz, Office, OpenDocument, Affinity, text), shown by their preview or a card.
+    pub documents: bool,
     pub hold_zoom: HoldZoom,
     /// "Small picture" threshold for `HoldZoom::Auto`, percent of the screen in both directions.
     pub small_pct: u32,
@@ -143,6 +186,13 @@ impl Default for Settings {
             icc_output_file: String::new(),
             icc_untagged: ProfileChoice::Srgb,
             icc_untagged_file: String::new(),
+            cmyk: CmykChoice::Fogra39,
+            cmyk_file: String::new(),
+            intent: Intent::Relative,
+            bpc: false,
+            raw_mode: RawMode::Full,
+            raw_thumbs: false,
+            documents: false,
             hold_zoom: HoldZoom::Auto,
             small_pct: 50,
             wheel: WheelAction::Pages,
@@ -220,6 +270,13 @@ impl Settings {
                 "icc_output_file" => s.icc_output_file = v.to_string(),
                 "icc_untagged" => s.icc_untagged = ProfileChoice::from_id(v).filter(|c| *c != ProfileChoice::System).unwrap_or(s.icc_untagged),
                 "icc_untagged_file" => s.icc_untagged_file = v.to_string(),
+                "cmyk" => s.cmyk = CmykChoice::from_id(v).unwrap_or(s.cmyk),
+                "cmyk_file" => s.cmyk_file = v.to_string(),
+                "intent" => s.intent = Intent::from_id(v).unwrap_or(s.intent),
+                "bpc" => s.bpc = parse_bool(v).unwrap_or(s.bpc),
+                "raw_mode" => s.raw_mode = RawMode::from_id(v).unwrap_or(s.raw_mode),
+                "raw_thumbs" => s.raw_thumbs = parse_bool(v).unwrap_or(s.raw_thumbs),
+                "documents" => s.documents = parse_bool(v).unwrap_or(s.documents),
                 "hold_zoom" => {
                     s.hold_zoom = match v.to_ascii_lowercase().as_str() {
                         "auto" => HoldZoom::Auto,
@@ -315,6 +372,7 @@ impl Settings {
         let mut out = String::from("# NuViewer settings. Edit here or in the Settings window (Ctrl+,).\n");
         out += &format!("canvas = {:06X}\nstart_fullscreen = {}\nicc = {}\n", self.canvas, b(self.start_fullscreen), b(self.icc));
         out += &format!("icc_output = {}\nicc_output_file = {}\nicc_untagged = {}\nicc_untagged_file = {}\n", self.icc_output.id(), self.icc_output_file, self.icc_untagged.id(), self.icc_untagged_file);
+        out += &format!("cmyk = {}\ncmyk_file = {}\nintent = {}\nbpc = {}\nraw_mode = {}\nraw_thumbs = {}\ndocuments = {}\n", self.cmyk.id(), self.cmyk_file, self.intent.id(), b(self.bpc), self.raw_mode.id(), b(self.raw_thumbs), b(self.documents));
         out += &format!(
             "hold_zoom = {}\nsmall_pct = {}\n",
             match self.hold_zoom {
@@ -420,6 +478,13 @@ mod tests {
         s.icc_output = ProfileChoice::File;
         s.icc_output_file = r"D:\Colour\My Monitor = calibrated.icc".into();
         s.icc_untagged = ProfileChoice::DisplayP3;
+        s.cmyk = CmykChoice::File;
+        s.cmyk_file = r"D:\Profiles\Press = Coated v2.icc".into();
+        s.intent = Intent::Perceptual;
+        s.bpc = true;
+        s.raw_mode = RawMode::Half;
+        s.raw_thumbs = true;
+        s.documents = true;
         s.hold_zoom = HoldZoom::X400;
         s.small_pct = 30;
         s.wheel = WheelAction::Zoom;

@@ -42,7 +42,14 @@ fn worker_count(pixels: usize) -> usize {
 pub fn downscale(img: &Image, max_edge: u32) -> Image {
     let (w, h) = (img.width as usize, img.height as usize);
     if img.width <= max_edge && img.height <= max_edge {
-        return Image::new(img.width, img.height, img.rgba.clone());
+        let mut same = Image::new(img.width, img.height, img.rgba.clone());
+        same.cmyk = img.cmyk;
+        same.orientation = img.orientation;
+        same.icc = img.icc.clone();
+        same.profile_assumable = img.profile_assumable;
+        same.colour_note = img.colour_note.clone();
+        same.colour_assumed = img.colour_assumed;
+        return same;
     }
     let scale = max_edge as f64 / w.max(h) as f64;
     let dw = ((w as f64 * scale).round() as usize).max(1);
@@ -95,6 +102,10 @@ pub fn downscale(img: &Image, max_edge: u32) -> Image {
     result.orientation = img.orientation;
     result.icc = img.icc.clone();
     result.profile_assumable = img.profile_assumable;
+    // Raw CMYK is averaged ink by ink (the four channels are independent here, there is no alpha weighting).
+    result.cmyk = img.cmyk;
+    result.colour_note = img.colour_note.clone();
+    result.colour_assumed = img.colour_assumed;
     result
 }
 

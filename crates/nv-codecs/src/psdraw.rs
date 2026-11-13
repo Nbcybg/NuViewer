@@ -1,7 +1,9 @@
 //! Photoshop's merged ("flattened") picture read straight from the file: PSD and, above all, **PSB** (the "large document"
 //! format, version 2 of the same layout, which the `psd` crate refuses). Only the final composite is needed, so the layers
 //! are skipped by length and the image-data section is decoded: raw, RLE (PackBits) or ZIP, 8 or 16 bits per channel,
-//! in bitmap, greyscale, indexed, RGB, CMYK and Lab modes.
+//! in bitmap, greyscale, indexed, RGB, CMYK and Lab modes. CMYK is **not** converted here: the inks go out raw (Photoshop
+//! stores them inverted, 255 = no ink; that is undone) together with the embedded ICC profile (image resource 1039), and
+//! the colour engine does the rest (see `cmyk`).
 //!
 //! Layout (big-endian): header 26 bytes (`8BPS`, version 1|2, 6 reserved, channels, height, width, depth, mode), colour
 //! mode data (length u32), image resources (length u32), layer and mask info (length u32 for PSD, **u64 for PSB**), then
@@ -70,6 +72,7 @@ pub fn decode(bytes: &[u8]) -> Result<Image, String> {
     at += 4 + cm_len;
     // Image resources, then layers and masks: skipped.
     let res_len = be32(bytes, at)? as usize;
+    let resources = bytes.get(at + 4..(at + 4).saturating_add(res_len).min(bytes.len())).unwrap_or(&[]);
     at += 4 + res_len;
     let layer_len = if h.psb { be64(bytes, at)? as usize } else { be32(bytes, at)? as usize };
     at += if h.psb { 8 } else { 4 };
@@ -99,7 +102,41 @@ pub fn decode(bytes: &[u8]) -> Result<Image, String> {
         }
         c => return Err(format!("psd: unsupported compression {c}")),
     };
-    to_rgba(&h, &planes, plane, row_bytes, cm_data)
+    let mut img = to_rgba(&h, &planes, plane, row_bytes, cm_data)?;
+    if matches!(h.mode, 3 | 4) {
+        img.icc = icc_from_resources(resources);
+    }
+    Ok(img)
+}
+
+/// The embedded ICC profile (image resource 0x040F) of a PSD / PSB, if it has one. `bytes` is the whole file.
+pub(crate) fn icc_profile(bytes: &[u8]) -> Option<Vec<u8>> {
+    let cm_len = be32(bytes, 26).ok()? as usize;
+    let at = 26 + 4 + cm_len;
+    let res_len = be32(bytes, at).ok()? as usize;
+    icc_from_resources(bytes.get(at + 4..(at + 4).checked_add(res_len)?)?)
+}
+
+/// Walk the image resource blocks: `8BIM`, id (u16), a Pascal name padded to even, size (u32), data padded to even.
+fn icc_from_resources(res: &[u8]) -> Option<Vec<u8>> {
+    let mut i = 0;
+    while i + 12 <= res.len() {
+        if &res[i..i + 4] != b"8BIM" {
+            return None;
+        }
+        let id = u16::from_be_bytes([res[i + 4], res[i + 5]]);
+        let name_len = res[i + 6] as usize;
+        let name_total = (1 + name_len + 1) & !1;
+        let size_at = i + 6 + name_total;
+        let size = u32::from_be_bytes(res.get(size_at..size_at + 4)?.try_into().ok()?) as usize;
+        let data_at = size_at + 4;
+        if id == 0x040F {
+            let profile = res.get(data_at..data_at.checked_add(size)?)?;
+            return (profile.get(36..40) == Some(b"acsp")).then(|| profile.to_vec());
+        }
+        i = data_at.checked_add(size)?.checked_add(size & 1)?;
+    }
+    None
 }
 
 /// PackBits rows: all the byte counts first (u16 each in PSD, u32 in PSB), then the data of every scanline of every channel.
@@ -194,7 +231,9 @@ fn to_rgba(h: &Header, data: &[u8], plane: usize, row_bytes: usize, color_data: 
     if ch < needs {
         return Err(format!("psd: mode {} needs {needs} channels, the file has {ch}", h.mode));
     }
-    let has_alpha = ch > colours && matches!(h.mode, 1 | 3 | 4) && h.depth != 1;
+    // (CMYK keeps all four bytes of a pixel for the inks: a fifth channel, an alpha or spot colour, is dropped.)
+    let has_alpha = ch > colours && matches!(h.mode, 1 | 3) && h.depth != 1;
+    let cmyk = h.mode == 4;
     for y in 0..hgt {
         for x in 0..w {
             let o = (y * w + x) * 4;
@@ -211,9 +250,9 @@ fn to_rgba(h: &Header, data: &[u8], plane: usize, row_bytes: usize, color_data: 
                 }
                 3 => [p.at(0, x, y), p.at(1, x, y), p.at(2, x, y)],
                 4 => {
-                    // Photoshop keeps CMYK inverted: 255 means no ink.
-                    let (c, m, yy, k) = (p.at(0, x, y) as u32, p.at(1, x, y) as u32, p.at(2, x, y) as u32, p.at(3, x, y) as u32);
-                    [(c * k / 255) as u8, (m * k / 255) as u8, (yy * k / 255) as u8]
+                    // Photoshop keeps CMYK inverted: 255 means no ink. Hand the inks over as they are (0 = no ink).
+                    rgba[o + 3] = 255 - p.at(3, x, y);
+                    [255 - p.at(0, x, y), 255 - p.at(1, x, y), 255 - p.at(2, x, y)]
                 }
                 _ => lab_to_rgb(p.at(0, x, y), p.at(1, x, y), p.at(2, x, y)),
             };
@@ -225,6 +264,7 @@ fn to_rgba(h: &Header, data: &[u8], plane: usize, row_bytes: usize, color_data: 
     }
     let mut img = Image::new(w as u32, hgt as u32, rgba);
     img.profile_assumable = true;
+    img.cmyk = cmyk;
     Ok(img)
 }
 
@@ -305,15 +345,63 @@ mod tests {
     }
 
     #[test]
-    fn sixteen_bit_keeps_the_high_byte_and_cmyk_is_inverted() {
+    fn sixteen_bit_keeps_the_high_byte_and_cmyk_comes_out_raw() {
         // 1x1 16-bit grey 0xAB12 -> 0xAB.
         let img = decode(&make(2, 1, 1, 1, 1, 16, 0, &[0xAB, 0x12])).unwrap();
         assert_eq!(&img.rgba[..4], &[0xAB, 0xAB, 0xAB, 255]);
-        // CMYK with no ink at all (255 everywhere) is white; full black ink (K = 0) is black.
-        let white = decode(&make(2, 1, 1, 4, 4, 8, 0, &[255, 255, 255, 255])).unwrap();
-        assert_eq!(&white.rgba[..4], &[255, 255, 255, 255]);
+        // Photoshop stores CMYK inverted (255 = no ink). The decoder hands over ink amounts, not RGB: no ink at all is all
+        // zeros, full black ink (K stored as 0) is K = 255.
+        let none = decode(&make(2, 1, 1, 4, 4, 8, 0, &[255, 255, 255, 255])).unwrap();
+        assert!(none.cmyk);
+        assert_eq!(&none.rgba[..4], &[0, 0, 0, 0]);
         let black = decode(&make(2, 1, 1, 4, 4, 8, 0, &[255, 255, 255, 0])).unwrap();
         assert_eq!(&black.rgba[..4], &[0, 0, 0, 255]);
+        let cyan = decode(&make(2, 1, 1, 4, 4, 8, 0, &[0, 255, 255, 255])).unwrap();
+        assert_eq!(&cyan.rgba[..4], &[255, 0, 0, 0]);
+    }
+
+    #[test]
+    fn the_embedded_profile_is_found_in_the_image_resources() {
+        let fake_icc = {
+            let mut p = vec![0u8; 128];
+            p[36..40].copy_from_slice(b"acsp");
+            p
+        };
+        // One unrelated resource (id 1005, empty name, 3 bytes padded to 4), then the ICC profile (id 1039).
+        let mut res = Vec::new();
+        res.extend(b"8BIM");
+        res.extend(1005u16.to_be_bytes());
+        res.extend([0u8, 0]);
+        res.extend(3u32.to_be_bytes());
+        res.extend([1, 2, 3, 0]);
+        res.extend(b"8BIM");
+        res.extend(0x040Fu16.to_be_bytes());
+        res.extend([0u8, 0]);
+        res.extend((fake_icc.len() as u32).to_be_bytes());
+        res.extend(&fake_icc);
+        assert_eq!(icc_from_resources(&res), Some(fake_icc.clone()));
+        assert_eq!(icc_from_resources(&[b'8', b'B', b'I', b'M', 3, 0xED, 0, 0, 0, 0, 0, 0]), None);
+        assert_eq!(icc_from_resources(b"junk junk junk junk"), None);
+
+        // And in a whole file: header, colour mode data (0), resources, layers (0), then 1x1 CMYK raw.
+        let mut file = b"8BPS".to_vec();
+        file.extend(2u16.to_be_bytes());
+        file.extend([0u8; 6]);
+        file.extend(4u16.to_be_bytes());
+        file.extend(1u32.to_be_bytes());
+        file.extend(1u32.to_be_bytes());
+        file.extend(8u16.to_be_bytes());
+        file.extend(4u16.to_be_bytes());
+        file.extend(0u32.to_be_bytes());
+        file.extend((res.len() as u32).to_be_bytes());
+        file.extend(&res);
+        file.extend(0u64.to_be_bytes());
+        file.extend(0u16.to_be_bytes());
+        file.extend([255, 255, 255, 255]);
+        assert_eq!(icc_profile(&file), Some(fake_icc.clone()));
+        let img = decode(&file).unwrap();
+        assert!(img.cmyk);
+        assert_eq!(img.icc, Some(fake_icc));
     }
 
     #[test]

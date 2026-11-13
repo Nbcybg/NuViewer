@@ -11,11 +11,13 @@ A very fast, very light image viewer for Windows. Written in Rust on Win32 + Dir
 
 ## Formats
 
-- **Photos:** JPEG / JPE, PNG/APNG (also optimised PNGs from OptiPNG and friends: they are ordinary PNGs), GIF (animated), WebP (incl. animated), PSD and **PSB** (Photoshop large documents; the merged picture, 8/16 bit, RGB / CMYK / greyscale / indexed / Lab), **JPEG XL** (`.jxl`, animated too), **JPEG 2000** (`.jp2` `.j2k` `.j2c` `.jpf` `.jpx` `.jpc`), FLIF, PCX, DICOM (`.dcm`: uncompressed / RLE / JPEG / JPEG 2000 data, window centre and width applied), camera RAW (embedded preview, developed from the
-  sensor data when there is none), and, through Windows' own codecs: AVIF, HEIC (needs the Microsoft *HEVC Video
+- **Photos:** JPEG / JPE, PNG/APNG (also optimised PNGs from OptiPNG and friends: they are ordinary PNGs), GIF (animated), WebP (incl. animated), PSD and **PSB** (Photoshop large documents; the merged picture, 8/16 bit, RGB / CMYK / greyscale / indexed / Lab), **JPEG XL** (`.jxl`, animated too), **JPEG 2000** (`.jp2` `.j2k` `.j2c` `.jpf` `.jpx` `.jpc`), FLIF, PCX, DICOM (`.dcm`: uncompressed / RLE / JPEG / JPEG 2000 data, window centre and width applied), camera RAW (**developed from the sensor data**: black / white level, as-shot white balance and the camera's colour matrix, nothing added; the embedded preview is an option and the fallback), and, through Windows' own codecs: AVIF, HEIC (needs the Microsoft *HEVC Video
   Extensions*; `.hif` too), TIFF, BMP, JPEG XR. **Icons and bitmaps:** ICO, CUR (cursors), ICNS (Apple icons), DIB (Windows bitmaps without a file header). Camera RAW covers CR2 CR3 CRW NEF NRW PEF RAF RWL MRW ORF SRW X3F ARW SR2 SRF RW2 DNG and more. **Limits:** `.ecw` (ERDAS' compression is proprietary: NuViewer lists the files and says to convert them, e.g. `gdal_translate in.ecw out.jp2`; it does open them if you have an ECW codec for Windows installed), playing Flash `.swf` (it is a program: NuViewer shows the largest bitmap stored inside the movie, and says so when there is none). FLIF / JPEG XL / DICOM / PSB files that use rarely seen features are refused with an error code. Colour managed: a picture's embedded ICC profile (e.g. Display P3) is converted to the output profile you choose in
   Settings > Colour (sRGB, this PC's display profile from Windows, or any `.icc` / `.icm` file), and you decide what a
-  JPEG / PNG / WebP *without* a profile is (sRGB, Display P3, Adobe RGB or a file). Switchable.
+  JPEG / PNG / WebP *without* a profile is (sRGB, Display P3, Adobe RGB or a file). Switchable. **CMYK** pictures (JPEG / YCCK,
+  PSD / PSB, TIFF, JPEG 2000) are converted through their own profile, or, when they have none, through the one you choose
+  (Coated FOGRA39, SWOP or a file) and the viewer tells you it assumed it; rendering intent and black point compensation are
+  settings too (`docs/colour-cmyk.md`). PDF pages are drawn by Windows and do not go through these profiles.
 - **Game / render formats:** TGA (also `.icb`, `.vda`, `.vst`; RLE, colour-mapped, 16/24/32 bit), DDS (uncompressed and
   block-compressed BC1-BC7), PNM (PPM, PGM, PBM, PAM), Radiance HDR / RGBE (`.hdr` `.rgbe`) and OpenEXR (tone mapped to a normal picture), QOI.
 - **Documents:** PDF, one page at a time (rendered by Windows' own PDF engine, so text and vector graphics stay sharp);
@@ -111,11 +113,17 @@ Press **F1** (or **H**) in the app for this list; these are the defaults and **S
 
 - **Colour:** colour management on/off, the output profile (sRGB / the Windows display profile / a profile file) and the
   assumed profile of pictures that carry none. Saved rotations and the clipboard always stay sRGB.
+- **CMYK & RAW:** what a CMYK picture without a profile is taken to be (Coated FOGRA39 / SWOP / a file), the rendering intent
+  (relative colorimetric by default, perceptual, saturation, absolute) and black point compensation; and how camera RAW
+  is shown: developed full size (default), developed half size, or the camera's embedded preview, and whether gallery
+  thumbnails of RAW files are developed too (slow: whole files are read). See `docs/raw-development.md`.
 - **Viewer:** background colour, open fullscreen or windowed, what holding the left button does
   (automatic 100% / 200% for small pictures, always 100 / 200 / 400%, off) and what counts as "small", image sequences
   (fold, minimum length, playback speed), keep the playback bar visible, always show the disk read / write speed, and
   load the textures of 3D models, the left-edge viewer controls on/off, and what happens to a rotated picture when you
-  move on (ask every time, or save automatically).
+  move on (ask every time, or save automatically), and **List documents**: zip / cbz, docx / xlsx / pptx / odt, txt and
+  Affinity files appear in folders and the gallery with a preview picture (the first page, the Office thumbnail, the
+  first lines of the text) or a card with name and size.
 - **File types:** the format check-box list (same as `--associate`), applied with one button.
 - **External programs:** a list of programs the current picture can be sent to (*Open with* in the right-click menu).
   The command line uses `{file}` for the path, e.g. `"C:\Program Files\Adobe\Adobe Photoshop\Photoshop.exe" "{file}"`.
