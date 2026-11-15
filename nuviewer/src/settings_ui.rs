@@ -17,6 +17,11 @@ const TAB_3D: u16 = 14;
 const TAB_COLOUR: u16 = 15;
 const TAB_PRINT: u16 = 16;
 const TAB_EDITOR: u16 = 17;
+const TAB_QUICK: u16 = 18;
+// Space preview (NuQuick) page.
+const Q_RUN: u16 = 950;
+const Q_STARTUP: u16 = 951;
+const Q_STATUS: u16 = 952;
 // NuEditor page.
 const ED_SAVE: u16 = 901;
 const ED_ASK: u16 = 902;
@@ -194,13 +199,13 @@ fn parse_percent(text: &str, lo: u32, hi: u32, fallback: u32) -> u32 {
 
 /// Show the window. Returns the new settings if the user pressed OK.
 pub fn edit(current: &Settings) -> Option<Settings> {
-    let form = Form::new(&format!("NuViewer {} — Settings", env!("CARGO_PKG_VERSION")), 760, 704).ok()?;
+    let form = Form::new(&format!("NuViewer {} — Settings", env!("CARGO_PKG_VERSION")), 860, 704).ok()?;
     let c = current;
 
     // Tabs (always visible).
     form.begin_page(0);
     let mut tab_x = 12;
-    for (i, (id, name, width)) in [(TAB_VIEWER, "Viewer", 64), (TAB_COLOUR, "Colour", 64), (TAB_PRINT, "CMYK && RAW", 100), (TAB_3D, "3D", 40), (TAB_TYPES, "File types", 80), (TAB_EXTERNAL, "External programs", 128), (TAB_INPUT, "Mouse && keyboard", 138), (TAB_EDITOR, "NuEditor", 76)].iter().enumerate() {
+    for (i, (id, name, width)) in [(TAB_VIEWER, "Viewer", 64), (TAB_COLOUR, "Colour", 64), (TAB_PRINT, "CMYK && RAW", 100), (TAB_3D, "3D", 40), (TAB_TYPES, "File types", 80), (TAB_EXTERNAL, "External programs", 128), (TAB_INPUT, "Mouse && keyboard", 138), (TAB_EDITOR, "NuEditor", 76), (TAB_QUICK, "Space preview", 104)].iter().enumerate() {
         form.tab(*id, tab_x, 10, *width, 30, name, i == 0, i == 0);
         tab_x += *width + 4;
     }
@@ -254,6 +259,17 @@ pub fn edit(current: &Settings) -> Option<Settings> {
     form.label_id(C_UNT_STATUS, 28, 436, 660, 36, "");
     form.label(28, 474, 660, 28, "A picture with its own profile always uses it. SVG and other renders are always sRGB. CMYK pictures and rendering intent: see the CMYK && RAW tab.");
     form.label(14, 516, 690, 70, "Rotated pictures that are saved, and the clipboard, stay sRGB. Thumbnails and the picture on screen follow the output profile. A changed profile reloads the open pictures when you press OK.");
+
+    // ---- page 9: Space preview (NuQuick) ----
+    form.begin_page(9);
+    form.group(12, 52, 696, 250, "NuQuick: press Space in Explorer to see the picture");
+    form.label(28, 80, 660, 56, "NuQuick sits in the background (about 2 MB, no CPU while idle). With Explorer or the desktop in front, Space shows the selected picture at once, without taking the focus: the arrow keys keep moving the selection and the preview follows. Space or Esc closes it, Enter opens it in NuViewer.");
+    form.check(Q_RUN, 28, 150, 660, 22, "Run NuQuick now", crate::quick_agent::running());
+    form.check(Q_STARTUP, 28, 182, 660, 22, "Start NuQuick when I sign in to Windows", crate::quick_agent::startup());
+    form.label_id(Q_STATUS, 28, 214, 660, 40, "");
+    form.label(28, 262, 660, 36, "Its icon is near the clock (maybe behind the little arrow); right-click it for Pause, Settings and Quit.");
+    form.group(12, 312, 696, 150, "What it does and does not do");
+    form.label(28, 338, 660, 116, "It shows JPEG, PNG, WebP, GIF (first frame), BMP, TIFF, AVIF, HEIC, JPEG XL, PSD, SVG and camera RAW files. PDF, documents, 3D models and archives are left to NuViewer on purpose: a slow guess would make Space feel slow. Space is only taken while the file list has the focus (typing a file name still works), and the keyboard hook exists only while Explorer or the desktop is in front, so games never see it.");
 
     // ---- page 8: NuEditor ----
     form.begin_page(8);
@@ -380,8 +396,8 @@ pub fn edit(current: &Settings) -> Option<Settings> {
 
     // Buttons (always visible).
     form.begin_page(0);
-    form.button(ID_OK, 576, 666, 84, 28, "OK", true);
-    form.button(ID_CANCEL, 668, 666, 80, 28, "Cancel", false);
+    form.button(ID_OK, 676, 666, 84, 28, "OK", true);
+    form.button(ID_CANCEL, 768, 666, 80, 28, "Cancel", false);
     form.show_page(1);
 
     let mut cur = c.clone();
@@ -441,6 +457,11 @@ pub fn edit(current: &Settings) -> Option<Settings> {
             TAB_EXTERNAL => form.show_page(3),
             TAB_INPUT => form.show_page(4),
             TAB_EDITOR => form.show_page(8),
+            TAB_QUICK => {
+                form.set_text(Q_STATUS, &crate::quick_agent::status());
+                form.show_page(9);
+            }
+            x if x == Q_RUN || x == Q_STARTUP => form.set_text(Q_STATUS, &crate::quick_agent::status_after(form.is_checked(Q_RUN), form.is_checked(Q_STARTUP))),
             V_PICK => {
                 let now = u32::from_str_radix(form.text(V_CANVAS).trim().trim_start_matches('#'), 16).unwrap_or(cur.canvas);
                 if let Some(c) = nv_win::shell::pick_color(form.hwnd, now) {
@@ -572,6 +593,11 @@ pub fn edit(current: &Settings) -> Option<Settings> {
                 s.editor_suffix = form.text(ED_SUFFIX).chars().filter(|c| !r#"\/:*?"<>|"#.contains(*c)).take(32).collect();
                 s.editor_exif = form.is_checked(ED_EXIF);
                 s.editor_show_pair = form.is_checked(ED_SHOW_PAIR);
+                if let Err(e) = crate::quick_agent::apply(form.is_checked(Q_RUN), form.is_checked(Q_STARTUP)) {
+                    nv_win::shell::message(&e);
+                    form.show_page(9);
+                    return false;
+                }
                 s.editor_watermark = form.text(ED_WATERMARK).chars().take(120).collect();
                 s.rotate_save = ROTATE_VALUES[form.combo_index(V_ROTATE_SAVE).min(ROTATE_VALUES.len() - 1)];
                 s.model.shading = Shading::ALL[form.combo_index(D_SHADING).min(Shading::ALL.len() - 1)];

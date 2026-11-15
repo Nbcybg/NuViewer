@@ -462,6 +462,43 @@ The user's list, and what was done (details of every choice are in the code comm
     folder, demo data), scan, sub-folder layout + naming + event name, options, "Import..." shows a dry run and copies nothing.
     RAW and JPG stay separate files and share one shot number when numbering (`plan.rs`, tested). Packed into the installer.
 
+### Session 13 (2026-11-16): NuQuick, the Space-bar preview for Explorer (`nuquick/`, `nuquick.exe`, `docs/nuquick.md`)
+
+The user wants "Quick Look for Windows", faster than macOS, with the cost of sitting in the background worked out first (a consultation
+turned into a build). Design, numbers, switches and the not-verified list are in `docs/nuquick.md`. Short version:
+- One resident process: hidden window + tray icon; the keyboard hook and the selection WinEvent are installed only while Explorer / the
+  desktop is in front (a foreground WinEvent switches them), so games never see a hook. Space shows the selected picture in a borderless,
+  never-activated window (Explorer keeps the focus, arrows keep moving the selection); Space / Esc closes, Enter opens NuViewer.
+- Selection lookup by shell COM (`explorer.rs`, ~1.5-5 ms); decode worker with a 4-entry cache and a 120 ms-debounced pre-decode
+  (`view.rs`); window pre-placed after the decode. Measured background cost: private 2.3 MB / working set 0.1 MB / CPU 0 idle, ~10 MB
+  private after use, trimmed 60 s after the last use. Space -> pixels ~9 ms for a pre-decoded 12 MP JPEG; stand-alone `--preview` ~100 ms.
+- Findings worth keeping: a CS_DROPSHADOW window costs ~8 ms every time it is shown (dropped for a 1 px edge); `SendInput` from the thread
+  that owns a low-level hook stalls (re-injection runs on a spawned thread); `PrintWindow` does not capture GDI text in this window (use
+  `CopyFromScreen`); in PowerShell 5.1 `Process.WaitForExit(ms)` on a `Start-Process -PassThru` object reported "still running" for a
+  process that had exited in 30 ms (poll `HasExited` + `Refresh()`); a killed process can stay listed as an exited zombie while another
+  process holds a handle to it, and then its exe cannot be overwritten (rename the exe first, then build).
+- NOT verified: the real Space key through the hook, following the selection with the arrow keys, Enter, tray menu, DPI > 100%, tabs,
+  desktop, admin Explorer. Test: `tools/test/e2e-quick.ps1` (12 checks, messages only; it opens one Explorer window on a temp folder).
+- The user could not start the first build ("can't open"): the named-mutex single-instance guard refused every start while killed test
+  processes were still listed (they keep their handles) and a start by hand shows nothing but a tray icon. Now single instance = the agent's
+  window (`nv_win::quick`), a hand start shows a tray balloon, and **Settings > Space preview** (`nuviewer/src/quick_agent.rs`,
+  `nv_win/src/quick.rs`) runs / stops the agent and sets the Run entry (`"nuquick.exe" --silent`). The Settings window is 860 px wide now.
+- "Space works sometimes" (user, same day): the COM lookup ran on the thread that owns the low-level hook; slow lookups (up to 590 ms seen with
+  5 Explorer windows open) make Windows skip and eventually drop the hook. Rewritten: `keys.rs` (hook thread, atomics), `lookup.rs` (lookup
+  thread), main thread only drives. Space is taken whenever the list has the focus and handed back if the item is not a picture. Quick Look
+  behaviour: the preview follows the selection until Space / Esc, cards (`view::card_for`) for non-pictures / decode failures, 150 ms poll while up.
+  `e2e-quick.ps1` now 22 checks (selection changed through `Document.SelectItem`, `NUQUICK_TEST_DIR` keeps tests out of the user's windows).
+  Gallery "image sequences always folded, no toggle": the user's installed build (9:55 PM) predates session 12's Ctrl+G / View > Group image
+  sequences (default off); the new setup has it.
+- User's next round (same day): NuQuick window draggable + remembers its centre (`view.rs`, manual drag with capture; `NUQUICK_POS_FILE` for tests), info
+  cards for every non-picture (`card.rs`: shell icon / thumbnail via `IShellItemImageFactory`, kind via `SHGetFileInfo`, rows Kind / Size|Contains /
+  Created / Modified / Where), Space is taken for any selected item. NuGallery: `Panels.top_inset` pushes toolbar + side panels under the menu bar
+  (`App::sync_menubar_inset`, called from draw and pointer moves), "Group image sequences" in the right-click menu. NuViewer: name bar zone = 1% of
+  the height (min 6 px). NuEditor's menu bar was NOT checked for the same overlap. `e2e-quick.ps1` 29 checks. PowerShell gotcha: `lp` is an alias
+  (Out-Printer): never name a function `Lp`.
+- Installer and `tools/package.ps1` now carry `nuquick.exe` (installer removes the Run entry and quits the agent on uninstall); the full
+  package build was not run. Nothing committed (the user did not ask).
+
 ## 2. Build, test, run
 
 ```powershell

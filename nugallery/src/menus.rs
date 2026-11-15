@@ -180,6 +180,7 @@ impl App {
         menu.push(Item::Separator);
         menu.push(b.item(Cmd::Refresh, "Refresh\tF5"));
         menu.push(b.checked(Cmd::Shuffle, "Shuffle\tCtrl+R", shuffled));
+        menu.push(b.checked(Cmd::ToggleSequences, "Group image sequences\tCtrl+G", self.settings.sequences));
         let select = vec![
             b.item(Cmd::SelectItem, "Item (toggle)").enabled(has),
             b.item(Cmd::SelectAll, "All\tCtrl+A"),

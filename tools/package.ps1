@@ -15,7 +15,7 @@ try {
     if ($TargetDir) { $env:CARGO_TARGET_DIR = $TargetDir }
     # cargo prints progress on stderr, which Windows PowerShell 5.1 would turn into a terminating error under 'Stop'.
     $ErrorActionPreference = 'Continue'
-    cargo build --release -p nuviewer -p nugallery -p nueditor -p nuimporter 2>&1 | ForEach-Object { "$_" }
+    cargo build --release -p nuviewer -p nugallery -p nueditor -p nuimporter -p nuquick 2>&1 | ForEach-Object { "$_" }
     $buildExit = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     if ($buildExit -ne 0) { throw "cargo build failed (exit code $buildExit)" }
@@ -29,12 +29,15 @@ try {
     if (-not (Test-Path $editorExe)) { throw "missing $editorExe" }
     $importerExe = Join-Path $target 'release\nuimporter.exe'
     if (-not (Test-Path $importerExe)) { throw "missing $importerExe" }
+    $quickExe = Join-Path $target 'release\nuquick.exe'
+    if (-not (Test-Path $quickExe)) { throw "missing $quickExe" }
 
     # The installer carries nuviewer.exe inside itself (setup\build.rs reads $env:NUVIEWER_EXE), so it is built second.
     $env:NUVIEWER_EXE = $exe
     $env:NUGALLERY_EXE = $galleryExe
     $env:NUEDITOR_EXE = $editorExe
     $env:NUIMPORTER_EXE = $importerExe
+    $env:NUQUICK_EXE = $quickExe
     $ErrorActionPreference = 'Continue'
     cargo build --release -p nuviewer-setup 2>&1 | ForEach-Object { "$_" }
     $setupExit = $LASTEXITCODE
@@ -56,6 +59,7 @@ try {
     Copy-Item $galleryExe (Join-Path $stage 'nugallery.exe')
     Copy-Item $editorExe (Join-Path $stage 'nueditor.exe')
     Copy-Item $importerExe (Join-Path $stage 'nuimporter.exe')
+    Copy-Item $quickExe (Join-Path $stage 'nuquick.exe')
     Copy-Item (Join-Path $root 'README.md') $stage
     # Helpers so people don't need a terminal to register / unregister the file types.
     Set-Content (Join-Path $stage 'Choose-FileTypes.cmd')     "@echo off`r`n`"%~dp0nuviewer.exe`" --associate`r`n"  -Encoding ASCII

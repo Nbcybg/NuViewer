@@ -38,6 +38,8 @@ pub struct Panels {
     pub pin_top: bool,
     pub pin_left: bool,
     pub pin_right: bool,
+    /// Height of the menu bar while it shows: the toolbar and the side panels are pushed down by it instead of being covered.
+    pub top_inset: f32,
 }
 
 impl Panels {
@@ -81,9 +83,10 @@ impl Chrome {
 
 pub fn layout(w: f32, h: f32, d: f32, p: &Panels) -> Chrome {
     let top_h = TOP_H * d;
-    let top = p.top_shown().then_some([0.0, 0.0, w, top_h]);
+    let oy = p.top_inset.max(0.0);
+    let top = p.top_shown().then_some([0.0, oy, w, oy + top_h]);
     // Side panels start under the toolbar when it is shown, so the two never overlap.
-    let side_top = if p.top_shown() { top_h } else { 0.0 };
+    let side_top = if p.top_shown() { oy + top_h } else { oy };
     let left_w = (LEFT_W * d).min(w * 0.4);
     let right_w = (RIGHT_W * d).min(w * 0.45);
     let left = p.left_shown().then_some([0.0, side_top, left_w, h]);
@@ -100,7 +103,7 @@ pub fn layout(w: f32, h: f32, d: f32, p: &Panels) -> Chrome {
     let (mut path_box, mut search_box) = ([0.0; 4], [0.0; 4]);
     if top.is_some() {
         let (b, pad, gap) = (BTN * d, PAD * d, 4.0 * d);
-        let (y0, y1) = ((top_h - b) / 2.0, (top_h + b) / 2.0);
+        let (y0, y1) = (oy + (top_h - b) / 2.0, oy + (top_h + b) / 2.0);
         let mut x = pad;
         let pin_w = 30.0 * d;
         buttons.push((Btn::PinTop, [x, y0, x + pin_w, y1]));
@@ -190,6 +193,19 @@ mod tests {
             }
             assert!(c.path_box[2] - c.path_box[0] >= 80.0 * d);
         }
+    }
+
+    #[test]
+    fn the_menu_bar_pushes_the_toolbar_and_the_side_panels_down() {
+        let open = Panels { top_open: true, left_open: true, ..Default::default() };
+        let plain = layout(1600.0, 900.0, 1.0, &open);
+        let pushed = layout(1600.0, 900.0, 1.0, &Panels { top_inset: 28.0, ..open });
+        assert_eq!(pushed.top.unwrap()[1], plain.top.unwrap()[1] + 28.0);
+        assert_eq!(pushed.left.unwrap()[1], plain.left.unwrap()[1] + 28.0);
+        for (a, b) in plain.buttons.iter().zip(&pushed.buttons) {
+            assert!((b.1[1] - a.1[1] - 28.0).abs() < 0.01 && (b.1[3] - a.1[3] - 28.0).abs() < 0.01, "{:?}", a.0);
+        }
+        assert!((pushed.path_box[1] - plain.path_box[1] - 28.0).abs() < 0.01);
     }
 
     #[test]

@@ -11,6 +11,7 @@ pub const APP_EXE: &str = "nuviewer.exe";
 pub const GALLERY_EXE: &str = "nugallery.exe";
 pub const EDITOR_EXE: &str = "nueditor.exe";
 pub const IMPORTER_EXE: &str = "nuimporter.exe";
+pub const QUICK_EXE: &str = "nuquick.exe";
 pub const UNINSTALLER: &str = "uninstall.exe";
 const SHORTCUT: &str = "NuViewer.lnk";
 const SHORTCUT_TYPES: &str = "NuViewer file types.lnk";
@@ -231,6 +232,11 @@ pub fn uninstall(env: &Env, dir: &Path) -> Result<(), String> {
     let _ = std::fs::remove_file(dir.join(GALLERY_EXE));
     let _ = std::fs::remove_file(dir.join(EDITOR_EXE));
     let _ = std::fs::remove_file(dir.join(IMPORTER_EXE));
+    // NuQuick sits in the background: stop it so its file can go, and forget its "start with Windows" entry.
+    let _ = std::process::Command::new(dir.join(QUICK_EXE)).arg("--quit").status();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    registry::delete_value(r"Software\Microsoft\Windows\CurrentVersion\Run", "NuQuick");
+    let _ = std::fs::remove_file(dir.join(QUICK_EXE));
     if let Some(data) = &env.data_dir {
         let _ = std::fs::remove_dir_all(data);
     }

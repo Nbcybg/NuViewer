@@ -179,6 +179,7 @@ impl App {
             return;
         }
         self.upload_staged();
+        self.sync_menubar_inset();
         let g = self.grid();
         let scroll = g.clamp(self.scroll);
         let hover = {

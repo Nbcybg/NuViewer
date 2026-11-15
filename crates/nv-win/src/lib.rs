@@ -8,6 +8,7 @@ pub mod instance;
 pub mod menu;
 pub mod menubar;
 pub mod props;
+pub mod quick;
 pub mod registry;
 pub mod shell;
 pub mod text;

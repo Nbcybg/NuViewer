@@ -1265,6 +1265,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nuquick"
+version = "0.1.0"
+dependencies = [
+ "nv-codecs",
+ "nv-core",
+ "nv-win",
+ "windows",
+]
+
+[[package]]
 name = "nuviewer"
 version = "0.1.0"
 dependencies = [

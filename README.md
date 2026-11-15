@@ -72,6 +72,14 @@ fewer / more columns), **Ctrl+0** resets. Deleting asks first (Settings > Viewer
 moved, renamed or copied file in the viewer and in the gallery. **F1** is the help page of each program; the credits (author and the
 open-source libraries NuViewer stands on) are at the bottom of it.
 
+## NuQuick (Space-bar preview in Explorer)
+
+`nuquick.exe` sits in the background (tray icon, ~2 MB, no CPU) and shows the picture selected in Explorer or on the desktop when you press
+**Space**, like Quick Look on a Mac. It never takes the focus: the arrow keys keep moving Explorer's selection and the preview follows;
+**Space** or **Esc** closes it, **Enter** opens the picture in NuViewer. Space is only taken while Explorer is in front and the file list has the
+focus (typing a file name still works), and the keyboard hook exists only during that time. Switch it on and off in **Settings > Space preview** (also Start with Windows); the tray icon's menu has Pause, Start with Windows, Settings and Quit.
+Details, measurements and what is not verified yet: `docs/nuquick.md`.
+
 ## NuGallery (the gallery)
 
 `nugallery.exe` is the folder browser. Start `nuviewer.exe` without a picture (or `nugallery.exe [folder or file]`) and it
@@ -288,6 +296,7 @@ crates/nv-render   Direct3D 11 renderer (textures, mips, bicubic shader, overlay
 crates/nv-win      Win32: window, input, text rasterising, shell integration, registry, form toolkit + file-type chooser, crash handling
 nuviewer           the viewer (start-up, one picture at a time, HUD, film strip, editing)
 nugallery          the gallery program (grid / details / list, panels, menus, file operations, batch)
+nuquick            Space-bar preview for Explorer (resident agent + borderless preview window)
 setup              installer / uninstaller (carries a compressed nuviewer.exe)
 ```
 

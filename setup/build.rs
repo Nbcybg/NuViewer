@@ -19,6 +19,7 @@ fn main() {
     let gallery = find("NUGALLERY_EXE", "nugallery.exe", &out);
     let editor = find("NUEDITOR_EXE", "nueditor.exe", &out);
     let importer = find("NUIMPORTER_EXE", "nuimporter.exe", &out);
+    let quick = find("NUQUICK_EXE", "nuquick.exe", &out);
     if viewer.is_none() {
         println!("cargo:warning=nuviewer.exe not found: building the setup WITHOUT a payload (build nuviewer first, or set NUVIEWER_EXE)");
     } else if editor.is_none() {
@@ -30,7 +31,7 @@ fn main() {
     // Layout of the blob: for every file: name length (u8), name, data length (u64 LE), data.
     let mut blob = Vec::new();
     if let Some(v) = viewer {
-        for (name, data) in std::iter::once(v).chain(gallery).chain(editor).chain(importer) {
+        for (name, data) in std::iter::once(v).chain(gallery).chain(editor).chain(importer).chain(quick) {
             blob.push(name.len() as u8);
             blob.extend(name.as_bytes());
             blob.extend((data.len() as u64).to_le_bytes());

@@ -372,6 +372,15 @@ impl App {
         if self.mode == ViewMode::Details { 28.0 * self.dpi } else { 0.0 }
     }
 
+    /// The menu bar pushes the toolbar and the side panels down while it shows (it used to cover the buttons).
+    pub fn sync_menubar_inset(&mut self) {
+        let inset = if self.menubar.visible() { self.menubar.height(self.dpi) } else { 0.0 };
+        if (self.panels.top_inset - inset).abs() > 0.5 {
+            self.panels.top_inset = inset;
+            self.relayout();
+        }
+    }
+
     pub fn relayout(&mut self) {
         self.chrome = chrome::layout(self.size.0 as f32, self.size.1 as f32, self.dpi, &self.panels);
     }
@@ -912,6 +921,7 @@ impl App {
             }
             Event::MouseMove { x, y, left_down } => {
                 if !left_down && self.menubar.pointer(x, y, self.dpi) {
+                    self.sync_menubar_inset();
                     invalidate(self.hwnd);
                 }
                 self.on_mouse_move(x, y, left_down)

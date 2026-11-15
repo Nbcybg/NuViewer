@@ -3,6 +3,13 @@
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
 ### Added
+- **NuQuick:** the preview can be dragged and remembers where it was left; folders and other files get an info card (icon / thumbnail, kind, size,
+  dates, where) instead of nothing.
+- **NuGallery:** "Group image sequences" is in the right-click menu too; the menu bar now pushes the toolbar and the side panels down while it shows
+  (it used to cover their buttons). **NuViewer:** the file-name bar answers a strip of 1% of the window height along the top; the menu bar only the very edge.
+- **NuQuick** (`nuquick.exe`): Space-bar preview for Explorer and the desktop. Background agent (~2 MB, 0 CPU idle; hooks exist only while
+  Explorer is in front), picture pre-decoded when selected, ~9 ms from Space to pixels, never takes the focus (arrows keep moving the
+  selection), Space / Esc closes, Enter opens NuViewer, tray menu (Pause / Start with Windows / Settings / Quit). **Settings > Space preview** switches it on / off and sets Start with Windows. See `docs/nuquick.md`.
 - **Menu bars** in NuViewer, NuGallery and NuEditor: the pointer on the top edge, or Alt / F10, shows File / Edit / View / ... ; Alt+F, Alt+E,
   Alt+V ... open a menu (Left / Right / Enter / Esc work inside the bar). Same entries as the right-click menus.
 - **Ctrl + / Ctrl - / Ctrl+0** zoom the picture in the viewer and the editor and change the number of columns in the gallery.

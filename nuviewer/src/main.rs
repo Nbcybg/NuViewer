@@ -11,6 +11,7 @@ mod menubar;
 mod model3d;
 mod mouse;
 mod ops;
+mod quick_agent;
 mod order;
 mod read;
 mod rotate;
@@ -964,7 +965,10 @@ impl App {
         if let Event::MouseMove { y, left_down: false, .. } = &ev {
             // Info bar: appears when the pointer touches the top edge, stays while it is over the bar.
             let y = *y as f32;
-            let want = self.settings.top_bar && (y <= 4.0 * self.gallery.dpi.max(1.0) || (self.top_bar && y <= self.top_bar_h + 8.0));
+            // The name bar answers a strip of 1% of the window height along the top (at least 6 px); the menu bar answers only the
+            // very edge (3 px) and pushes the name bar down when it shows.
+            let zone = (nv_win::client_size(self.hwnd).1 as f32 * 0.01).max(6.0 * self.gallery.dpi.max(1.0));
+            let want = self.settings.top_bar && (y <= zone || (self.top_bar && y <= self.top_bar_h + 8.0));
             if want != self.top_bar && self.mode == Mode::Viewer {
                 self.top_bar = want;
                 invalidate(self.hwnd);
