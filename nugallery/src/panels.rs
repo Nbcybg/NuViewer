@@ -32,7 +32,7 @@ pub struct RightGeo {
 impl App {
     // ---- left panel ---------------------------------------------------------------------------------------
 
-    fn tree_rect(&self) -> Option<[f32; 4]> {
+    pub fn tree_rect(&self) -> Option<[f32; 4]> {
         let l = self.chrome.left?;
         let d = self.dpi;
         Some([l[0], l[1] + HEAD * d, l[2], l[3] - TREE_FOOT * d])
@@ -56,6 +56,8 @@ impl App {
         let (shown, all) = (self.listing.len(), self.listing.all.len());
         let fs = self.folder_size.clone();
         let loading = self.loading.is_some();
+        let sb = self.tree.scrollbar(tree_rect, row_h, d);
+        let sb_hot = self.tree_sb_drag.is_some() || sb.map(|(t, _)| contains([t[0] - 4.0 * d, t[1], t[2] + 3.0 * d, t[3]], mx, my)).unwrap_or(false);
         let Some(r) = self.renderer.as_mut() else { return };
         let _ = r.fill_rect(l, rgb(pal::PANEL, 1.0));
         let _ = r.fill_rect([l[2] - 1.0, l[1], l[2], l[3]], rgb(pal::PANEL_EDGE, 1.0));
@@ -97,10 +99,15 @@ impl App {
                     let _ = r.fill_rect([icon[0] + 2.0 * d, icon[1] + 3.0 * d, icon[2] - 2.0 * d, icon[3] - 2.0 * d], rgb(0x6C93C9, 1.0));
                 }
             }
-            let name = self.text.fit(&n.name, font, (tree_rect[2] - (ix + 44.0 * d) - 8.0 * d) as i32);
+            let name = self.text.fit(&n.name, font, (tree_rect[2] - (ix + 44.0 * d) - 8.0 * d - if sb.is_some() { 12.0 * d } else { 0.0 }) as i32);
             self.text.draw(r, &name, font, ix + 42.0 * d, y + (row_h - line_h(font)) / 2.0, rgb(pal::TEXT, 1.0));
         }
         r.set_clip(None);
+        // The tree's scroll bar (the folder list is longer than the panel once a few folders are open).
+        if let Some((track, thumb)) = sb {
+            let _ = r.fill_rect(track, rgb(0xFFFFFF, 0.05));
+            let _ = r.fill_rect(thumb, rgb(0xFFFFFF, if sb_hot { 0.55 } else { 0.28 }));
+        }
         // Folder data and size.
         let foot_top = l[3] - TREE_FOOT * d;
         let _ = r.fill_rect([l[0], foot_top, l[2], foot_top + 1.0], rgb(pal::PANEL_EDGE, 1.0));
@@ -141,6 +148,16 @@ impl App {
         }
         let d = self.dpi;
         let row_h = TREE_ROW * d;
+        // On the scroll bar: grab the thumb (or jump there by clicking the track).
+        if let Some((track, thumb)) = self.tree.scrollbar(tr, row_h, d) {
+            if contains([track[0] - 4.0 * d, track[1], track[2] + 3.0 * d, track[3]], x, y) {
+                let grab = if contains(thumb, x, y) { y - thumb[1] } else { (thumb[3] - thumb[1]) / 2.0 };
+                self.tree_sb_drag = Some(grab);
+                self.tree.scroll_thumb_to(tr, row_h, d, y - grab);
+                nv_win::invalidate(self.hwnd);
+                return;
+            }
+        }
         let i = ((y - tr[1] + self.tree.scroll) / row_h).floor() as usize;
         let Some(n) = self.tree.nodes.get(i) else { return };
         if n.header {
@@ -244,14 +261,10 @@ impl App {
                 let key = if preview_ok { info::preview_key(*id) } else { *id };
                 if *kind == Kind::Folder {
                     draw_folder(r, pv, 1.0);
-                } else if let Some((tw, th)) = r.thumb_size(key) {
-                    let (cw, ch) = (pv[2] - pv[0], pv[3] - pv[1]);
-                    let s = (cw / tw as f32).min(ch / th as f32);
-                    let (w, h) = ((tw as f32 * s).round(), (th as f32 * s).round());
-                    let (l, t) = ((pv[0] + (cw - w) / 2.0).round(), (pv[1] + (ch - h) / 2.0).round());
-                    let _ = r.draw_thumb(key, [l, t, l + w, t + h]);
                 } else {
-                    crate::draw::draw_card(r, &mut self.text, pv, ext, false, d);
+                    // Zoom, pan, animation controls, the turning 3D model: see `preview.rs`.
+                    let clip = [p[0], p[1] + HEAD * d, p[2], p[3]];
+                    crate::preview::draw(r, &mut self.text, &self.pv, pv, clip, *id, key, ext, d);
                 }
                 // Name and facts.
                 let title = if n_sel > 1 { format!("{n_sel} items selected") } else { name.clone() };

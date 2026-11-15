@@ -64,6 +64,14 @@ wide scan (more than 1.2 × as wide as tall, i.e. a double-page spread already) 
 should be the **first of a pair** and press `Shift+B`: pairs now start there (remembered for that folder during the run).
 `Ctrl+B` swaps the sides for right-to-left books. Next / previous move a whole spread; the slideshow too.
 
+## Menu bar, zoom keys, credits (all three programs)
+
+Put the pointer on the **top edge** of the window, or tap **Alt** (or **F10**): a menu bar (File, Edit, View, ... Help) appears; **Alt+F**,
+**Alt+E**, **Alt+V** ... open a menu, Left / Right / Enter / Esc work inside the bar. **Ctrl +** and **Ctrl -** zoom (in the gallery:
+fewer / more columns), **Ctrl+0** resets. Deleting asks first (Settings > Viewer to turn that off) and **Ctrl+Z** brings back a deleted,
+moved, renamed or copied file in the viewer and in the gallery. **F1** is the help page of each program; the credits (author and the
+open-source libraries NuViewer stands on) are at the bottom of it.
+
 ## NuGallery (the gallery)
 
 `nugallery.exe` is the folder browser. Start `nuviewer.exe` without a picture (or `nugallery.exe [folder or file]`) and it

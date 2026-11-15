@@ -1162,6 +1162,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nuimporter"
+version = "0.1.0"
+dependencies = [
+ "nv-codecs",
+ "nv-core",
+ "nv-win",
+]
+
+[[package]]
 name = "num"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

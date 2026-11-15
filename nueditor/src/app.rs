@@ -17,10 +17,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
+mod chrome;
 mod heal;
 mod panel;
 mod tools;
 mod view;
+use nv_win::menubar::MenuBar;
 use panel::{Item, SECTION_NAMES, SECTION_PRESETS};
 use tools::{Mode, Tools, ID_WHEEL, SECTION_CURVES, SECTION_WHEEL};
 use view::{View, ID_DETAIL, ID_DETAIL_ORIG, ID_SCOPE};
@@ -94,6 +96,8 @@ enum Hit {
     Row(usize),
     /// An item of the open section (see `panel`).
     Item(usize),
+    /// A tab of the graph dock at the top of the panel: histogram, parade, vector scope, off.
+    Scope(usize),
     ResetAll,
     Save,
 }
@@ -101,6 +105,9 @@ enum Hit {
 struct Layout {
     area: [f32; 4],
     panel: [f32; 4],
+    /// The graph dock (tabs and graph) at the top of the panel, and its four tabs.
+    dock: [f32; 4],
+    scope_tabs: Vec<[f32; 4]>,
     headers: Vec<(usize, [f32; 4])>,
     rows: Vec<(usize, [f32; 4], [f32; 4])>,
     reset_all: [f32; 4],
@@ -162,6 +169,9 @@ pub struct App {
     panel_scroll: f32,
     /// `NUEDITOR_TEST` is set: the title also carries a line of internal state, so the e2e scripts can read it.
     test_hooks: bool,
+    /// The old panel layout without the graph dock and with the graphs off at the start: what the older e2e scripts' hard-coded
+    /// coordinates assume (`NUEDITOR_TEST=1`; `NUEDITOR_TEST=dock` runs the real layout with the test state line).
+    legacy_layout: bool,
     export_ui: panel::ExportUi,
     presets: Vec<nv_editor::preset::Preset>,
     /// The `Num` item being dragged (index into the layout's items).
@@ -171,10 +181,28 @@ pub struct App {
     last_wheel: Option<(usize, Instant)>,
     toast: Option<String>,
     first_frame_ms: Option<f64>,
+    menubar: MenuBar,
+    /// Where the tool strip's buttons were drawn (command, rect), for clicks.
+    toolbar_hits: Vec<(u32, [f32; 4])>,
+    /// Where the navigator (the zoomed picture's overview) was drawn, if it shows.
+    nav_rect: Option<[f32; 4]>,
+    /// The help page (keys and credits) is open.
+    help: bool,
 }
 
 fn contains(r: [f32; 4], x: f32, y: f32) -> bool {
     gfx::contains(r, x, y)
+}
+
+/// Does the quadrilateral cover the whole canvas (nothing turned or tilted, so there is no edge worth drawing)?
+fn is_whole_canvas(q: &[(f32, f32); 4]) -> bool {
+    let want = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
+    let flipped = [(1.0, 0.0), (0.0, 0.0), (0.0, 1.0), (1.0, 1.0)];
+    let near = |a: &[(f32, f32); 4]| q.iter().zip(a).all(|(p, w)| (p.0 - w.0).abs() < 0.004 && (p.1 - w.1).abs() < 0.004);
+    near(&want) || near(&flipped) || {
+        // Flips and quarter turns permute the corners; the set of corners is what matters.
+        want.iter().all(|w| q.iter().any(|p| (p.0 - w.0).abs() < 0.004 && (p.1 - w.1).abs() < 0.004))
+    }
 }
 
 impl App {
@@ -195,6 +223,8 @@ impl App {
         set_title(hwnd, &format!("{} — NuEditor", flow::file_name(&path)));
         let jobs = spawn_renderer(tx.clone(), wake.clone());
         let export_ui = panel::ExportUi::from_settings(&settings);
+        let legacy_layout = std::env::var("NUEDITOR_TEST").map(|v| v != "dock").unwrap_or(false);
+        let view = View { scope: if legacy_layout { view::Scope::Off } else { view::Scope::from_setting(settings.editor_graph) }, ..View::default() };
         App {
             hwnd,
             size,
@@ -225,13 +255,14 @@ impl App {
             redo: Vec::new(),
             edit_ms: 0.0,
             show_original: false,
-            view: View::default(),
+            view,
             tools: Tools::default(),
             geo: None,
             panel: true,
             open_group: 1,
             panel_scroll: 0.0,
             test_hooks: std::env::var_os("NUEDITOR_TEST").is_some(),
+            legacy_layout,
             export_ui,
             presets: Vec::new(),
             item_drag: None,
@@ -240,6 +271,10 @@ impl App {
             last_wheel: None,
             toast: None,
             first_frame_ms: None,
+            menubar: MenuBar::new(&chrome::MENU_LABELS),
+            toolbar_hits: Vec::new(),
+            nav_rect: None,
+            help: false,
         }
     }
 
@@ -272,13 +307,34 @@ impl App {
                 invalidate(self.hwnd);
             }
             Event::Key(vk) => self.key(vk),
+            Event::AltTap => {
+                self.menubar.alt_tap();
+                invalidate(self.hwnd);
+            }
             Event::MouseDown { x, y, ctrl } => {
-                if !self.tool_press(x, y, ctrl) && !self.press_image(x, y) {
+                let bar_h = self.menubar.height(self.dpi);
+                if self.menubar.visible() && (y as f32) < bar_h {
+                    if let Some(i) = self.menubar.hit(x as f32, y as f32) {
+                        self.open_menu(i);
+                    } else {
+                        self.menubar.close();
+                        invalidate(self.hwnd);
+                    }
+                } else if self.menubar.keyboard() {
+                    self.menubar.close();
+                    invalidate(self.hwnd);
+                } else if self.chrome_press(x, y) {
+                } else if !self.tool_press(x, y, ctrl) && !self.press_image(x, y) {
                     self.press(x, y);
                 }
             }
             Event::MouseMove { x, y, left_down } => {
-                if let (Some(i), true) = (self.drag, left_down) {
+                if !left_down && self.menubar.pointer(x, y, self.dpi) {
+                    invalidate(self.hwnd);
+                }
+                if self.view.nav_drag && left_down {
+                    self.nav_to(x as f32, y as f32);
+                } else if let (Some(i), true) = (self.drag, left_down) {
                     self.set_from_x(i, x as f32);
                 } else if let (Some(i), true) = (self.item_drag, left_down) {
                     self.item_value_from_x(i, x as f32);
@@ -299,6 +355,7 @@ impl App {
                 self.drag = None;
                 self.item_drag = None;
                 self.view.pan = None;
+                self.view.nav_drag = false;
                 self.tool_release();
             }
             Event::DoubleClick { x, y, .. } => {
@@ -317,7 +374,12 @@ impl App {
                         Some(Hit::Item(i)) => self.item_right(i),
                         Some(Hit::Header(g)) if g < Group::ALL.len() => self.reset_group(Group::ALL[g]),
                         Some(Hit::Header(g)) => self.reset_section(g),
-                        _ => {}
+                        Some(Hit::Scope(_)) => {}
+                        _ => {
+                            if contains(self.area(), x as f32, y as f32) {
+                                self.context_menu(x, y);
+                            }
+                        }
                     }
                 }
             }
@@ -382,7 +444,7 @@ impl App {
                 let img = d.image;
                 self.full = Some(Pixels::new(img.width, img.height, img.rgba));
                 self.proxy = None;
-                self.view = View::default();
+                self.view = self.fresh_view();
                 self.tools = Tools::default();
                 self.geo = None;
                 self.recipe = Recipe::default();
@@ -736,6 +798,64 @@ impl App {
 
     fn key(&mut self, vk: u32) {
         let m = nv_win::modifiers();
+        // The menu bar first: Alt+letter opens a menu; while it has the keyboard its keys are its own.
+        if m.alt && !m.ctrl {
+            if vk == 0x0D {
+                self.toggle_window();
+            } else if let Some(i) = self.menubar.key(vk, true) {
+                self.open_menu(i);
+            }
+            return;
+        }
+        if self.menubar.keyboard() {
+            if let Some(i) = self.menubar.key(vk, false) {
+                self.open_menu(i);
+            }
+            invalidate(self.hwnd);
+            return;
+        }
+        if self.help && vk != 0x70 {
+            self.help = false; // any key puts the help page away (F1 toggles it)
+            invalidate(self.hwnd);
+            if vk == VK_ESCAPE {
+                return;
+            }
+        }
+        if vk == 0x7A {
+            self.toggle_window(); // F11
+            return;
+        }
+        if vk == 0x70 {
+            self.command(chrome::C_HELP);
+            return;
+        }
+        let mid = {
+            let a = self.area();
+            ((a[0] + a[2]) / 2.0, (a[1] + a[3]) / 2.0)
+        };
+        if m.ctrl && !m.alt {
+            // Ctrl + / Ctrl - zoom, Ctrl+0 back to fit (like every other program of the family).
+            match vk {
+                0xBB | 0x6B => {
+                    self.set_zoom(self.zoom_now() * 1.25, mid);
+                    return;
+                }
+                0xBD | 0x6D => {
+                    self.set_zoom(self.zoom_now() / 1.25, mid);
+                    return;
+                }
+                0x30 | 0x60 => {
+                    if self.view.zoom.is_some() {
+                        self.leave_detail();
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
+        if !m.ctrl && self.pan_key(vk) {
+            return;
+        }
         if !m.ctrl && (self.tool_key(vk) || self.view_key(vk)) {
             return;
         }
@@ -745,16 +865,7 @@ impl App {
                     nv_win::quit();
                 }
             }
-            VK_TAB => {
-                self.panel = !self.panel;
-                if self.ensure_proxy() {
-                    self.rerender();
-                }
-                if self.view.zoom.is_some() {
-                    self.view.detail_dirty = true;
-                }
-                invalidate(self.hwnd);
-            }
+            VK_TAB => self.toggle_panel(),
             0x5A if m.ctrl && m.alt => self.restore_original(),
             0x5A if m.ctrl && m.shift => self.redo(),
             0x5A if m.ctrl => self.undo(),
@@ -934,7 +1045,7 @@ impl App {
         self.full = None;
         self.proxy = None;
         self.shown = None;
-        self.view = View::default();
+        self.view = self.fresh_view();
         self.tools = Tools::default();
         self.geo = None;
         self.undo.clear();
@@ -955,7 +1066,12 @@ impl App {
         let panel = if self.panel { [w - 300.0 * d, 0.0, w, h] } else { [w, 0.0, w, h] };
         let (pad, head_h, row_h) = (14.0 * d, 30.0 * d, 44.0 * d);
         let by = h - 48.0 * d;
-        let mut y = 56.0 * d - self.panel_scroll;
+        // The graph dock sits under the file name: four tabs, and (unless Off) the graph itself.
+        let dock_h = self.dock_h();
+        let dock = [panel[0], 50.0 * d, panel[2], 50.0 * d + dock_h];
+        let tab_w = (panel[2] - panel[0] - 2.0 * pad - 3.0 * 4.0 * d) / 4.0;
+        let scope_tabs: Vec<[f32; 4]> = if self.panel && dock_h > 0.0 { (0..4).map(|i| [panel[0] + pad + i as f32 * (tab_w + 4.0 * d), dock[1] + 3.0 * d, panel[0] + pad + i as f32 * (tab_w + 4.0 * d) + tab_w, dock[1] + 25.0 * d]).collect() } else { Vec::new() };
+        let mut y = 56.0 * d + dock_h - self.panel_scroll;
         let mut headers = Vec::new();
         let mut rows = Vec::new();
         let mut items = Vec::new();
@@ -985,11 +1101,22 @@ impl App {
             }
         }
         let content_end = y;
-        let view = [panel[0], 52.0 * d, panel[2], by - 4.0 * d];
+        let view = [panel[0], 52.0 * d + dock_h, panel[2], by - 4.0 * d];
         let half = (panel[2] - panel[0] - 3.0 * pad) / 2.0;
         let reset_all = [panel[0] + pad, by, panel[0] + pad + half, by + 34.0 * d];
         let save = [reset_all[2] + pad, by, reset_all[2] + pad + half, by + 34.0 * d];
-        Layout { area, panel, headers, rows, reset_all, save, special, items, view, content_end }
+        Layout { area, panel, dock, scope_tabs, headers, rows, reset_all, save, special, items, view, content_end }
+    }
+
+    /// Height of the graph dock: tabs plus the graph, or just the tabs while the graphs are off. 0 without the panel.
+    fn dock_h(&self) -> f32 {
+        if !self.panel || self.legacy_layout {
+            0.0
+        } else if self.view.scope == view::Scope::Off {
+            30.0 * self.dpi
+        } else {
+            (30.0 + 150.0) * self.dpi
+        }
     }
 
     fn hit(&self, x: i32, y: i32) -> Option<Hit> {
@@ -998,6 +1125,9 @@ impl App {
         }
         let l = self.layout();
         let (fx, fy) = (x as f32, y as f32);
+        if let Some(k) = l.scope_tabs.iter().position(|r| contains(*r, fx, fy)) {
+            return Some(Hit::Scope(k));
+        }
         if contains(l.reset_all, fx, fy) {
             return Some(Hit::ResetAll);
         }
@@ -1019,8 +1149,9 @@ impl App {
     /// Scroll the panel so a long section can be reached; keeps the content inside its limits.
     fn scroll_panel(&mut self, by: f32) {
         let l = self.layout();
-        let total = l.content_end + self.panel_scroll - (56.0 * self.dpi);
-        let room = (l.view[3] - (56.0 * self.dpi)).max(1.0);
+        let top = 56.0 * self.dpi + self.dock_h();
+        let total = l.content_end + self.panel_scroll - top;
+        let room = (l.view[3] - top).max(1.0);
         let max = (total - room).max(0.0);
         let s = (self.panel_scroll + by).clamp(0.0, max);
         if s != self.panel_scroll {
@@ -1050,8 +1181,11 @@ impl App {
                     self.reload_presets();
                 }
                 self.reveal_section();
+                // The Composition section shows the whole picture with its outline: opening / closing it changes what is drawn.
+                self.rerender();
                 invalidate(self.hwnd);
             }
+            Some(Hit::Scope(k)) => self.set_scope([view::Scope::Histogram, view::Scope::Parade, view::Scope::Vector, view::Scope::Off][k.min(3)]),
             Some(Hit::Item(i)) => {
                 self.item_drag = self.item_press(i, x as f32, y as f32);
             }
@@ -1113,6 +1247,24 @@ impl App {
             _ => None,
         };
         let overlay = self.heal_overlay();
+        // The whole picture with its outline and the crop frame: in the crop tool and while Composition is open.
+        let geo = self.geo_overlay();
+        let quad = if geo || mode == Mode::Crop { self.extent().filter(|q| !is_whole_canvas(q)) } else { None };
+        let toolbar = self.toolbar_layout();
+        self.toolbar_hits = toolbar.iter().map(|(c, r, _, _)| (*c, *r)).collect();
+        let nav = self.nav_layout();
+        self.nav_rect = nav;
+        let nav_view = nav.map(|n| {
+            let (sw, sh) = self.shown_dims();
+            let z = zoom.unwrap_or(1.0).max(1e-3);
+            let (vw, vh) = ((l.area[2] - l.area[0]) / z / sw as f32, (l.area[3] - l.area[1]) / z / sh as f32);
+            let (cx, cy) = (centre.0 / sw as f32, centre.1 / sh as f32);
+            let (nw, nh) = (n[2] - n[0], n[3] - n[1]);
+            [n[0] + (cx - vw / 2.0).max(0.0) * nw, n[1] + (cy - vh / 2.0).max(0.0) * nh, n[0] + (cx + vw / 2.0).min(1.0) * nw, n[1] + (cy + vh / 2.0).min(1.0) * nh]
+        });
+        let scope_now = self.view.scope;
+        let recipe_crop = self.recipe.crop;
+        let show_help = self.help;
         let Some(r) = self.renderer.as_mut() else { return };
         if !r.begin(rgb(pal::BG, 1.0)) {
             return;
@@ -1138,6 +1290,10 @@ impl App {
             let s = (aw / iw as f32).min(ah / ih as f32).min(1.0);
             let (w, h) = (iw as f32 * s, ih as f32 * s);
             let (x, y) = ((aw / 2.0 - w / 2.0).round(), (ah / 2.0 - h / 2.0).round());
+            if geo || mode == Mode::Crop {
+                // Under a turned or tilted picture: a neutral sheet, so the empty corners can be told from the background.
+                let _ = r.fill_rect([x, y, x + w, y + h], rgb(0x2B2E33, 1.0));
+            }
             let _ = r.draw_image(if split { ID_EDIT } else { id }, [x, y, x + w, y + h], false);
             self.tools.pic_rect = [x, y, x + w, y + h];
             if split {
@@ -1154,6 +1310,16 @@ impl App {
         } else {
             false
         };
+        if drew && (geo || mode == Mode::Crop) {
+            chrome::draw_extent(r, self.tools.pic_rect, quad, if geo { recipe_crop } else { None }, d);
+            if geo {
+                let msg = if recipe_crop.is_some() { "Whole picture shown · yellow = the picture's edges · white frame = your crop" } else { "Whole picture shown · yellow = the picture's edges" };
+                let (mw, mx) = (self.text.width(msg, px(12.0)) as f32 + 20.0 * d, self.tools.pic_rect[0]);
+                let my = (self.tools.pic_rect[1] - 28.0 * d).max(6.0 * d);
+                let _ = r.fill_rect([mx, my, mx + mw, my + 22.0 * d], rgb(0x000000, 0.7));
+                self.text.draw(r, msg, px(12.0), mx + 10.0 * d, my + 3.0 * d, text_c);
+            }
+        }
         if drew && mode == Mode::Crop {
             tools::draw_crop(r, &mut self.text, &self.tools, full_dims, angle, d);
         }
@@ -1170,9 +1336,9 @@ impl App {
                 self.text.draw(r, label, px(12.0), lx + 8.0 * d, 17.0 * d, text_c);
             }
         }
-        if drew && scope != view::Scope::Off {
+        if drew && scope != view::Scope::Off && (!self.panel || l.dock[3] <= l.dock[1]) {
             if let Some((sw, sh)) = r.image_size_of(ID_SCOPE) {
-                let (x, y) = (12.0 * d, l.area[3] - sh as f32 - 12.0 * d);
+                let (x, y) = (12.0 * d, l.area[3] - sh as f32 - 56.0 * d);
                 let _ = r.draw_image(ID_SCOPE, [x, y, x + sw as f32, y + sh as f32], true);
                 if scope == view::Scope::Histogram {
                     let msg = format!("clipped: shadows {:.1}%  highlights {:.1}%", clipped.0 * 100.0, clipped.1 * 100.0);
@@ -1194,7 +1360,7 @@ impl App {
         if let Some(t) = &self.toast {
             let w = self.text.width(t, px(13.0)) as f32 + 28.0 * d;
             let x = l.area[2] / 2.0 - w / 2.0;
-            let y = l.area[3] - 64.0 * d;
+            let y = l.area[3] - 94.0 * d;
             let _ = r.fill_rect([x, y, x + w, y + 32.0 * d], rgb(0x000000, 0.75));
             self.text.draw(r, t, px(13.0), x + 14.0 * d, y + 7.0 * d, text_c);
         }
@@ -1205,6 +1371,28 @@ impl App {
             let name = self.text.fit(&flow::file_name(&self.path), px(14.0), (270.0 * d) as i32);
             self.text.draw(r, &name, px(14.0), l.panel[0] + 14.0 * d, 10.0 * d, text_c);
             self.text.draw(r, &status, px(11.0), l.panel[0] + 14.0 * d, 32.0 * d, dim_c);
+
+            // The graph dock: tabs, and the graph under them. Always there, so nobody has to know a key to see the levels.
+            for (k, (rect, name)) in l.scope_tabs.iter().zip(["Histogram", "Parade", "Vector", "Off"]).enumerate() {
+                let on = matches!((k, scope_now), (0, view::Scope::Histogram) | (1, view::Scope::Parade) | (2, view::Scope::Vector) | (3, view::Scope::Off));
+                let fill = if on { accent } else if self.hot == Some(Hit::Scope(k)) { rgb(pal::TILE_HOVER, 1.0) } else { rgb(pal::TILE, 1.0) };
+                let _ = r.fill_rect(*rect, fill);
+                self.text.draw_centered(r, name, px(11.0), (rect[0] + rect[2]) / 2.0, rect[1] + 4.0 * d, text_c);
+            }
+            if scope_now != view::Scope::Off && l.dock[3] > l.dock[1] {
+                let g = [l.dock[0] + 14.0 * d, l.dock[1] + 30.0 * d, l.dock[2] - 14.0 * d, l.dock[1] + 30.0 * d + 134.0 * d];
+                let _ = r.fill_rect(g, rgb(pal::FIELD, 1.0));
+                if let Some((sw, sh)) = r.image_size_of(ID_SCOPE) {
+                    let (x, y) = (((g[0] + g[2]) / 2.0 - sw as f32 / 2.0).round(), (g[1] + (g[3] - g[1]) / 2.0 - sh as f32 / 2.0).round());
+                    let _ = r.draw_image(ID_SCOPE, [x, y, x + sw as f32, y + sh as f32], true);
+                }
+                let cap = match scope_now {
+                    view::Scope::Histogram => format!("clipped: shadows {:.1}%  highlights {:.1}%", clipped.0 * 100.0, clipped.1 * 100.0),
+                    view::Scope::Parade => "RGB parade: each colour's levels across the picture".to_string(),
+                    _ => "vector scope · orange line = skin tone".to_string(),
+                };
+                self.text.draw(r, &cap, px(10.0), g[0], g[3] + 3.0 * d, dim_c);
+            }
 
             r.set_clip(Some(l.view));
             for (gi, rect) in &l.headers {
@@ -1259,6 +1447,38 @@ impl App {
             self.text.draw(r, "Tab panel · C original · S split · Y scope · X false colour", px(10.0), l.panel[0] + 14.0 * d, l.save[3] + 6.0 * d, dim_c);
             self.text.draw(r, "R crop · W white picker · wheel / 1 2 4 / F zoom · , . turn · H V flip · I invert", px(10.0), l.panel[0] + 14.0 * d, l.save[3] + 22.0 * d, dim_c);
         }
+
+        // The navigator (a zoomed picture's overview: drag it to pan) and the tool strip.
+        if let (Some(n), Some(v)) = (nav, nav_view) {
+            let _ = r.fill_rect([n[0] - 3.0 * d, n[1] - 3.0 * d, n[2] + 3.0 * d, n[3] + 3.0 * d], rgb(0x000000, 0.75));
+            let _ = r.draw_image(if self.show_original { ID_ORIG } else { ID_EDIT }, n, true);
+            gfx::outline(r, v, 1.5 * d, rgb(0xFFD23D, 1.0));
+        }
+        for (c, rect, label, on) in &toolbar {
+            if *c == 0 {
+                let _ = r.fill_rect([rect[0] + 4.0 * d, rect[1] + 6.0 * d, rect[0] + 5.0 * d, rect[3] - 6.0 * d], rgb(0xFFFFFF, 0.25));
+                continue;
+            }
+            let fill = if *on { rgb(pal::ACCENT, 0.92) } else { rgb(0x15171A, 0.86) };
+            let _ = r.fill_rect(*rect, fill);
+            self.text.draw_centered(r, label, px(12.0), (rect[0] + rect[2]) / 2.0, rect[1] + 7.0 * d, text_c);
+        }
+        if show_help {
+            let mut lines: Vec<String> = chrome::HELP.iter().map(|s| s.to_string()).collect();
+            lines.extend(nv_core::about::credit_lines());
+            let fs = px(13.0);
+            let lh = gfx::line_h(fs);
+            let wmax = lines.iter().map(|s| self.text.width(s, fs)).max().unwrap_or(400) as f32;
+            let (bw, bh) = ((wmax + 40.0 * d).min(l.area[2] - 20.0 * d), lines.len() as f32 * lh + 30.0 * d);
+            let (bx, by) = (((l.area[2] + (l.panel[2] - l.panel[0]) * 0.0) / 2.0 - bw / 2.0).max(10.0 * d), ((self.size.1 as f32 - bh) / 2.0).max(10.0 * d));
+            let _ = r.fill_rect([bx, by, bx + bw, by + bh], rgb(0x0E0E0E, 0.95));
+            for (i, line) in lines.iter().enumerate() {
+                let c = if i == 0 || line.starts_with("Credits") { accent } else { text_c };
+                let fitted = self.text.fit(line, fs, (bw - 30.0 * d) as i32);
+                self.text.draw(r, &fitted, fs, bx + 20.0 * d, by + 15.0 * d + i as f32 * lh, c);
+            }
+        }
+        gfx::draw_menubar(r, &mut self.text, &mut self.menubar, self.size.0 as f32, d);
         self.text.end_frame(r);
         let _ = r.end();
         if self.first_frame_ms.is_none() && self.full.is_some() {

@@ -1,4 +1,4 @@
-// Compresses the release nuviewer.exe, nugallery.exe and nueditor.exe into OUT_DIR/payload.bin so the installer is one self-contained
+// Compresses the release nuviewer.exe, nugallery.exe, nueditor.exe and nuimporter.exe into OUT_DIR/payload.bin so the installer is one self-contained
 // file. They come from $NUVIEWER_EXE / $NUGALLERY_EXE / $NUEDITOR_EXE, else <target>/release/. If nuviewer.exe isn't there yet the payload is
 // empty (the crate still builds and its tests run; tools/package.ps1 builds both first, so a real setup always has them).
 // A missing nugallery.exe or nueditor.exe is only a warning: the setup then installs what it has.
@@ -18,6 +18,7 @@ fn main() {
     let viewer = find("NUVIEWER_EXE", "nuviewer.exe", &out);
     let gallery = find("NUGALLERY_EXE", "nugallery.exe", &out);
     let editor = find("NUEDITOR_EXE", "nueditor.exe", &out);
+    let importer = find("NUIMPORTER_EXE", "nuimporter.exe", &out);
     if viewer.is_none() {
         println!("cargo:warning=nuviewer.exe not found: building the setup WITHOUT a payload (build nuviewer first, or set NUVIEWER_EXE)");
     } else if editor.is_none() {
@@ -29,7 +30,7 @@ fn main() {
     // Layout of the blob: for every file: name length (u8), name, data length (u64 LE), data.
     let mut blob = Vec::new();
     if let Some(v) = viewer {
-        for (name, data) in std::iter::once(v).chain(gallery).chain(editor) {
+        for (name, data) in std::iter::once(v).chain(gallery).chain(editor).chain(importer) {
             blob.push(name.len() as u8);
             blob.extend(name.as_bytes());
             blob.extend((data.len() as u64).to_le_bytes());

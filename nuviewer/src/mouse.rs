@@ -10,6 +10,8 @@ use nv_win::menu::{self, Entry};
 const ACTION_BASE: u32 = 0x2000_0000;
 const EXTERNAL_BASE: u32 = 0x3000_0000;
 const MENU_FILE_TYPES: u32 = 0x1000_0002;
+const MENU_CHOOSE_PROGRAM: u32 = 0x1000_0004;
+const MENU_SET_UP_PROGRAMS: u32 = 0x1000_0005;
 /// "Sort by" submenu: `MENU_SORT + index in SortKey::ALL`, then ascending / descending.
 const MENU_SORT: u32 = 0x1000_0010;
 const MENU_SORT_ASC: u32 = 0x1000_0020;
@@ -225,6 +227,100 @@ impl App {
         Entry::item(ACTION_BASE + idx as u32, if hint.is_empty() { label.to_string() } else { format!("{label}\t{hint}") })
     }
 
+    /// "Undo delete" / "Undo move" ...: what Ctrl+Z would take back, named.
+    pub fn undo_label(&self) -> String {
+        use nv_core::UndoOp;
+        match self.undo.last() {
+            Some(UndoOp::Deleted { .. }) => "Undo delete",
+            Some(UndoOp::Moved { .. }) => "Undo move / rename",
+            Some(UndoOp::Copied { .. }) => "Undo copy",
+            Some(UndoOp::Rewritten { .. }) => "Undo save",
+            None => "Undo",
+        }
+        .to_string()
+    }
+
+    /// "Edit with": the programs set up in Settings, any program chosen on the spot, and the way to set the list up.
+    fn edit_with_entry(&self, enabled: bool) -> Entry {
+        let mut items: Vec<Entry> = self.settings.external.iter().enumerate().map(|(i, e)| Entry::item(EXTERNAL_BASE + i as u32, e.name.clone())).collect();
+        if !items.is_empty() {
+            items.push(Entry::Separator);
+        }
+        items.push(Entry::item(MENU_CHOOSE_PROGRAM, "Choose a program…"));
+        items.push(Entry::item(MENU_SET_UP_PROGRAMS, "Set up the list…"));
+        Entry::Submenu { text: "Edit with…".into(), items, enabled }
+    }
+
+    /// The entries under menu bar label `i` (labels: File, Edit, View, Go, Tools, Help).
+    pub fn menu_entries(&self, i: usize) -> Vec<Entry> {
+        let has = self.target().is_some();
+        let viewer = self.mode == Mode::Viewer;
+        let many = self.folder.files.len() > 1;
+        let checked = |e: Entry, on: bool| match e {
+            Entry::Item { id, text, enabled, .. } => Entry::Item { id, text, checked: on, enabled },
+            other => other,
+        };
+        match i {
+            0 => vec![
+                self.action_entry(Action::Rename, "Rename…").enabled(has),
+                self.action_entry(Action::CopyTo, "Copy to…").enabled(has),
+                self.action_entry(Action::MoveTo, "Move to…").enabled(has),
+                self.action_entry(Action::Reveal, "Show in Explorer").enabled(has),
+                Entry::Separator,
+                self.action_entry(Action::Delete, "Delete (Recycle Bin)").enabled(has),
+                self.action_entry(Action::DeletePermanently, "Delete permanently…").enabled(has),
+                Entry::Separator,
+                self.action_entry(Action::Settings, "Settings…"),
+                Entry::item(MENU_FILE_TYPES, "File types…"),
+                Entry::Separator,
+                self.action_entry(Action::Quit, "Close"),
+            ],
+            1 => vec![
+                self.action_entry(Action::Undo, &self.undo_label()).enabled(!self.undo.is_empty()),
+                Entry::Separator,
+                self.action_entry(Action::CopyImage, "Copy picture").enabled(has),
+                self.action_entry(Action::CopyPath, "Copy file path").enabled(has),
+                Entry::Separator,
+                self.action_entry(Action::Edit, "Edit in NuEditor").enabled(has && viewer),
+                self.edit_with_entry(has),
+                Entry::Separator,
+                self.action_entry(Action::RotateMinus45, "Rotate −45°").enabled(viewer),
+                self.action_entry(Action::RotatePlus45, "Rotate +45°").enabled(viewer),
+                self.action_entry(Action::RotateCcw90, "Rotate −90°").enabled(viewer),
+                self.action_entry(Action::RotateCw90, "Rotate +90°").enabled(viewer),
+                self.action_entry(Action::SaveRotation, "Save the rotation").enabled(viewer),
+            ],
+            2 => vec![
+                self.action_entry(Action::FitReset, "Fit to screen").enabled(viewer),
+                self.action_entry(Action::ActualSize, "Actual size (100%)").enabled(viewer),
+                self.action_entry(Action::ZoomIn, "Zoom in").enabled(viewer),
+                self.action_entry(Action::ZoomOut, "Zoom out").enabled(viewer),
+                Entry::Separator,
+                checked(self.action_entry(Action::Gallery, "Gallery").enabled(has), !viewer),
+                checked(self.action_entry(Action::Fullscreen, "Fullscreen"), nv_win::is_fullscreen()),
+                checked(self.action_entry(Action::Info, "Info / EXIF").enabled(has), self.hud.show_info),
+                checked(self.action_entry(Action::FilmStrip, "Film strip").enabled(viewer && many), self.strip.pinned),
+                checked(self.action_entry(Action::ReadMode, "Read mode (two pages)").enabled(viewer && many), self.read.on),
+                checked(self.action_entry(Action::ToggleSidebar, "Viewer controls").enabled(viewer), self.sidebar.pinned),
+                checked(self.action_entry(Action::ToggleSequences, "Fold image sequences"), self.settings.sequences),
+                Entry::Separator,
+                checked(self.action_entry(Action::Slideshow, "Slideshow").enabled(many), self.slide.on),
+                checked(self.action_entry(Action::Shuffle, "Shuffle").enabled(many), self.folder.order.shuffle.is_some()),
+            ],
+            3 => vec![
+                self.action_entry(Action::Prev, "Previous picture").enabled(viewer && many),
+                self.action_entry(Action::Next, "Next picture").enabled(viewer && many),
+                self.action_entry(Action::First, "First picture").enabled(viewer && many),
+                self.action_entry(Action::Last, "Last picture").enabled(viewer && many),
+                Entry::Separator,
+                self.action_entry(Action::PrevFile, "Previous file").enabled(many),
+                self.action_entry(Action::NextFile, "Next file").enabled(many),
+            ],
+            4 => vec![self.action_entry(Action::Edit, "NuEditor").enabled(has && viewer), self.edit_with_entry(has), self.action_entry(Action::Settings, "Settings…"), self.action_entry(Action::DiskMonitor, "Disk speed")],
+            _ => vec![self.action_entry(Action::Help, "Keys, mouse and credits")],
+        }
+    }
+
     pub fn context_menu(&mut self, x: i32, y: i32) {
         if self.rename.is_some() {
             return;
@@ -237,6 +333,18 @@ impl App {
             }
         }
         nv_win::set_cursor_hidden(false);
+        let entries = self.context_entries();
+        let Some(id) = menu::popup(self.hwnd, x, y, &entries) else {
+            if nv_win::is_fullscreen() {
+                set_timer(self.hwnd, TIMER_CURSOR, CURSOR_IDLE_MS);
+            }
+            return;
+        };
+        self.menu_pick(id);
+    }
+
+    /// The right-click menu's entries.
+    pub fn context_entries(&self) -> Vec<Entry> {
         let has_file = self.target().is_some();
         let viewer = self.mode == Mode::Viewer;
         let many = self.folder.files.len() > 1;
@@ -245,12 +353,7 @@ impl App {
             Entry::Item { id, text, enabled, .. } => Entry::Item { id, text, checked: on, enabled },
             other => other,
         };
-        let externals: Vec<Entry> = self.settings.external.iter().enumerate().map(|(i, e)| Entry::item(EXTERNAL_BASE + i as u32, e.name.clone())).collect();
-        let open_with = if externals.is_empty() {
-            Entry::Submenu { text: "Open with".into(), items: vec![Entry::item(0x1000_0003, "(none set up: Settings > External programs)").enabled(false)], enabled: has_file }
-        } else {
-            Entry::Submenu { text: "Open with".into(), items: externals, enabled: has_file }
-        };
+        let open_with = self.edit_with_entry(has_file);
         let order = self.folder.order;
         let sort_menu = {
             let mut items: Vec<Entry> = nv_core::SortKey::ALL.iter().enumerate().map(|(i, k)| Entry::checked(MENU_SORT + i as u32, k.label(), order.shuffle.is_none() && order.key == *k)).collect();
@@ -283,8 +386,9 @@ impl App {
             self.action_entry(Action::CopyPath, "Copy file path").enabled(has_file),
             self.action_entry(Action::Reveal, "Show in Explorer").enabled(has_file),
             self.action_entry(Action::Delete, "Delete (Recycle Bin)").enabled(has_file),
-            self.action_entry(Action::Undo, "Undo").enabled(!self.undo.is_empty()),
+            self.action_entry(Action::Undo, &self.undo_label()).enabled(!self.undo.is_empty()),
             Entry::Separator,
+            self.action_entry(Action::Edit, "Edit in NuEditor").enabled(has_file && viewer),
             open_with,
             Entry::Separator,
             self.action_entry(Action::Settings, "Settings…"),
@@ -292,13 +396,21 @@ impl App {
             checked(self.action_entry(Action::Help, "Help"), self.hud.show_help),
             self.action_entry(Action::Quit, "Close"),
         ];
-        let Some(id) = menu::popup(self.hwnd, x, y, &entries) else {
-            if nv_win::is_fullscreen() {
-                set_timer(self.hwnd, TIMER_CURSOR, CURSOR_IDLE_MS);
-            }
-            return;
-        };
+        entries
+    }
+
+    /// Carry out a menu choice (right-click menu or menu bar).
+    pub fn menu_pick(&mut self, id: u32) {
         match id {
+            MENU_CHOOSE_PROGRAM => {
+                if let (Some(program), Some(t)) = (nv_win::shell::pick_program(self.hwnd), self.target()) {
+                    let command = format!("\"{}\"", program.display());
+                    if let Err(e) = nv_win::shell::run_external(&command, &self.folder.files[t]) {
+                        self.toast(e);
+                    }
+                }
+            }
+            MENU_SET_UP_PROGRAMS => self.open_settings(),
             // In this process, so the chooser is owned by the viewer window like every other dialog.
             MENU_FILE_TYPES => associate_dialog(),
             MENU_SORT_ASC | MENU_SORT_DESC => {

@@ -409,6 +409,59 @@ Full design, speed rules, status table and open questions: **`docs/nueditor.md`*
     tools, heal quality on real portraits. See `docs/nueditor.md` sections 7 and 10.
 - Nothing committed (the user did not ask).
 
+### Session 12 (2026-11-15): the user's 17-point list (menu bars, editor discoverability, gallery fixes, importer mock-up)
+
+The user's list, and what was done (details of every choice are in the code comments):
+
+1. **NuEditor right-click + window mode:** right-click on the picture = context menu (`chrome.rs`, same commands as the menus);
+   F11 / Alt+Enter / View > Fullscreen switch window <-> fullscreen (`toggle_window`, resizes the swapchain by hand like the gallery).
+2. **NuEditor compose / pan / crop / pitch-yaw:** the features existed but only behind keys, so nothing showed them. Now: a tool strip
+   on the picture (Crop, White picker, Retouch, Fit, 100%, - / +, Split, Graph, Panel), a **navigator** (drag it to pan) when zoomed,
+   arrow keys pan, Composition section has "Crop..." and "Crop to the picture (no empty corners)" buttons, and while Composition is open
+   (or the crop tool is on) the **whole picture is shown with its outline (yellow) and the crop frame (white)** on a neutral sheet
+   (`geo_overlay`, `engine::extent_quad`, `raster::perspective_forward`, `cropmath::inscribed`; all unit-tested).
+3. **Viewer:** right-click now has "Edit in NuEditor" and "Edit with..." (programs from Settings + "Choose a program..." + "Set up the list...").
+4. **Graphs in NuEditor:** histogram / RGB parade / vector scope (skin line) sit in a dock at the top of the panel with four tabs and are
+   **on by default**; Y still cycles; with the panel hidden the graph floats bottom-left.
+5. **Gallery edge panels leave at once:** `EDGE_LEAVE` 350 -> 60 ms, timer 40 -> 16 ms, slack 12 -> 3 px.
+6. **Gallery folder tree scroll bar** (`Tree::scrollbar`, drag + click on the track).
+7. **Gallery wheel scrolls** (3 rows a notch); Ctrl+wheel still sets the columns. (Reverses session 10's choice 1.)
+8. **Gallery preview controls** (`preview.rs`): wheel zooms about the pointer, drag pans, double click fit <-> 3x, a sharper 3072 px decode
+   is fetched the first time you zoom; animated GIF / WebP / APNG and folded image sequences play with a bar (prev, play / pause, next,
+   scrub, n/N); 3D models turn when dragged (software `render_preview`, no GPU mesh pipeline in the gallery) and zoom with the wheel.
+   **NOT done: video and audio.** No program of the family decodes or plays them yet (the viewer's playback bar has reserved slots only);
+   it needs Media Foundation (`IMFMediaEngine`) and is a job of its own. The control bar is generic enough to take them.
+9. **Gallery image-sequence toggle:** Ctrl+G / View > "Group image sequences" / Tools; runs fold into one tile with a "play N" badge
+   (`model::fold_sequences`, only while sorted by name ascending; RAW + JPG never fold); delete / copy / move of a tile applies to all frames.
+10. **Delete confirmation + undo:** new setting `confirm_delete` (default on; Settings > Viewer) asks before Recycle Bin deletes in the
+    viewer and the gallery. The viewer already had Ctrl+Z for delete / move / copy; the gallery now has it too (`undo.rs`: delete, move,
+    rename, copy; the shell does the work, so afterwards we look at what is on disk). Edit menu names the step ("Undo delete (3 items)").
+11. "Copy image" vs "Copy picture": both programs say **Copy picture** now (gallery also has Copy file, Copy path).
+12. **Drive names in the tree:** "Photos (D:)" from the volume label, read on one thread per drive (`files::volume_label`), so a sleeping
+    disk can't delay the window.
+13. **Cold start** (measured with `tools/bench/coldstart.ps1`, -FreshCopy = a copy nobody has seen; spawn -> first visible window of the process, `--windowed --new-window`):
+    a program that has been started before opens its window in **~25 ms**; the **first start of an executable Windows has not seen**
+    (a fresh build, a fresh copy, an update) takes **0.4-0.75 s**, for all three 15 MB programs alike and *also in `--associate` mode,
+    which does no GPU and no decoding*, so it is not our start-up code: it is Windows Defender (real-time protection is on here)
+    scanning the file. A 300 KB exe costs ~+35 ms the same way. Reading a fresh exe once takes ~330 ms by itself (the on-access
+    scan), and a start after that read takes ~445 ms instead of ~790 ms. Things tried / done:
+    - size-optimised dependencies (`opt-level="s"` for everything but the hot decoders): 15.0 -> 13.0 MB, **no measurable gain** -> not adopted;
+    - `nv_win::prewarm_siblings()` (all three programs): 2.5 s after start a low-priority thread reads the other programs' exes once, so
+      the scan of NuGallery / NuEditor is done before the user presses G / E / F4 (first start after an update ~45% sooner);
+    - the folder tree (`Tree::new`: known folders + `is_dir` checks that can stall on OneDrive / network folders) is built on a worker
+      thread (`Msg::TreeReady`), drive labels on one thread per drive: the gallery window no longer waits for either.
+    What cannot be fixed from inside the program: the scan itself (a Defender exclusion for the install folder would remove it; that
+    is the user's decision, nothing was changed). Real cold-boot disk reads were not measured (the file cache can't be dropped without
+    admin rights).
+14. **Credits** (`nv_core::about`, author line `AUTHOR`, libraries) at the bottom of the help of the viewer, the gallery and the editor
+    (the editor gained an F1 help page).
+15. **Menu bars** in all three programs (`nv_win::menubar`): top edge or Alt / F10; Alt+F / E / V / G / T / H open a menu; Left / Right /
+    Enter / Esc inside. New `Event::AltTap`; Alt+letter reaches the programs as keys with Alt held (`WM_SYSKEYDOWN`).
+16. **Ctrl + / Ctrl - / Ctrl+0:** viewer zoom (`Action::ZoomIn/ZoomOut`, `ZoomReset` also on Ctrl+0), gallery columns, editor zoom.
+17. **NuImporter mock-up** (`nuimporter/`, `nuimporter.exe`; started from the gallery's Tools menu): source choice (removable drives, a
+    folder, demo data), scan, sub-folder layout + naming + event name, options, "Import..." shows a dry run and copies nothing.
+    RAW and JPG stay separate files and share one shot number when numbering (`plan.rs`, tested). Packed into the installer.
+
 ## 2. Build, test, run
 
 ```powershell

@@ -114,7 +114,17 @@ pub enum Cmd {
     OpenFolderInExplorer,
     ClearThumbs,
     ViewerSettings,
+    Undo,
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
+    ToggleSequences,
+    Importer,
+    Exit,
 }
+
+/// The menu bar's labels (`&` marks the Alt+letter).
+pub const BAR_LABELS: [&str; 5] = ["&File", "&Edit", "&View", "&Tools", "&Help"];
 
 #[derive(Default)]
 struct Builder {
@@ -178,7 +188,7 @@ impl App {
         ];
         menu.push(b.sub("Select", select));
         menu.push(Item::Separator);
-        menu.push(b.item(Cmd::CopyImage, "Copy image").enabled(any_pic));
+        menu.push(b.item(Cmd::CopyImage, "Copy picture").enabled(any_pic));
         menu.push(b.item(Cmd::CopyFile, "Copy file\tCtrl+C").enabled(has));
         menu.push(b.item(Cmd::CopyPath, "Copy path\tCtrl+Shift+C").enabled(has));
         menu.push(b.item(Cmd::Cut, "Cut\tCtrl+X").enabled(has));
@@ -191,6 +201,7 @@ impl App {
         menu.push(b.item(Cmd::NewFolder, "New folder\tCtrl+N"));
         menu.push(b.item(Cmd::Rename, "Rename\tF2").enabled(has && !many));
         menu.push(b.item(Cmd::Delete, "Delete\tDel").enabled(has));
+        menu.push(b.item(Cmd::Undo, format!("{}\tCtrl+Z", self.undo_label())).enabled(!self.undo.is_empty()));
         if many {
             menu.push(b.item(Cmd::Compress, "Compress (.zip)"));
         }
@@ -214,6 +225,164 @@ impl App {
                 self.run_cmd(cmd);
             }
         }
+    }
+
+    // ---- the menu bar --------------------------------------------------------------------------------
+
+    /// A left press: on a label it opens that menu; elsewhere it lets go of a keyboard-opened bar. True if the press was the bar's.
+    pub fn menubar_press(&mut self, x: i32, y: i32) -> bool {
+        let bar_h = self.menubar.height(self.dpi);
+        if self.menubar.visible() && (y as f32) < bar_h {
+            match self.menubar.hit(x as f32, y as f32) {
+                Some(i) => self.open_menubar_menu(i),
+                None => {
+                    self.menubar.close();
+                    nv_win::invalidate(self.hwnd);
+                }
+            }
+            return true;
+        }
+        if self.menubar.keyboard() {
+            self.menubar.close();
+            nv_win::invalidate(self.hwnd);
+        }
+        false
+    }
+
+    /// A key: Alt+letter opens a menu; while the bar has the keyboard its arrows / Enter / Esc are its own. True if used.
+    pub fn menubar_key(&mut self, vk: u32) -> bool {
+        if self.active.is_some() {
+            return false;
+        }
+        let m = nv_win::modifiers();
+        if m.alt && !m.ctrl {
+            if let Some(i) = self.menubar.key(vk, true) {
+                self.open_menubar_menu(i);
+                return true;
+            }
+            return false; // Alt+arrows, Alt+Enter: the gallery's own
+        }
+        if self.menubar.keyboard() {
+            if let Some(i) = self.menubar.key(vk, false) {
+                self.open_menubar_menu(i);
+            }
+            nv_win::invalidate(self.hwnd);
+            return true;
+        }
+        false
+    }
+
+    pub fn open_menubar_menu(&mut self, i: usize) {
+        let mut b = Builder::default();
+        let menu = self.bar_menu(i, &mut b);
+        nv_win::invalidate(self.hwnd);
+        let picked = self.menubar.run(self.hwnd, i, &menu);
+        nv_win::invalidate(self.hwnd);
+        if let Some(id) = picked {
+            if let Some(cmd) = b.cmds.get(id as usize - 1).cloned() {
+                self.run_cmd(cmd);
+            }
+        }
+    }
+
+    fn sort_items(&self, b: &mut Builder) -> Vec<Item> {
+        let o = self.listing.order;
+        let mut v: Vec<Item> = SortKey::ALL.iter().map(|&k| b.checked(Cmd::Sort(k), k.label().to_string(), o.shuffle.is_none() && o.key == k)).collect();
+        v.push(Item::Separator);
+        v.push(b.checked(Cmd::Shuffle, "Shuffle\tCtrl+R", o.shuffle.is_some()));
+        v
+    }
+
+    /// The entries under menu bar label `i` (File, Edit, View, Tools, Help).
+    fn bar_menu(&self, i: usize, b: &mut Builder) -> Vec<Item> {
+        let picked: Vec<&Entry> = self.sel.entries(&self.listing);
+        let has = !picked.is_empty();
+        let many = self.sel.count(&self.listing) >= 2;
+        let any_file = picked.iter().any(|e| !e.is_dir());
+        let any_pic = picked.iter().any(|e| e.viewable());
+        let all_rewritable = !picked.is_empty() && picked.iter().all(|e| nv_editor::save::Format::of_extension(&e.ext).is_some());
+        let paste_ok = nv_win::files::clipboard_files(self.hwnd).is_some();
+        let externals: Vec<String> = self.settings.external.iter().map(|e| e.name.clone()).collect();
+        let mut m: Vec<Item> = Vec::new();
+        match i {
+            0 => {
+                m.push(b.item(Cmd::Open, "Open\tSpace").enabled(has));
+                m.push(b.item(Cmd::Slideshow, "Slideshow\tF8").enabled(any_pic));
+                m.push(b.item(Cmd::NuEditor, "Edit in NuEditor\tF4").enabled(any_pic && !many));
+                let mut with: Vec<Item> = externals.iter().enumerate().map(|(k, name)| b.item(Cmd::EditWith(k), name.clone())).collect();
+                if !with.is_empty() {
+                    with.push(Item::Separator);
+                }
+                with.push(b.item(Cmd::ChooseProgram, "Choose a program…"));
+                with.push(b.item(Cmd::SetUpPrograms, "Set up the list…"));
+                m.push(Item::Submenu { text: "Edit with…".into(), items: with, enabled: any_file });
+                m.push(b.item(Cmd::ShowLocation, "Show file location\tCtrl+E").enabled(has));
+                m.push(Item::Separator);
+                m.push(b.item(Cmd::NewFolder, "New folder\tCtrl+N"));
+                m.push(b.item(Cmd::Rename, "Rename\tF2").enabled(has && !many));
+                m.push(b.item(Cmd::Delete, "Delete\tDel").enabled(has));
+                m.push(b.item(Cmd::Print, "Print\tCtrl+P").enabled(any_pic));
+                m.push(Item::Separator);
+                m.push(b.item(Cmd::Exit, "Close"));
+            }
+            1 => {
+                m.push(b.item(Cmd::Undo, format!("{}\tCtrl+Z", self.undo_label())).enabled(!self.undo.is_empty()));
+                m.push(Item::Separator);
+                m.push(b.item(Cmd::Cut, "Cut\tCtrl+X").enabled(has));
+                m.push(b.item(Cmd::CopyFile, "Copy file\tCtrl+C").enabled(has));
+                m.push(b.item(Cmd::CopyImage, "Copy picture").enabled(any_pic));
+                m.push(b.item(Cmd::CopyPath, "Copy path\tCtrl+Shift+C").enabled(has));
+                m.push(b.item(Cmd::Paste, "Paste\tCtrl+V").enabled(paste_ok));
+                m.push(Item::Separator);
+                m.push(b.item(Cmd::CopyTo, "Copy to…\tF7").enabled(has));
+                m.push(b.item(Cmd::MoveTo, "Move to…\tF6").enabled(has));
+                m.push(Item::Separator);
+                let select = vec![b.item(Cmd::SelectItem, "Item (toggle)").enabled(has), b.item(Cmd::SelectAll, "All\tCtrl+A"), b.item(Cmd::SelectNone, "None\tEsc"), b.item(Cmd::SelectInvert, "Invert")];
+                m.push(b.sub("Select", select));
+            }
+            2 => {
+                for v in ViewMode::ALL {
+                    m.push(b.checked(Cmd::View(v), v.label(), self.mode == v));
+                }
+                m.push(Item::Separator);
+                m.push(b.item(Cmd::ZoomIn, "Larger thumbnails (fewer columns)\tCtrl +"));
+                m.push(b.item(Cmd::ZoomOut, "Smaller thumbnails (more columns)\tCtrl −"));
+                m.push(b.item(Cmd::ZoomReset, "Default size\tCtrl 0"));
+                m.push(Item::Separator);
+                let sort = self.sort_items(b);
+                m.push(b.sub("Sort by", sort));
+                let show: Vec<Item> = Show::ALL_CHOICES.iter().map(|&s| b.checked(Cmd::Show(s), s.label(), self.listing.show == s)).collect();
+                m.push(b.sub("Show only", show));
+                m.push(b.checked(Cmd::ToggleFolders, "Folders", self.listing.folders));
+                m.push(b.checked(Cmd::ToggleHidden, "Hidden files", self.persist.hidden));
+                m.push(b.checked(Cmd::ToggleNames, "File names under thumbnails", self.persist.names));
+                m.push(b.checked(Cmd::ToggleSequences, "Group image sequences\tCtrl+G", self.settings.sequences));
+                m.push(Item::Separator);
+                m.push(b.checked(Cmd::PinTop, "Keep the toolbar open\tCtrl+T", self.panels.pin_top));
+                m.push(b.checked(Cmd::PinLeft, "Keep folders open\tCtrl+B", self.panels.pin_left));
+                m.push(b.checked(Cmd::PinRight, "Keep details open\tCtrl+I", self.panels.pin_right));
+                m.push(b.checked(Cmd::Fullscreen, "Fullscreen\tF11", nv_win::is_fullscreen()));
+                m.push(Item::Separator);
+                m.push(b.item(Cmd::Refresh, "Refresh\tF5"));
+            }
+            3 => {
+                let batch = vec![b.item(Cmd::BatchRename, "Rename…"), b.item(Cmd::BatchConvert, "Convert…"), b.item(Cmd::BatchTimes, "Change time stamp…"), b.item(Cmd::BatchStrip, "Remove metadata…")];
+                m.push(Item::Submenu { text: "Batch (selected files)".into(), items: batch, enabled: has });
+                m.push(b.item(Cmd::Compress, "Compress selected (.zip)").enabled(has));
+                let convert: Vec<Item> = [Preset::JpegHigh, Preset::JpegSmall, Preset::Png, Preset::Webp, Preset::Bmp, Preset::Resize(1920), Preset::Resize(1280), Preset::Resize(800)].iter().map(|&p| b.item(Cmd::Convert(p), p.label())).collect();
+                m.push(Item::Submenu { text: "Quick convert".into(), items: convert, enabled: any_pic });
+                let quick: Vec<Item> = [QuickOp::RotateLeft, QuickOp::RotateRight, QuickOp::FlipH, QuickOp::FlipV].iter().map(|&q| b.item(Cmd::Quick(q), q.label())).collect();
+                m.push(Item::Submenu { text: "Quick edit".into(), items: quick, enabled: all_rewritable });
+                m.push(Item::Separator);
+                m.push(b.item(Cmd::Importer, "Import photos… (NuImporter, mock-up)"));
+                m.push(Item::Separator);
+                m.push(b.item(Cmd::OpenFolderInExplorer, "Open this folder in Explorer"));
+                m.push(b.item(Cmd::ClearThumbs, "Rebuild thumbnails of this folder"));
+                m.push(b.item(Cmd::ViewerSettings, "NuViewer settings…"));
+            }
+            _ => m.push(b.item(Cmd::Help, "Keys, mouse and credits\tF1")),
+        }
+        m
     }
 
     /// Sort / Show / Tools drop-downs under their buttons.
@@ -248,6 +417,7 @@ impl App {
                 ];
                 menu.push(b.sub("Batch (selected files)", batch));
                 menu.push(b.item(Cmd::Compress, "Compress selected (.zip)"));
+                menu.push(b.checked(Cmd::ToggleSequences, "Group image sequences\tCtrl+G", self.settings.sequences));
                 menu.push(Item::Separator);
                 for m in ViewMode::ALL {
                     menu.push(b.checked(Cmd::View(m), m.label(), self.mode == m));
@@ -261,8 +431,9 @@ impl App {
                 menu.push(Item::Separator);
                 menu.push(b.item(Cmd::OpenFolderInExplorer, "Open this folder in Explorer"));
                 menu.push(b.item(Cmd::ClearThumbs, "Rebuild thumbnails of this folder"));
+                menu.push(b.item(Cmd::Importer, "Import photos… (NuImporter, mock-up)"));
                 menu.push(b.item(Cmd::ViewerSettings, "NuViewer settings…"));
-                menu.push(b.item(Cmd::Help, "Keys and mouse\tF1"));
+                menu.push(b.item(Cmd::Help, "Keys, mouse and credits\tF1"));
             }
             _ => return,
         }
@@ -366,6 +537,13 @@ impl App {
             }
             Cmd::ClearThumbs => self.rebuild_thumbs(),
             Cmd::ViewerSettings => self.launch_viewer_settings(),
+            Cmd::Undo => self.undo_last(),
+            Cmd::ZoomIn => self.zoom_cells(1.0),
+            Cmd::ZoomOut => self.zoom_cells(-1.0),
+            Cmd::ZoomReset => self.reset_cell(),
+            Cmd::ToggleSequences => self.toggle_sequences(),
+            Cmd::Importer => self.launch_importer(),
+            Cmd::Exit => self.exit(),
         }
     }
 }

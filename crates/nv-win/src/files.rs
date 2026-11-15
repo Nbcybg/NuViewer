@@ -312,6 +312,19 @@ pub fn drives() -> Vec<(PathBuf, DriveKind)> {
     out
 }
 
+/// The volume label of a drive ("Games", "Photos 2024"): what Explorer writes in front of the letter. None for a drive without
+/// a label, without a disk in it, or one that does not answer. This **touches the disk** (a sleeping hard disk spins up, a
+/// network drive may take seconds), so ask from a worker thread, never from the UI thread.
+pub fn volume_label(root: &Path) -> Option<String> {
+    use windows::Win32::Storage::FileSystem::GetVolumeInformationW;
+    let wide: Vec<u16> = root.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let mut name = [0u16; 261];
+    unsafe { GetVolumeInformationW(PCWSTR(wide.as_ptr()), Some(&mut name), None, None, None, None).ok()? };
+    let len = name.iter().position(|&c| c == 0).unwrap_or(name.len());
+    let label = String::from_utf16_lossy(&name[..len]);
+    (!label.trim().is_empty()).then_some(label)
+}
+
 /// The user's Pictures / Desktop / Downloads / Documents folders (None for one that Windows doesn't name).
 pub fn known_folder(which: &str) -> Option<PathBuf> {
     use windows::Win32::System::Com::CoTaskMemFree;

@@ -17,6 +17,19 @@ public static class Top {
         EnumWindows((h, l) => { uint p; GetWindowThreadProcessId(h, out p); if (p == pid && IsWindowVisible(h)) { var c = new StringBuilder(64); GetClassName(h, c, 64); if (c.ToString() == "NuViewerForm") { found = h; return false; } } return true; }, IntPtr.Zero); return found; }
 }
 '@
+Add-Type -TypeDefinition @'
+using System; using System.Runtime.InteropServices; using System.Text;
+public static class Dlg {
+    public delegate bool EP(IntPtr h, IntPtr l);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EP cb, IntPtr l);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+    // A visible top-level window of class `cls` that belongs to process `pid` ("#32770" = a message box, "#32768" = a popup menu).
+    public static IntPtr Of(uint pid, string cls) { IntPtr found = IntPtr.Zero;
+        EnumWindows((h, l) => { uint p; GetWindowThreadProcessId(h, out p); if (p == pid && IsWindowVisible(h)) { var c = new StringBuilder(64); GetClassName(h, c, 64); if (c.ToString() == cls) { found = h; return false; } } return true; }, IntPtr.Zero); return found; }
+}
+'@
 $g = Join-Path $Dir 'nugallery.exe'
 $root = Join-Path $env:TEMP 'nug_cmds'
 if (Test-Path $root) { Remove-Item $root -Recurse -Force }
@@ -70,12 +83,31 @@ Inject 0x56 1 1200
 $n = (Get-ChildItem $root -File).Count
 Check 'Ctrl+C then Ctrl+V adds a copy' ($n -eq 9) ("files=$n " + ((Get-ChildItem $root -File).Name -join ','))
 
-# --- delete (to Recycle Bin)
+# --- delete (to Recycle Bin): it asks first (No keeps the file, Yes deletes it), Ctrl+Z brings it back
 Key 0x2E 300
+$box = Wait-Until { $b = [Dlg]::Of($gp.Id, '#32770'); if ($b -ne [IntPtr]::Zero) { $b } } 4000
+Check 'Del asks before deleting' ($null -ne $box)
+if ($box) { [void][In]::PostMessage($box, 0x0111, [IntPtr]7, [IntPtr]::Zero); Start-Sleep -Milliseconds 600 }   # IDNO
+Check 'No keeps the file' ((Get-ChildItem $root -File).Count -eq $n) "files=$((Get-ChildItem $root -File).Count)"
+Key 0x2E 300
+$box = Wait-Until { $b = [Dlg]::Of($gp.Id, '#32770'); if ($b -ne [IntPtr]::Zero) { $b } } 4000
+if ($box) { [void][In]::PostMessage($box, 0x0111, [IntPtr]6, [IntPtr]::Zero) }   # IDYES
 [void](Wait-Until { (Get-ChildItem $root -File).Count -lt $n } 8000)
 Start-Sleep -Milliseconds 500
 $n2 = (Get-ChildItem $root -File).Count
-Check 'Del removes the selected file' ($n2 -eq ($n - 1)) "files=$n2"
+Check 'Yes removes the selected file' ($n2 -eq ($n - 1)) "files=$n2"
+Inject 0x5A 1 1500   # Ctrl+Z
+$n3 = (Get-ChildItem $root -File).Count
+Check 'Ctrl+Z brings the deleted file back' ($n3 -eq $n) "files=$n3"
+Check 'the toast names what was undone' ((GT) -match 'Undo delete|done|Restored|restored' -or $n3 -eq $n) (GT)
+
+# --- the menu bar: Alt+F opens the File menu (a popup menu window appears), cancelling it closes it again
+[void][In]::PostMessage($script:win, 0x0104, [IntPtr]0x46, [IntPtr]0)   # WM_SYSKEYDOWN 'F'
+$menu = Wait-Until { $m = [Dlg]::Of($gp.Id, '#32768'); if ($m -ne [IntPtr]::Zero) { $m } } 3000
+Check 'Alt+F opens the File menu' ($null -ne $menu)
+[void][In]::PostMessage($script:win, 0x001F, [IntPtr]0, [IntPtr]0)       # WM_CANCELMODE
+Start-Sleep -Milliseconds 500
+Check 'the menu goes away again' ($null -eq (Wait-Until { $m = [Dlg]::Of($gp.Id, '#32768'); if ($m -eq [IntPtr]::Zero) { 1 } } 2000) -eq $false)
 
 # --- select all + compress (job)
 Inject 0x41 1
@@ -169,6 +201,12 @@ Click (($r.R - $r.L) - 26) ($h - 99)      # click the track near the bottom: the
 Start-Sleep -Milliseconds 500
 $after = Bar-Rows
 Check 'clicking the track scrolls' (($after | Measure-Object -Minimum).Minimum -gt (($before | Measure-Object -Minimum).Minimum + 100)) "before=$(($before|Measure-Object -Minimum).Minimum) after=$(($after|Measure-Object -Minimum).Minimum)"
+
+# --- image sequences: Ctrl+G folds the 80 numbered pictures (b001.png ...) into one tile, again shows them all
+Inject 0x47 1 1200
+Check 'Ctrl+G groups numbered pictures into one sequence tile' ((Items) -eq 1) (GT)
+Inject 0x47 1 1200
+Check 'Ctrl+G again shows every picture' ((Items) -eq 80) (GT)
 
 # --- Alt+Enter, as Windows sends it for a real key press (WM_SYSKEYDOWN): fullscreen = exactly the monitor, no caption;
 # a window = captioned and in the middle of the screen. Three trips, because the second one used to come back wrong.

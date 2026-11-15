@@ -332,6 +332,11 @@ impl App {
                 Err(e) => self.toast(crate::hud::failure(7002, format!("Couldn't delete: {e}"))),
             }
         } else {
+            // Ask first (Settings > Viewer turns this off): Enter = yes, Esc = no. Ctrl+Z brings the file back either way.
+            if self.settings.confirm_delete && !shell::confirm_yes(self.hwnd, &format!("Move \"{name}\" to the Recycle Bin?\n\nCtrl+Z brings it back.")) {
+                invalidate(self.hwnd);
+                return;
+            }
             match shell::recycle(self.hwnd, &path) {
                 Ok(()) => {
                     self.push_undo(UndoOp::Deleted { original: path });

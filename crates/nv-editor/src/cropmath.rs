@@ -183,6 +183,65 @@ pub fn fit_ratio(c: Crop, ratio: f32, aspect: f32) -> Crop {
     Crop { x: c.x + (c.w - w) / 2.0, y: c.y + (c.h - h) / 2.0, w, h }
 }
 
+/// Is `p` inside the convex quadrilateral `q` (either winding)? Points on the edge count as inside.
+fn inside_convex(q: &[(f32, f32); 4], p: (f32, f32)) -> bool {
+    let (mut pos, mut neg) = (false, false);
+    for i in 0..4 {
+        let (a, b) = (q[i], q[(i + 1) % 4]);
+        let cross = (b.0 - a.0) * (p.1 - a.1) - (b.1 - a.1) * (p.0 - a.0);
+        if cross > 1e-3 {
+            pos = true;
+        } else if cross < -1e-3 {
+            neg = true;
+        }
+    }
+    !(pos && neg)
+}
+
+/// The biggest frame of the picture's own shape (`aspect` = width / height in pixels) that lies entirely on the picture, when
+/// the picture is the quadrilateral `quad` (0..1 of a `cw` x `ch` pixel canvas, as `engine::extent_quad` gives it). This is
+/// "crop away the empty corners" after a turn, Pitch or Yaw. None if the quadrilateral is degenerate.
+pub fn inscribed(quad: [(f32, f32); 4], cw: u32, ch: u32, aspect: f32) -> Option<Crop> {
+    let (cwf, chf) = (cw as f32, ch as f32);
+    let q = quad.map(|(x, y)| (x * cwf, y * chf));
+    let area = (0..4).map(|i| q[i].0 * q[(i + 1) % 4].1 - q[(i + 1) % 4].0 * q[i].1).sum::<f32>().abs() / 2.0;
+    if area < 1.0 || aspect <= 0.0 {
+        return None;
+    }
+    let (min_x, max_x) = (q.iter().map(|p| p.0).fold(f32::MAX, f32::min).max(0.0), q.iter().map(|p| p.0).fold(f32::MIN, f32::max).min(cwf));
+    let (min_y, max_y) = (q.iter().map(|p| p.1).fold(f32::MAX, f32::min).max(0.0), q.iter().map(|p| p.1).fold(f32::MIN, f32::max).min(chf));
+    if max_x <= min_x || max_y <= min_y {
+        return None;
+    }
+    let fits = |c: (f32, f32), w: f32| {
+        let h = w / aspect;
+        let (x0, x1, y0, y1) = (c.0 - w / 2.0, c.0 + w / 2.0, c.1 - h / 2.0, c.1 + h / 2.0);
+        x0 >= -0.01 && y0 >= -0.01 && x1 <= cwf + 0.01 && y1 <= chf + 0.01 && [(x0, y0), (x1, y0), (x1, y1), (x0, y1)].iter().all(|p| inside_convex(&q, *p))
+    };
+    let mut best: Option<((f32, f32), f32)> = None;
+    const STEPS: usize = 12;
+    for iy in 0..=STEPS {
+        for ix in 0..=STEPS {
+            let c = (min_x + (max_x - min_x) * ix as f32 / STEPS as f32, min_y + (max_y - min_y) * iy as f32 / STEPS as f32);
+            if !fits(c, 1.0) {
+                continue;
+            }
+            let (mut lo, mut hi) = (1.0f32, cwf.min(chf * aspect));
+            for _ in 0..24 {
+                let mid = (lo + hi) / 2.0;
+                if fits(c, mid) { lo = mid } else { hi = mid }
+            }
+            if best.map(|b| lo > b.1).unwrap_or(true) {
+                best = Some((c, lo));
+            }
+        }
+    }
+    let (c, w) = best?;
+    let h = w / aspect;
+    let (x, y) = ((c.0 - w / 2.0) / cwf, (c.1 - h / 2.0) / chf);
+    Some(Crop { x: x.clamp(0.0, 1.0), y: y.clamp(0.0, 1.0), w: (w / cwf).min(1.0), h: (h / chf).min(1.0) })
+}
+
 /// How many degrees to turn the picture clockwise so the line from `p0` to `p1` (screen points, y down) becomes level. A line
 /// closer to vertical than to level is made vertical instead.
 pub fn level_angle(p0: (f32, f32), p1: (f32, f32)) -> f32 {
@@ -240,6 +299,46 @@ mod tests {
         // Corner drags keep the opposite corner where it was.
         let d = drag(c, Handle::SE, -0.1, -0.1, Some(1.0), aspect);
         assert!((d.x - c.x).abs() < 1e-6 && (d.y - c.y).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_whole_canvas_is_the_biggest_frame_of_an_untouched_picture() {
+        let quad = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
+        let c = inscribed(quad, 300, 200, 1.5).unwrap();
+        assert!(c.w > 0.97 && c.h > 0.97 && c.x < 0.02 && c.y < 0.02, "{c:?}");
+    }
+
+    #[test]
+    fn a_turned_picture_gets_the_largest_frame_inside_its_corners() {
+        // A 300 x 200 picture turned 10 degrees on a canvas that holds it.
+        let (w, h, a) = (300.0f32, 200.0f32, 10.0f32.to_radians());
+        let (rw, rh) = (w * a.cos() + h * a.sin(), w * a.sin() + h * a.cos());
+        let corner = |sx: f32, sy: f32| {
+            let (px, py) = (sx * w - w / 2.0, sy * h - h / 2.0);
+            ((px * a.cos() - py * a.sin() + rw / 2.0) / rw, (px * a.sin() + py * a.cos() + rh / 2.0) / rh)
+        };
+        let quad = [corner(0.0, 0.0), corner(1.0, 0.0), corner(1.0, 1.0), corner(0.0, 1.0)];
+        let (cw, ch) = (rw.ceil() as u32, rh.ceil() as u32);
+        let c = inscribed(quad, cw, ch, 1.5).unwrap();
+        // It has the picture's shape, is smaller than the canvas, and every corner is on the picture.
+        assert!(((c.w * cw as f32) / (c.h * ch as f32) - 1.5).abs() < 0.01, "{c:?}");
+        assert!(c.w < 0.95 && c.w > 0.6, "{c:?}");
+        let q = quad.map(|(x, y)| (x * cw as f32, y * ch as f32));
+        for (px, py) in [(c.x, c.y), (c.x + c.w, c.y), (c.x + c.w, c.y + c.h), (c.x, c.y + c.h)] {
+            assert!(inside_convex(&q, (px * cw as f32, py * ch as f32)), "corner ({px},{py}) is off the picture");
+        }
+        // And it is (nearly) the biggest: a frame 3% wider no longer fits.
+        let bigger = |k: f32| {
+            let (cx, cy) = (c.x + c.w / 2.0, c.y + c.h / 2.0);
+            let (bw, bh) = (c.w * k, c.h * k);
+            [(cx - bw / 2.0, cy - bh / 2.0), (cx + bw / 2.0, cy - bh / 2.0), (cx + bw / 2.0, cy + bh / 2.0), (cx - bw / 2.0, cy + bh / 2.0)].iter().all(|(px, py)| inside_convex(&q, (px * cw as f32, py * ch as f32)))
+        };
+        assert!(!bigger(1.06), "{c:?} could be bigger");
+    }
+
+    #[test]
+    fn a_degenerate_picture_has_no_frame() {
+        assert!(inscribed([(0.5, 0.5); 4], 100, 100, 1.5).is_none());
     }
 
     #[test]

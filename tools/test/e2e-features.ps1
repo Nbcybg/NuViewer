@@ -204,11 +204,11 @@ try {
         $hm = [In]::SendMessage($menu, 0x01E1, [IntPtr]::Zero, [IntPtr]::Zero)
         $n = [In]::GetMenuItemCount($hm)
         $texts = @(0..($n - 1) | ForEach-Object { [In]::MenuText($hm, $_) })
-        Check "menu has 31 entries  [$n]" ($n -eq 31)
+        Check "menu has 32 entries  [$n]" ($n -eq 32)
         Check 'Settings… and Fold image sequences are in the menu' ((@($texts | Where-Object { $_ -like 'Settings*' }).Count -eq 1) -and (@($texts | Where-Object { $_ -like 'Fold image sequences*' }).Count -eq 1))
-        $ow = [array]::IndexOf(@($texts | ForEach-Object { $_ -like 'Open with*' }), $true)
+        $ow = [array]::IndexOf(@($texts | ForEach-Object { $_ -like 'Edit with*' }), $true)
         $sub = [In]::GetSubMenu($hm, $ow)
-        Check "the Open with submenu lists the external program 'Mark it'" (($sub -ne [IntPtr]::Zero) -and ([In]::MenuText($sub, 0) -eq 'Mark it'))
+        Check "the Edit with submenu lists the external program 'Mark it'" (($sub -ne [IntPtr]::Zero) -and ([In]::MenuText($sub, 0) -eq 'Mark it'))
         [void][In]::PostMessage($menu, 0x0100, [IntPtr]0x1B, [IntPtr]::Zero); Start-Sleep -Milliseconds 300
     }
     Close-Viewer
@@ -228,7 +228,7 @@ try {
         Start-Sleep -Milliseconds 300
         $list = ([In]::Children($sw) | Where-Object { $_.Id -eq 410 }).H
         $cnt = [In]::SendMessage($list, 0x018B, [IntPtr]::Zero, [IntPtr]::Zero)
-        Check "keyboard list holds all 65 actions  [$cnt]" ($cnt -eq 65)
+        Check "keyboard list holds all 67 actions  [$cnt]" ($cnt -eq 67)
         [void][In]::SendMessage($list, 0x0186, [IntPtr]0, [IntPtr]::Zero)   # LB_SETCURSEL 0
         [void][In]::SendMessage($sw, 0x0111, [IntPtr](410 -bor (1 -shl 16)), $list)   # WM_COMMAND, LBN_SELCHANGE
         $edit = ([In]::Children($sw) | Where-Object { $_.Id -eq 411 }).H

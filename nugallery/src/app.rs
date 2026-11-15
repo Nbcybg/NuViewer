@@ -29,7 +29,7 @@ pub const TIMER_CURSOR: u32 = 5;
 
 /// Pointer must rest on an edge this long before the panel there slides out, and be away this long before it goes.
 const EDGE_DWELL: Duration = Duration::from_millis(0);
-const EDGE_LEAVE: Duration = Duration::from_millis(350);
+const EDGE_LEAVE: Duration = Duration::from_millis(60);
 /// The right panel loads its details this long after the focus last moved (so arrowing through a folder stays fast).
 const INFO_DEBOUNCE_MS: u32 = 130;
 const TOAST_MS: u32 = 3500;
@@ -46,6 +46,16 @@ pub enum Msg {
     FolderSize { gen: u64, bytes: u64, files: u64, folders: u64, done: bool },
     JobProgress(String),
     JobDone(JobResult),
+    /// The volume label of a drive, read on a worker thread (a sleeping disk can take a while to answer).
+    DriveLabel { root: PathBuf, label: String },
+    /// The folder tree's first rows (Quick access, the drives), built off the UI thread.
+    TreeReady(Tree),
+    /// A frame of the preview's animation or image sequence (decoded off the UI thread).
+    AnimFrame { id: u64, img: nv_codecs::Image, delay: u32, total: usize, label: String },
+    /// The geometry of the focused 3D model.
+    Mesh { id: u64, mesh: Arc<nv_codecs::model::Mesh> },
+    /// The sharper decode of the focused picture, made after the preview was zoomed.
+    BigPreview { id: u64, img: nv_codecs::Image },
 }
 
 pub struct JobResult {
@@ -147,6 +157,8 @@ pub struct App {
     pub left_since: Option<Instant>,
     pub tree: Tree,
     pub tree_for: PathBuf,
+    /// Drive labels that have arrived (kept for a tree that is not there yet).
+    pub drive_labels: HashMap<PathBuf, String>,
     pub right_scroll: f32,
 
     pub tx: mpsc::Sender<Msg>,
@@ -169,7 +181,6 @@ pub struct App {
     pub help: bool,
     pub rubber: Option<Rubber>,
     pub last_mouse: (i32, i32),
-    pub wheel_acc: i32,
     pub job: Option<Job>,
     pub job_text: String,
     pub timing: Timing,
@@ -197,6 +208,14 @@ pub struct App {
     pub sb_drag: Option<f32>,
     /// The left button went down on a selected item here: moving on from it starts dragging the files out.
     pub drag_from: Option<(i32, i32)>,
+    /// Dragging the folder tree's scroll bar: where inside the thumb it was grabbed.
+    pub tree_sb_drag: Option<f32>,
+    /// File / Edit / View / Tools / Help along the top edge (Alt or the pointer on the edge shows it).
+    pub menubar: nv_win::menubar::MenuBar,
+    /// What Ctrl+Z can take back, newest last.
+    pub undo: Vec<crate::undo::Step>,
+    /// The preview's zoom / pan, animation and 3D view (see `preview.rs`).
+    pub pv: crate::preview::Preview,
 }
 
 pub fn worker_threads() -> usize {
@@ -224,6 +243,7 @@ impl App {
         let order = Order { key: persist.sort, descending: persist.sort_desc, shuffle: None };
         let mut listing = Listing::new(persist.show, order);
         listing.folders = persist.folders;
+        listing.fold = settings.sequences.then_some(settings.sequence_min as usize);
         let chrome = chrome::layout(size.0 as f32, size.1 as f32, dpi, &panels);
         let mut app = App {
             hwnd,
@@ -248,7 +268,8 @@ impl App {
             chrome,
             edge: None,
             left_since: None,
-            tree: Tree::new(),
+            tree: Tree::empty(),
+            drive_labels: HashMap::new(),
             tree_for: PathBuf::new(),
             right_scroll: 0.0,
             tx,
@@ -269,7 +290,6 @@ impl App {
             help: false,
             rubber: None,
             last_mouse: (i32::MIN, i32::MIN),
-            wheel_acc: 0,
             job: None,
             job_text: String::new(),
             timing: Timing { started: Some(started), ..Default::default() },
@@ -288,13 +308,45 @@ impl App {
             typeahead_at: None,
             sb_drag: None,
             drag_from: None,
+            tree_sb_drag: None,
+            menubar: nv_win::menubar::MenuBar::new(&crate::menus::BAR_LABELS),
+            undo: Vec::new(),
+            pv: crate::preview::Preview::new(None),
         };
+        app.start_tree();
+        app.start_drive_labels();
         app.timing.window_ms = Some(started.elapsed().as_secs_f64() * 1000.0);
         app.sync_cell();
         if nv_win::is_fullscreen() {
             app.fullscreen_timers(true);
         }
         app
+    }
+
+    /// Build the folder tree's first rows on a worker thread: the window and the first thumbnails never wait for it.
+    fn start_tree(&self) {
+        let (tx, wake) = (self.tx.clone(), self.wake.clone());
+        std::thread::spawn(move || {
+            let _ = tx.send(Msg::TreeReady(Tree::new()));
+            wake();
+        });
+    }
+
+    /// Ask every drive for its volume label, each on its own thread (a sleeping hard disk or a network drive can take
+    /// seconds to answer; the tree shows "Local disk (D:)" until the label arrives, and the window never waits for it).
+    fn start_drive_labels(&self) {
+        for (root, kind) in nv_win::files::drives() {
+            if matches!(kind, nv_win::files::DriveKind::Optical) {
+                continue; // an empty drive spins up and clicks for nothing
+            }
+            let (tx, wake) = (self.tx.clone(), self.wake.clone());
+            std::thread::spawn(move || {
+                if let Some(label) = nv_win::files::volume_label(&root) {
+                    let _ = tx.send(Msg::DriveLabel { root, label });
+                    wake();
+                }
+            });
+        }
     }
 
     pub fn ms_since_start(&self) -> f64 {
@@ -755,13 +807,14 @@ impl App {
             self.info_for = None;
             return;
         };
-        let (id, path, is_dir, has_thumb) = (e.id, e.path.clone(), e.is_dir(), e.has_thumb());
+        let (id, path, is_dir, has_thumb, kind, ext) = (e.id, e.path.clone(), e.is_dir(), e.has_thumb(), e.kind, e.ext.clone());
         if self.info_for == Some(id) {
             return;
         }
         self.info_for = Some(id);
         self.info = None;
         self.right_scroll = 0.0;
+        self.pv_begin(id, path.clone(), kind, &ext);
         if has_thumb && !self.hist.contains_key(&id) {
             self.preview_wanted = Some((id, path.clone()));
             self.previews.request(vec![path.clone()]);
@@ -834,12 +887,35 @@ impl App {
             }
             Event::User => self.on_user(),
             Event::Timer(id) => self.on_timer(id),
-            Event::Key(vk) => self.on_key(vk),
+            Event::Key(vk) => {
+                if !self.menubar_key(vk) {
+                    self.on_key(vk);
+                }
+            }
+            Event::AltTap => {
+                if self.active.is_none() {
+                    self.menubar.alt_tap();
+                    invalidate(self.hwnd);
+                }
+            }
             Event::Char(c) => self.on_char(c),
             Event::Wheel { delta, x, y, ctrl } => self.on_wheel(delta, x, y, ctrl),
-            Event::MouseDown { x, y, ctrl } => self.on_mouse_down(x, y, ctrl, false),
-            Event::DoubleClick { x, y, ctrl } => self.on_mouse_down(x, y, ctrl, true),
-            Event::MouseMove { x, y, left_down } => self.on_mouse_move(x, y, left_down),
+            Event::MouseDown { x, y, ctrl } => {
+                if !self.menubar_press(x, y) {
+                    self.on_mouse_down(x, y, ctrl, false)
+                }
+            }
+            Event::DoubleClick { x, y, ctrl } => {
+                if !self.menubar_press(x, y) {
+                    self.on_mouse_down(x, y, ctrl, true)
+                }
+            }
+            Event::MouseMove { x, y, left_down } => {
+                if !left_down && self.menubar.pointer(x, y, self.dpi) {
+                    invalidate(self.hwnd);
+                }
+                self.on_mouse_move(x, y, left_down)
+            }
             Event::MouseUp => self.on_mouse_up(),
             Event::RightClick { x, y } => self.on_right_click(x, y),
             Event::MiddleClick => self.on_middle_click(),
@@ -946,6 +1022,27 @@ impl App {
                         }
                     }
                 }
+                Msg::AnimFrame { id, img, delay, total, label } => self.pv_frame(id, img, delay, total, label),
+                Msg::Mesh { id, mesh } => self.pv_mesh(id, mesh),
+                Msg::BigPreview { id, img } => self.pv_big(id, img),
+                Msg::DriveLabel { root, label } => {
+                    self.tree.set_drive_label(&root, &label);
+                    self.drive_labels.insert(root, label);
+                    if self.panels.left_shown() {
+                        invalidate(self.hwnd);
+                    }
+                }
+                Msg::TreeReady(mut tree) => {
+                    for (root, label) in &self.drive_labels {
+                        tree.set_drive_label(root, label);
+                    }
+                    self.tree = tree;
+                    self.tree_for = PathBuf::new();
+                    self.reveal_tree();
+                    if self.panels.left_shown() {
+                        invalidate(self.hwnd);
+                    }
+                }
                 Msg::JobProgress(text) => {
                     self.job_text = text;
                     invalidate(self.hwnd);
@@ -1004,6 +1101,7 @@ impl App {
                 invalidate(self.hwnd);
             }
             TIMER_INFO => self.load_info(),
+            crate::preview::TIMER_PREVIEW => self.pv_tick(),
             TIMER_EDGE => self.edge_tick(),
             TIMER_TASKBAR => self.taskbar_tick(),
             TIMER_CURSOR => {
@@ -1073,7 +1171,7 @@ impl App {
         match self.edge_of(x, y) {
             Some(e) if self.edge.map(|(k, _)| k) != Some(e) => {
                 self.edge = Some((e, Instant::now()));
-                set_timer(self.hwnd, TIMER_EDGE, 40);
+                set_timer(self.hwnd, TIMER_EDGE, 16);
             }
             None => {
                 self.edge = None;
@@ -1085,7 +1183,7 @@ impl App {
             self.edge_tick();
         }
         if self.panels.top_open || self.panels.left_open || self.panels.right_open {
-            set_timer(self.hwnd, TIMER_EDGE, 40);
+            set_timer(self.hwnd, TIMER_EDGE, 16);
         }
     }
 
@@ -1117,7 +1215,7 @@ impl App {
         // Leaving: a panel stays while the pointer is on it (or on its edge) or a box inside it has the keyboard.
         let typing = self.active.is_some();
         let on_edge = self.edge_of(x, y);
-        let slack = 12.0 * self.dpi;
+        let slack = 3.0 * self.dpi;
         let near = |r: Option<[f32; 4]>| r.map(|r| fx >= r[0] - slack && fx < r[2] + slack && fy >= r[1] - slack && fy < r[3] + slack).unwrap_or(false);
         let keep_top = typing || near(self.chrome.top) || on_edge == Some(3);
         let keep_left = near(self.chrome.left) || on_edge == Some(1);
@@ -1275,7 +1373,7 @@ impl App {
         self.relayout();
         let text = self.listing.dir.display().to_string();
         self.start_input(Focus::Path, TextInput::selected(&text));
-        set_timer(self.hwnd, TIMER_EDGE, 40);
+        set_timer(self.hwnd, TIMER_EDGE, 16);
         self.panels_changed();
     }
 
@@ -1284,7 +1382,7 @@ impl App {
         self.relayout();
         let text = self.listing.search.clone();
         self.start_input(Focus::Search, TextInput::selected(&text));
-        set_timer(self.hwnd, TIMER_EDGE, 40);
+        set_timer(self.hwnd, TIMER_EDGE, 16);
         self.panels_changed();
     }
 
@@ -1485,6 +1583,12 @@ impl App {
                 self.panels.pin_top = !self.panels.pin_top;
                 self.panels_changed();
             }
+            // Ctrl + / Ctrl - : more / fewer columns (the thumbnails get smaller / bigger); Ctrl+0 is the default size.
+            0xBB | 0x6B if ctrl => self.zoom_cells(1.0),
+            0xBD | 0x6D if ctrl => self.zoom_cells(-1.0),
+            0x30 | 0x60 if ctrl => self.reset_cell(),
+            0x5A if ctrl => self.undo_last(),
+            0x47 if ctrl => self.toggle_sequences(), // Ctrl+G: group numbered pictures into image sequences
             // Test hooks (nothing on a keyboard sends these): the commands that live in menus and dialogs.
             0xFFF1 => self.batch_rename(),
             0xFFF2 => self.batch_convert(),
@@ -1548,6 +1652,9 @@ impl App {
             return;
         }
         if self.chrome.right.map(|r| crate::gfx::contains(r, fx, fy)).unwrap_or(false) {
+            if self.preview_wheel(delta, x, y) {
+                return;
+            }
             self.right_scroll = (self.right_scroll - delta as f32 / 120.0 * 60.0 * self.dpi).max(0.0);
             invalidate(self.hwnd);
             return;
@@ -1559,26 +1666,13 @@ impl App {
             self.zoom_cells(delta as f32 / 120.0);
             return;
         }
-        // Wheel = previous / next file; Shift + wheel scrolls by rows.
-        self.wheel_acc += delta;
-        let steps = self.wheel_acc / 120;
-        if steps == 0 {
-            return;
-        }
-        self.wheel_acc -= steps * 120;
-        if nv_win::modifiers().shift {
-            let g = self.grid();
-            self.scroll = g.clamp(self.scroll - steps as f32 * 3.0 * (g.item_h + g.gap_y));
+        // The wheel moves the scroll bar (three rows a notch); selecting the next file is what the arrow keys are for.
+        let g = self.grid();
+        let before = self.scroll;
+        self.scroll = g.clamp(self.scroll - delta as f32 / 120.0 * 3.0 * (g.item_h + g.gap_y));
+        if self.scroll != before {
             self.request_thumbs();
             invalidate(self.hwnd);
-        } else {
-            let from = self.sel.cursor.unwrap_or(0) as isize;
-            let n = self.listing.len() as isize;
-            if n > 0 {
-                let to = (from - steps as isize).clamp(0, n - 1) as usize;
-                self.sel.only(&self.listing, to);
-                self.show_cursor();
-            }
         }
     }
 
@@ -1641,6 +1735,8 @@ impl App {
 
     fn on_mouse_up(&mut self) {
         self.sb_drag = None;
+        self.tree_sb_drag = None;
+        self.preview_release();
         self.drag_from = None;
         if self.rubber.take().is_some() {
             self.update_title();
@@ -1649,6 +1745,16 @@ impl App {
     }
 
     fn drag_move(&mut self, x: i32, y: i32) {
+        if (self.pv.drag.is_some() || self.pv.scrubbing) && self.preview_drag(x, y) {
+            return;
+        }
+        if let Some(grab) = self.tree_sb_drag {
+            if let Some(tr) = self.tree_rect() {
+                self.tree.scroll_thumb_to(tr, crate::draw::TREE_ROW * self.dpi, self.dpi, y as f32 - grab);
+                invalidate(self.hwnd);
+            }
+            return;
+        }
         if let Some(grab) = self.sb_drag {
             self.scroll_thumb_to(y as f32 - grab);
             return;
@@ -1731,7 +1837,9 @@ impl App {
             return;
         }
         if self.chrome.right.map(|r| crate::gfx::contains(r, fx, fy)).unwrap_or(false) {
-            self.right_click_panel(fx, fy);
+            if !self.preview_press(fx, fy, double) {
+                self.right_click_panel(fx, fy);
+            }
             return;
         }
         // The scroll bar.

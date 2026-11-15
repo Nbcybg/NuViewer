@@ -203,6 +203,7 @@ impl App {
         self.draw_toolbar();
         self.draw_overlays(w, h, d);
         if let Some(r) = self.renderer.as_mut() {
+            crate::gfx::draw_menubar(r, &mut self.text, &mut self.menubar, w, d);
             self.text.end_frame(r);
             let _ = r.end();
         }
@@ -251,6 +252,13 @@ impl App {
                 ViewMode::Thumbs => {
                     let b = [rc[0], rc[1], rc[2], rc[1] + cell];
                     draw_visual(r, &mut self.text, e, b, 8.0 * d, failed, d);
+                    if let Some(n) = self.listing.sequence_len(e.id) {
+                        let badge = format!("▶ {n}");
+                        let bw = self.text.width(&badge, px(12.0, d)) as f32 + 12.0 * d;
+                        let bx = [b[2] - bw - 6.0 * d, b[1] + 6.0 * d, b[2] - 6.0 * d, b[1] + 6.0 * d + line_h(px(12.0, d)) + 4.0 * d];
+                        let _ = r.fill_rect(bx, rgb(0x000000, 0.72));
+                        self.text.draw(r, &badge, px(12.0, d), bx[0] + 6.0 * d, bx[1] + 2.0 * d, rgb(0xFFFFFF, 1.0));
+                    }
                     if label_h > 0.0 {
                         let name = self.text.fit(&e.name, name_px, (rc[2] - rc[0] - 12.0 * d) as i32);
                         self.text.draw(r, &name, name_px, rc[0] + 6.0 * d, rc[1] + cell + 3.0 * d, rgb(if selected { 0xFFFFFF } else { pal::TEXT }, 1.0));
@@ -460,7 +468,8 @@ impl App {
             self.text.draw(r, &t, small, x + 12.0 * d, y + 6.0 * d, rgb(pal::TEXT, 1.0));
         }
         if help {
-            let lines = help_lines();
+            let mut lines = help_lines();
+            lines.extend(nv_core::about::credit_lines());
             let font = px(14.0, d);
             let lh = line_h(font);
             let tw = lines.iter().map(|l| self.text.width(l, font)).max().unwrap_or(0) as f32 + 40.0 * d;
@@ -500,15 +509,16 @@ fn help_lines() -> Vec<String> {
     [
         concat!("NuGallery ", env!("CARGO_PKG_VERSION"), " — keys and mouse"),
         "",
-        "Mouse   wheel: previous / next file  ·  Shift+wheel: scroll  ·  Ctrl+wheel: thumbnail size (columns)",
+        "Mouse   wheel: scroll  ·  Ctrl+wheel or Ctrl + / Ctrl −: thumbnail size (columns)  ·  Ctrl+0: default size",
         "        click: select  ·  Ctrl+click: add / remove  ·  Shift+click: range  ·  drag on empty space: select a box",
         "        double-click / middle click: view  ·  right click: menu  ·  edges: left = folders, right = details,",
         "        top = toolbar, bottom = Windows taskbar (pin a panel with its Pin button, or Ctrl+B / Ctrl+I / Ctrl+T)",
         "Keys    arrows / PgUp / PgDn / Home / End: move  ·  Shift+arrows: extend  ·  Ctrl+A: select all  ·  Esc: clear",
         "        Space: view in NuViewer  ·  Enter: next file  ·  F8: slideshow  ·  a letter: jump to the name  ·  Backspace / Alt+↑: up  ·  Alt+← / →: back / forward",
         "        1 2 3 4 5: thumbnail size  ·  `: reset size  ·  Ctrl+1 / 2 / 3: thumbnails / details / list  ·  Ctrl+J: sort  ·  Ctrl+R: shuffle",
-        "        F2 rename  ·  Del Recycle Bin  ·  Shift+Del delete for good  ·  Ctrl+N new folder  ·  F5 refresh",
-        "        Ctrl+C copy  ·  Ctrl+X cut  ·  Ctrl+V paste  ·  Ctrl+Shift+C copy path  ·  F6 move to  ·  F7 copy to  ·  Ctrl+P print",
+        "        F2 rename  ·  Del Recycle Bin (asks first)  ·  Shift+Del delete for good  ·  Ctrl+Z undo a delete / move / rename / copy  ·  Ctrl+N new folder  ·  F5 refresh",
+        "        Alt or F10 (or the pointer on the top edge): menu bar  ·  Alt+F, Alt+E, Alt+V, Alt+T, Alt+H open a menu  ·  Ctrl+G group image sequences",
+        "        Ctrl+C copy file  ·  Ctrl+X cut  ·  Ctrl+V paste  ·  Ctrl+Shift+C copy path  ·  F6 move to  ·  F7 copy to  ·  Ctrl+P print",
         "        Ctrl+F search  ·  Ctrl+L address bar  ·  F11 fullscreen  ·  F1 this help  ·  Alt+F4 exit",
         "Many files selected: right click > Batch (rename, convert, change time stamp, remove metadata) and Compress",
     ]

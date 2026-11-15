@@ -30,6 +30,7 @@ const ED_WATERMARK: u16 = 908;
 const V_CANVAS: u16 = 101;
 const V_PICK: u16 = 102;
 const V_FULLSCREEN: u16 = 103;
+const V_CONFIRM_DELETE: u16 = 190;
 const V_HOLD: u16 = 105;
 const V_SMALL: u16 = 106;
 const V_SEQ: u16 = 107;
@@ -227,11 +228,12 @@ pub fn edit(current: &Settings) -> Option<Settings> {
     form.check(V_DISK, 28, 378, 660, 22, "Show the disk's read / write speed on screen all the time  (D; it always appears while a picture loads)", c.disk_monitor);
     form.group(12, 420, 696, 58, "3D models");
     form.check(V_MODEL_TEX, 28, 446, 660, 22, "Load the textures of 3D models (OBJ + MTL, glTF / GLB, FBX, PLY); off = plain grey surface, faster", c.model_textures);
-    form.group(12, 488, 696, 100, "Controls and rotation");
+    form.group(12, 488, 696, 128, "Controls, rotation and deleting");
     form.check(V_SIDEBAR, 28, 514, 660, 22, "Show the viewer controls when the pointer touches the left edge  (V keeps them open)", c.sidebar);
     form.label(28, 550, 250, 20, "A rotated picture, when I move on:");
     form.combo(V_ROTATE_SAVE, 280, 546, 300, 90, &ROTATE_ITEMS, ROTATE_VALUES.iter().position(|r| *r == c.rotate_save).unwrap_or(0));
-    form.label(28, 596, 660, 40, "RAW and JPG of the same shot are never folded together: a sequence only ever contains files with the same extension.");
+    form.check(V_CONFIRM_DELETE, 28, 584, 660, 22, "Ask before a file goes to the Recycle Bin (NuViewer and NuGallery; Ctrl+Z puts it back either way)", c.confirm_delete);
+    form.label(28, 626, 660, 40, "RAW and JPG of the same shot are never folded together: a sequence only ever contains files with the same extension.");
 
     // ---- page 6: Colour ----
     form.begin_page(6);
@@ -542,6 +544,7 @@ pub fn edit(current: &Settings) -> Option<Settings> {
                 let mut s = cur.clone();
                 s.canvas = u32::from_str_radix(form.text(V_CANVAS).trim().trim_start_matches('#'), 16).map(|v| v & 0xFF_FFFF).unwrap_or(cur.canvas);
                 s.start_fullscreen = form.is_checked(V_FULLSCREEN);
+                s.confirm_delete = form.is_checked(V_CONFIRM_DELETE);
                 colour_fields(form, &mut s);
                 if s.icc {
                     if let Err(e) = crate::colour::check(&s, Some(form.hwnd)) {

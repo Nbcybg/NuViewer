@@ -21,12 +21,42 @@ pub enum Scope {
 }
 
 impl Scope {
+    pub fn from_setting(g: nv_core::settings::EditorGraph) -> Scope {
+        use nv_core::settings::EditorGraph as G;
+        match g {
+            G::Histogram => Scope::Histogram,
+            G::Parade => Scope::Parade,
+            G::Vector => Scope::Vector,
+            G::Off => Scope::Off,
+        }
+    }
+
+    pub fn to_setting(self) -> nv_core::settings::EditorGraph {
+        use nv_core::settings::EditorGraph as G;
+        match self {
+            Scope::Histogram => G::Histogram,
+            Scope::Parade => G::Parade,
+            Scope::Vector => G::Vector,
+            Scope::Off => G::Off,
+        }
+    }
+
     pub fn next(self) -> Scope {
         match self {
             Scope::Off => Scope::Histogram,
             Scope::Histogram => Scope::Parade,
             Scope::Parade => Scope::Vector,
             Scope::Vector => Scope::Off,
+        }
+    }
+
+    /// One word for the tool strip.
+    pub fn short(self) -> &'static str {
+        match self {
+            Scope::Off => "off",
+            Scope::Histogram => "histogram",
+            Scope::Parade => "parade",
+            Scope::Vector => "vector",
         }
     }
 
@@ -61,6 +91,8 @@ pub struct View {
     pub split: bool,
     pub split_at: f32,
     pub scope: Scope,
+    /// The navigator is being dragged (it pans the picture).
+    pub nav_drag: bool,
     pub false_colour: bool,
     /// Share of pixels at the lowest / highest level of any channel (for the label under the histogram).
     pub clipped: (f32, f32),
@@ -79,7 +111,9 @@ impl Default for View {
             pan: None,
             split: false,
             split_at: 0.5,
-            scope: Scope::Off,
+            // The graphs are on from the start: they are what you judge the edit by.
+            scope: Scope::Histogram,
+            nav_drag: false,
             false_colour: false,
             clipped: (0.0, 0.0),
         }
@@ -129,6 +163,10 @@ impl App {
         true
     }
 
+    pub(super) fn clamp_center_pub(&mut self) {
+        self.clamp_center();
+    }
+
     /// Keep the view inside the picture (a picture smaller than the area stays centred).
     fn clamp_center(&mut self) {
         if self.full.is_none() {
@@ -161,6 +199,9 @@ impl App {
         if z <= fit * 1.001 {
             self.leave_detail();
             return;
+        }
+        if self.view.zoom.is_none() && self.geo_overlay() && self.recipe.crop.is_some() {
+            self.view.proxy_stale = true; // the fitted picture on the GPU is the uncropped one: bring it up to date on the way back
         }
         self.view.zoom = Some(z);
         self.view.center = (point.0 - (anchor.0 - mid.0) / z, point.1 - (anchor.1 - mid.1) / z);
@@ -309,10 +350,19 @@ impl App {
             return;
         }
         let d = self.dpi;
-        let (w, h) = match self.view.scope {
-            Scope::Histogram => ((280.0 * d) as usize, (110.0 * d) as usize),
-            Scope::Parade => ((300.0 * d) as usize, (120.0 * d) as usize),
-            _ => ((170.0 * d) as usize, (170.0 * d) as usize),
+        let (w, h) = if self.panel && !self.legacy_layout {
+            // Docked at the top of the panel: as wide as the panel's graph box (272 x 134 logical pixels).
+            match self.view.scope {
+                Scope::Histogram => ((272.0 * d) as usize, (134.0 * d) as usize),
+                Scope::Parade => ((272.0 * d) as usize, (134.0 * d) as usize),
+                _ => ((134.0 * d) as usize, (134.0 * d) as usize),
+            }
+        } else {
+            match self.view.scope {
+                Scope::Histogram => ((280.0 * d) as usize, (110.0 * d) as usize),
+                Scope::Parade => ((300.0 * d) as usize, (120.0 * d) as usize),
+                _ => ((170.0 * d) as usize, (170.0 * d) as usize),
+            }
         };
         let bmp = match self.view.scope {
             Scope::Histogram => {

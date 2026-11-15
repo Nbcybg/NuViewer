@@ -121,7 +121,7 @@ try {
 
     # ---- keystone ----
     Click ([int]($pl + 60 * $d)) ([int](Header-Y 4))   # Composition
-    $top = (56 + 30 * 5) * $d
+    $top = (56 + 30 * 5 + 68) * $d                     # under the two buttons (Crop..., Crop to the picture) that open Composition
     $pitchTrack = $top + 44 * $d + 30 * $d             # second row: Pitch
     Click ([int]($pl + 284 * $d)) ([int]$pitchTrack)   # far right: +100
     Start-Sleep -Milliseconds 400

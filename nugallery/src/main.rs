@@ -24,8 +24,10 @@ mod menus;
 mod model;
 mod ops;
 mod panels;
+mod preview;
 mod state;
 mod tree;
+mod undo;
 
 use app::{App, Msg, Options};
 use nv_core::settings::Settings;
@@ -118,6 +120,7 @@ fn main() {
     }
     // 3. The thumbnail workers (idle until the first request).
     let thumbs = Loader::new(app::worker_threads(), false, wake.clone(), Arc::new(model::thumb_work));
+    nv_win::prewarm_siblings();
     // Housekeeping long after start-up, so it never competes with the first thumbnails.
     std::thread::spawn(|| {
         std::thread::sleep(Duration::from_secs(8));

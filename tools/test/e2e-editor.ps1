@@ -34,6 +34,7 @@ New-Item -ItemType Directory -Force -Path $scratch | Out-Null
 $env:NUVIEWER_SETTINGS = Join-Path $scratch 'settings.ini'
 Set-Content -Path $env:NUVIEWER_SETTINGS -Value "" -Encoding ASCII
 $env:NUEDITOR_BACKUP_DIR = Join-Path $scratch 'backups'
+$env:NUEDITOR_TEST = '1'   # the older panel layout (no graph dock) these scripts' coordinates assume
 
 if (-not (Test-Path $Exe)) { Write-Host "no $Exe - build it first (cargo build --release -p nueditor)"; exit 2 }
 $script:ed = $null

@@ -62,6 +62,14 @@ pub fn confirm(hwnd: HWND, text: &str) -> bool {
     unsafe { MessageBoxW(Some(hwnd), PCWSTR(t.as_ptr()), w!("NuViewer"), MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES }
 }
 
+/// Modal Yes/No question that defaults to Yes (Enter confirms): "Move X to the Recycle Bin?". Esc and the close box say No.
+pub fn confirm_yes(hwnd: HWND, text: &str) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::MB_ICONQUESTION;
+    let mut t: Vec<u16> = text.encode_utf16().collect();
+    t.push(0);
+    unsafe { MessageBoxW(Some(hwnd), PCWSTR(t.as_ptr()), w!("NuViewer"), MB_YESNO | MB_ICONQUESTION) == IDYES }
+}
+
 /// The answer to a Yes / No / Cancel question.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Answer {

@@ -3,6 +3,26 @@
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
 ### Added
+- **Menu bars** in NuViewer, NuGallery and NuEditor: the pointer on the top edge, or Alt / F10, shows File / Edit / View / ... ; Alt+F, Alt+E,
+  Alt+V ... open a menu (Left / Right / Enter / Esc work inside the bar). Same entries as the right-click menus.
+- **Ctrl + / Ctrl - / Ctrl+0** zoom the picture in the viewer and the editor and change the number of columns in the gallery.
+- **NuEditor you can find your way around:** right-click menu, F11 / Alt+Enter window mode, a tool strip (Crop, White picker, Retouch,
+  Fit, 100%, zoom, Split, Graph, Panel), a navigator to pan a zoomed picture, **histogram / RGB parade / vector scope (skin line) on by
+  default** at the top of the panel, "Crop..." and "Crop to the picture" in Composition, and a view of the whole picture with its outline
+  and your crop frame while you turn it or change Pitch / Yaw. F1 help page.
+- **NuViewer:** right-click > Edit in NuEditor, Edit with... (your programs, any program, set up the list); delete asks first
+  (Settings > Viewer to turn off) and the Edit menu names what Ctrl+Z would undo.
+- **NuGallery:** Ctrl+Z undoes delete / move / rename / copy; delete asks first; the wheel scrolls (not next file); the folder tree has a
+  scroll bar and shows drive names ("Photos (D:)"); panels leave the moment the pointer does; **preview controls** (wheel zoom, drag pan,
+  double click, sharper decode, GIF / WebP / APNG and image-sequence playback with a bar, drag-to-turn 3D); **image sequences can be grouped**
+  (Ctrl+G, View menu) into one tile with a badge.
+- **Credits** at the bottom of every help page.
+- **Faster first start of NuGallery / NuEditor after an update:** Windows Defender scans a never-seen exe for 0.4-0.75 s; each program now reads its
+  siblings once in the background, the gallery builds its folder tree and drive labels off the UI thread, and the graph NuEditor shows is remembered
+  (`editor_graph`). New setting `confirm_delete`.
+- **NuImporter (mock-up)** from the gallery's Tools menu: pick a card / folder, see what would be imported where, nothing is copied yet.
+
+- "Copy image" (gallery) and "Copy picture" (viewer) were the same thing under two names: both say **Copy picture** now.
 - **Window state follows between the viewer and the gallery** (`window.ini` next to `settings.ini`): a window in one means a window in the other, in the same place; fullscreen likewise. Keys pressed while the viewer is still starting (Alt+Enter, Enter, arrows) are kept and replayed instead of lost. Letting go of Alt no longer enters menu mode and swallows the next key. Switching between a window and fullscreen no longer shows the old frame stretched for a moment (`DXGI_SCALING_NONE`, and a frame of the new size is drawn at once).
 - **NuGallery follow-ups:** folder tiles show the first picture inside as a cover; a scroll bar; type a letter to jump to the
   first name starting with it (the old letter shortcuts moved to Ctrl+R shuffle, Ctrl+J sort, Ctrl+1/2/3 view, F8 slideshow);

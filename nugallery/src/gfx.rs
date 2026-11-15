@@ -138,6 +138,36 @@ pub fn line_h(px: i32) -> f32 {
     (px as f32 * 1.35).round()
 }
 
+/// Draw the shared menu bar (see `nv_win::menubar`) along the top edge, if it is showing. Call it last, so it covers what is under it.
+pub fn draw_menubar(r: &mut Renderer, text: &mut Text, bar: &mut nv_win::menubar::MenuBar, w: f32, d: f32) {
+    let px = (13.0 * d).round() as i32;
+    bar.layout(w, d, |s| text.width(s, px) as f32);
+    if !bar.visible() {
+        return;
+    }
+    let strip = bar.strip(w, d);
+    let _ = r.fill_rect(strip, rgb(0x15171A, 0.97));
+    let _ = r.fill_rect([0.0, strip[3] - 1.0, w, strip[3]], rgb(pal::PANEL_EDGE, 1.0));
+    let ty = (strip[3] - line_h(px)) / 2.0;
+    let labels = bar.labels();
+    for (i, (rect, label)) in bar.rects().iter().zip(labels.iter()).enumerate() {
+        if bar.hot() == Some(i) {
+            let _ = r.fill_rect([rect[0], rect[1] + 2.0 * d, rect[2], rect[3] - 1.0], rgb(if bar.keyboard() { pal::ACCENT } else { pal::TILE_HOVER }, 1.0));
+        }
+        let x = rect[0] + (rect[2] - rect[0] - text.width(label, px) as f32) / 2.0;
+        text.draw(r, label, px, x, ty, rgb(pal::TEXT, 1.0));
+        if bar.keyboard() {
+            if let Some(k) = bar.mnemonic_of(i) {
+                let before: String = label.chars().take(k).collect();
+                let ch: String = label.chars().skip(k).take(1).collect();
+                let ux = x + text.width(&before, px) as f32;
+                let uw = text.width(&ch, px) as f32;
+                let _ = r.fill_rect([ux, ty + line_h(px) - 3.0 * d, ux + uw, ty + line_h(px) - 2.0 * d], rgb(pal::TEXT, 1.0));
+            }
+        }
+    }
+}
+
 /// An outline `t` pixels thick inside `r`.
 pub fn outline(r: &mut Renderer, rect: [f32; 4], t: f32, color: [f32; 4]) {
     let [l, tp, rt, b] = rect;

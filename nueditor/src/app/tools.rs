@@ -116,7 +116,7 @@ impl App {
     /// The recipe as it is shown: while the crop tool is on, the whole picture (the frame is what is being decided).
     pub(super) fn display_recipe(&self) -> Recipe {
         let mut r = self.recipe.clone();
-        if self.tools.mode == Mode::Crop {
+        if self.tools.mode == Mode::Crop || self.geo_overlay() {
             r.crop = None;
         }
         r

@@ -68,6 +68,7 @@ fn main() {
         }
     }
 
+    nv_win::prewarm_siblings();
     let hwnd_slot = Arc::new(AtomicIsize::new(0));
     let wake: Arc<dyn Fn() + Send + Sync> = {
         let slot = hwnd_slot.clone();

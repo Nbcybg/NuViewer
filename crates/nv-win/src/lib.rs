@@ -6,6 +6,7 @@ pub mod diskstat;
 pub mod files;
 pub mod instance;
 pub mod menu;
+pub mod menubar;
 pub mod props;
 pub mod registry;
 pub mod shell;
@@ -56,6 +57,8 @@ pub enum Event {
     Char(char),
     /// Files were dropped on the window (from Explorer or another program); x, y in client pixels.
     Drop { paths: Vec<String>, x: i32, y: i32 },
+    /// Alt (or F10) was pressed and let go without another key: the menu bar takes the keyboard (see `menubar`).
+    AltTap,
 }
 
 /// Modifier keys at the time of the event being handled.
@@ -262,6 +265,37 @@ fn toggle_fullscreen_now(hwnd: HWND) -> bool {
     }
 }
 
+/// The first time Windows runs (or reads) an executable it has not seen, Defender scans it: about 0.3 s for the read plus 0.4 s
+/// more before the process runs, measured here for these 15 MB programs (a program that has been scanned starts in 25 ms). So a
+/// few seconds after this program is up, read the *other* programs of the family once in the background at low priority: by the
+/// time the user presses G, E or F4 their scan is done and the window comes up about 45% sooner on the first start after an
+/// update. Costs nothing noticeable (a background thread, 30 MB read once; later reads come from the file cache).
+/// `NUVIEWER_NO_PREWARM=1` turns it off (tests).
+pub fn prewarm_siblings() {
+    if std::env::var_os("NUVIEWER_NO_PREWARM").is_some() {
+        return;
+    }
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_millis(2500));
+        let Ok(me) = std::env::current_exe() else { return };
+        unsafe {
+            use windows::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_MODE_BACKGROUND_BEGIN};
+            let _ = SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN); // low CPU and low I/O priority
+        }
+        let mut buf = vec![0u8; 1 << 20];
+        for name in ["nuviewer.exe", "nugallery.exe", "nueditor.exe", "nuimporter.exe"] {
+            let path = me.with_file_name(name);
+            if path == me || !path.is_file() {
+                continue;
+            }
+            if let Ok(mut f) = std::fs::File::open(&path) {
+                use std::io::Read;
+                while matches!(f.read(&mut buf), Ok(n) if n > 0) {}
+            }
+        }
+    });
+}
+
 /// Wake the UI thread (Event::User) given a raw window handle value; safe to call from any thread.
 pub fn post_user_raw(hwnd: isize) {
     unsafe {
@@ -458,6 +492,9 @@ pub fn main_window() -> Option<HWND> {
     (h != 0 && unsafe { IsWindow(Some(hwnd)).as_bool() }).then_some(hwnd)
 }
 
+/// Alt went down and nothing else has happened since.
+static ALT_CLEAN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 static CLOSE_VETO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Call while handling `Event::Close` to keep the window open (e.g. the user answered Cancel to "save changes?").
@@ -592,6 +629,19 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         false
     };
+    // Alt pressed and released with nothing in between is a "tap" (it opens the menu bar). Any other key, or a mouse button,
+    // while Alt is down makes it a modifier instead. AltGr (Ctrl+Alt) never counts.
+    match msg {
+        WM_SYSKEYDOWN | WM_KEYDOWN if wp.0 as u32 == 0x12 => {
+            let ctrl = windows::Win32::UI::Input::KeyboardAndMouse::GetKeyState(0x11) < 0;
+            if lp.0 & (1 << 30) == 0 && !ctrl {
+                ALT_CLEAN.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        // Alt+Tab and friends: the Alt that went down here must not turn into a "tap" when its release arrives after we got the focus back.
+        WM_SYSKEYDOWN | WM_KEYDOWN | WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_MOUSEWHEEL | WM_KILLFOCUS | WM_ACTIVATE => ALT_CLEAN.store(false, std::sync::atomic::Ordering::Relaxed),
+        _ => {}
+    }
     match msg {
         WM_SIZE => {
             let (w, h) = ((lp.0 & 0xFFFF) as u32, ((lp.0 >> 16) & 0xFFFF) as u32);
@@ -677,11 +727,29 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             call_with_mods(m, || dispatch(Event::Key(0x0D)));
             LRESULT(0)
         }
-        WM_SYSCHAR if wp.0 as u32 == 0x0D => LRESULT(0), // swallow the character so Windows doesn't beep
-        // Letting go of Alt (after Alt+Enter, say) would put the window in "menu mode" and swallow the next key press (the
-        // Enter that follows to open the gallery): there is no menu bar here, so nothing is lost by ignoring it. Alt+Space
-        // (the system menu) is a WM_SYSKEYDOWN and is not affected.
-        WM_SYSKEYUP if wp.0 as u32 == 0x12 => LRESULT(0),
+        // Alt+letter / Alt+digit are the menu bar's mnemonics (File = Alt+F ...): the app gets them as keys with Alt held.
+        WM_SYSKEYDOWN if matches!(wp.0 as u32, 0x30..=0x39 | 0x41..=0x5A) => {
+            let mut m = modifiers();
+            m.alt = true;
+            call_with_mods(m, || dispatch(Event::Key(wp.0 as u32)));
+            LRESULT(0)
+        }
+        // F10 opens the menu bar like a tap on Alt.
+        WM_SYSKEYDOWN if wp.0 as u32 == 0x79 => {
+            dispatch(Event::AltTap);
+            LRESULT(0)
+        }
+        WM_SYSCHAR if wp.0 as u32 == 0x0D || matches!(wp.0 as u32, 0x30..=0x39 | 0x41..=0x5A | 0x61..=0x7A) => LRESULT(0), // swallow the character so Windows doesn't beep
+        // Letting go of Alt on its own (no other key was pressed meanwhile) takes the menu bar. After Alt+Enter and the like it
+        // must do nothing: Windows' own "menu mode" would swallow the next key. Alt+Space (the system menu) is a WM_SYSKEYDOWN
+        // and is not affected.
+        WM_SYSKEYUP if wp.0 as u32 == 0x12 => {
+            if ALT_CLEAN.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                dispatch(Event::AltTap);
+            }
+            LRESULT(0)
+        }
+        WM_SYSKEYUP if wp.0 as u32 == 0x79 => LRESULT(0),
         // Alt+Left / Right / Up are "back", "forward", "up" in the gallery; nothing in Windows needs them.
         WM_SYSKEYDOWN if matches!(wp.0 as u32, 0x25..=0x27) => {
             let mut m = modifiers();

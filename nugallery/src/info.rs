@@ -22,6 +22,21 @@ pub fn preview_decode(path: &Path) -> Result<Image, String> {
     Ok(small)
 }
 
+/// A picture for the preview's zoom, an animation frame or a sequence frame: the first frame, at most `edge` long, upright, in
+/// the output colours. A small `edge` takes the fast thumbnail decode; a big one decodes the picture properly.
+pub fn frame_decode(path: &Path, edge: u32) -> Result<Image, String> {
+    let full = if edge > PREVIEW_EDGE { nv_codecs::decode_file_first_frame(path)? } else { nv_codecs::decode_for_thumbnail(path)? };
+    Ok(finish_frame(full, edge))
+}
+
+/// `img` shrunk to at most `edge`, upright, in the output colours.
+pub fn finish_frame(img: Image, edge: u32) -> Image {
+    let mut small = nv_codecs::downscale(&img, edge).finish_for_thumb();
+    drop(img);
+    small.srgb_to_output();
+    small
+}
+
 #[derive(Clone)]
 pub struct Histogram {
     pub r: [u32; 256],

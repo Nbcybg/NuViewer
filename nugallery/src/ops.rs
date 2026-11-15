@@ -172,8 +172,16 @@ pub fn strip_one(path: &Path, keep_orientation: bool) -> Result<bool, String> {
 
 impl App {
     /// The selected entries' paths (or the focused item's).
+    /// A folded image sequence stands for all its frames: deleting, copying or moving its tile does that to every frame.
     pub fn picked_paths(&self) -> Vec<PathBuf> {
-        self.sel.entries(&self.listing).into_iter().map(|e| e.path.clone()).collect()
+        let mut out = Vec::new();
+        for e in self.sel.entries(&self.listing) {
+            match self.listing.sequence_files(e.id) {
+                Some(frames) => out.extend(frames),
+                None => out.push(e.path.clone()),
+            }
+        }
+        out
     }
 
     fn picked_files(&self) -> Vec<PathBuf> {
@@ -223,6 +231,29 @@ impl App {
                 nv_win::instance::allow_foreground(child.id());
             }
             Err(e) => self.toast(format!("Couldn't start NuEditor: {e}")),
+        }
+    }
+
+    /// Group numbered pictures into image sequences (one tile each) or show every picture (Ctrl+G, View menu). The viewer
+    /// uses the same setting, so a sequence opened from here plays there.
+    pub fn toggle_sequences(&mut self) {
+        self.settings.sequences = !self.settings.sequences;
+        let _ = self.settings.save();
+        self.listing.fold = self.settings.sequences.then_some(self.settings.sequence_min as usize);
+        self.rearrange_keeping_focus();
+        self.toast(if self.settings.sequences { format!("Image sequences grouped (runs of {} or more numbered pictures)", self.settings.sequence_min) } else { "Every picture shown separately".to_string() });
+    }
+
+    /// Tools > Import photos…: NuImporter (a mock-up for now) next to this program.
+    pub fn launch_importer(&mut self) {
+        let Some(exe) = std::env::current_exe().ok().map(|e| e.with_file_name("nuimporter.exe")).filter(|p| p.is_file()) else {
+            self.toast("NuImporter isn't installed next to NuGallery");
+            return;
+        };
+        nv_win::remember_window(self.hwnd);
+        match std::process::Command::new(exe).arg("--from").arg("gallery").arg("--into").arg(&self.listing.dir).spawn() {
+            Ok(child) => nv_win::instance::allow_foreground(child.id()),
+            Err(e) => self.toast(format!("Couldn't start NuImporter: {e}")),
         }
     }
 
@@ -293,7 +324,10 @@ impl App {
         }
         match fileops::rename_file(&path, name) {
             Ok(new) => {
-                self.toast(format!("Renamed to {name}"));
+                if new != path {
+                    self.push_undo(crate::undo::Step::Moved(vec![(path.clone(), new.clone())]));
+                }
+                self.toast(format!("Renamed to {name} — Ctrl+Z to undo"));
                 self.refresh(vec![new]);
             }
             Err(e) => {
@@ -348,16 +382,105 @@ impl App {
         if permanent && !shell::confirm(self.hwnd, &format!("Delete {} permanently?\n\nThis can't be undone.", if n == 1 { paths[0].file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default() } else { format!("{n} items") })) {
             return;
         }
+        // Ask first (Settings > Viewer > "Ask before a file goes to the Recycle Bin"): Enter = yes, Esc = no.
+        if !permanent && self.settings.confirm_delete {
+            let what = if n == 1 { format!("\"{}\"", paths[0].file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default()) } else { format!("these {n} items") };
+            if !shell::confirm_yes(self.hwnd, &format!("Move {what} to the Recycle Bin?\n\nCtrl+Z brings {} back.", if n == 1 { "it" } else { "them" })) {
+                return;
+            }
+        }
         let hint = self.sel.cursor;
         match files::run(self.hwnd, if permanent { Op::Delete } else { Op::Recycle }, &paths, None, false) {
             Ok(()) => {
-                self.toast(if permanent { format!("Deleted {n} item{}", if n == 1 { "" } else { "s" }) } else { format!("Moved {n} item{} to the Recycle Bin", if n == 1 { "" } else { "s" }) });
+                if !permanent {
+                    let gone = crate::undo::gone(&paths);
+                    self.push_undo(crate::undo::Step::Deleted(gone));
+                }
+                self.toast(if permanent { format!("Deleted {n} item{}", if n == 1 { "" } else { "s" }) } else { format!("Moved {n} item{} to the Recycle Bin — Ctrl+Z to undo", if n == 1 { "" } else { "s" }) });
                 self.cursor_hint = hint;
                 self.refresh(Vec::new());
             }
             Err(e) if e == "cancelled" => self.refresh(Vec::new()),
             Err(e) => self.toast(format!("Couldn't delete: {e}")),
         }
+    }
+
+    // ---- undo ------------------------------------------------------------------------------------------
+
+    pub fn push_undo(&mut self, step: crate::undo::Step) {
+        if step.count() == 0 {
+            return;
+        }
+        self.undo.push(step);
+        if self.undo.len() > crate::undo::LIMIT {
+            self.undo.remove(0);
+        }
+    }
+
+    /// Remember what a move / copy of `paths` into `dest` did, so Ctrl+Z can reverse it.
+    pub fn record_transfer(&mut self, paths: &[PathBuf], dest: &Path, moved: bool, existed: &[String]) {
+        let step = if moved { crate::undo::Step::Moved(crate::undo::moved_pairs(paths, dest)) } else { crate::undo::Step::Copied(crate::undo::copied_files(paths, dest, existed)) };
+        self.push_undo(step);
+    }
+
+    /// The menu text for Edit > Undo.
+    pub fn undo_label(&self) -> String {
+        self.undo.last().map(|s| s.label()).unwrap_or_else(|| "Undo".to_string())
+    }
+
+    /// Ctrl+Z: take back the last delete, move, rename or copy.
+    pub fn undo_last(&mut self) {
+        use crate::undo::Step;
+        let Some(step) = self.undo.pop() else {
+            self.toast("Nothing to undo");
+            return;
+        };
+        let (mut done, mut failed) = (0usize, Vec::new());
+        let mut select = Vec::new();
+        match &step {
+            Step::Deleted(paths) => {
+                for p in paths {
+                    match shell::recycle_restore(p) {
+                        Ok(()) => {
+                            done += 1;
+                            select.push(p.clone());
+                        }
+                        Err(e) => failed.push(e),
+                    }
+                }
+            }
+            Step::Moved(pairs) => {
+                for (from, to) in pairs {
+                    let back = if from.exists() {
+                        // Something is at the old place again: put it back beside it under a free name.
+                        fileops::move_file(to, from.parent().unwrap_or(Path::new(".")))
+                    } else {
+                        std::fs::rename(to, from).map(|_| from.clone()).or_else(|_| fileops::move_file(to, from.parent().unwrap_or(Path::new("."))))
+                    };
+                    match back {
+                        Ok(p) => {
+                            done += 1;
+                            select.push(p);
+                        }
+                        Err(e) => failed.push(e.to_string()),
+                    }
+                }
+            }
+            Step::Copied(copies) => match files::run(self.hwnd, Op::Recycle, copies, None, false) {
+                Ok(()) => done = copies.len(),
+                Err(e) => failed.push(e),
+            },
+        }
+        if failed.is_empty() {
+            self.toast(format!("{} — done", step.label()));
+        } else if done == 0 {
+            // Keep the step so the user can try again (or restore from the Recycle Bin by hand).
+            self.toast(format!("Couldn't undo: {}", failed[0]));
+            self.undo.push(step);
+        } else {
+            self.toast(format!("Undid {done} of {}: {}", step.count(), failed[0]));
+        }
+        self.refresh(select);
     }
 
     pub fn copy_files(&mut self, cut: bool) {
@@ -396,7 +519,7 @@ impl App {
                     px.swap(0, 2);
                 }
                 match files::clipboard_set_image(self.hwnd, img.width, img.height, &bgra) {
-                    Ok(()) => self.toast("Image copied"),
+                    Ok(()) => self.toast("Picture copied"),
                     Err(e) => self.toast(format!("Couldn't use the clipboard: {e}")),
                 }
             }
@@ -414,8 +537,12 @@ impl App {
         if cut && same_folder {
             return;
         }
+        let existed = crate::undo::names_in(&dir);
         match files::run(self.hwnd, if cut { Op::Move } else { Op::Copy }, &paths, Some(&dir), same_folder) {
             Ok(()) => {
+                if !same_folder {
+                    self.record_transfer(&paths, &dir, cut, &existed);
+                }
                 let select: Vec<PathBuf> = if same_folder { Vec::new() } else { paths.iter().filter_map(|p| p.file_name().map(|n| dir.join(n))).collect() };
                 self.toast(format!("Pasted {} item{}", paths.len(), if paths.len() == 1 { "" } else { "s" }));
                 self.refresh(select);
@@ -437,9 +564,11 @@ impl App {
             self.toast("That is the folder you are in");
             return;
         }
+        let existed = crate::undo::names_in(&dest);
         match files::run(self.hwnd, if mv { Op::Move } else { Op::Copy }, &paths, Some(&dest), false) {
             Ok(()) => {
-                self.toast(format!("{} {} item{} to {}", if mv { "Moved" } else { "Copied" }, paths.len(), if paths.len() == 1 { "" } else { "s" }, dest.display()));
+                self.record_transfer(&paths, &dest, mv, &existed);
+                self.toast(format!("{} {} item{} to {} — Ctrl+Z to undo", if mv { "Moved" } else { "Copied" }, paths.len(), if paths.len() == 1 { "" } else { "s" }, dest.display()));
                 self.refresh(Vec::new());
             }
             Err(e) if e == "cancelled" => self.refresh(Vec::new()),
@@ -511,8 +640,10 @@ impl App {
             Op::Copy
         };
         let n = paths.len();
+        let existed = crate::undo::names_in(&target);
         match files::run(self.hwnd, op, &paths, Some(&target), false) {
             Ok(()) => {
+                self.record_transfer(&paths, &target, op == Op::Move, &existed);
                 self.toast(format!("{} {n} item{} to {}", if op == Op::Move { "Moved" } else { "Copied" }, if n == 1 { "" } else { "s" }, target.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| target.display().to_string())));
                 self.refresh(Vec::new());
             }

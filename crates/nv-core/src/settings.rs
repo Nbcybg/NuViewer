@@ -78,6 +78,36 @@ impl EditorFormat {
     }
 }
 
+/// Which graph NuEditor shows at the top of its panel (and remembers for next time).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum EditorGraph {
+    Histogram,
+    Parade,
+    Vector,
+    Off,
+}
+
+impl EditorGraph {
+    pub fn id(self) -> &'static str {
+        match self {
+            EditorGraph::Histogram => "histogram",
+            EditorGraph::Parade => "parade",
+            EditorGraph::Vector => "vector",
+            EditorGraph::Off => "off",
+        }
+    }
+
+    pub fn from_id(s: &str) -> Option<EditorGraph> {
+        match s.to_ascii_lowercase().as_str() {
+            "histogram" => Some(EditorGraph::Histogram),
+            "parade" => Some(EditorGraph::Parade),
+            "vector" | "vectorscope" => Some(EditorGraph::Vector),
+            "off" | "none" => Some(EditorGraph::Off),
+            _ => None,
+        }
+    }
+}
+
 /// Where a colour profile comes from.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ProfileChoice {
@@ -223,6 +253,10 @@ pub struct Settings {
     /// NuEditor: the way edits are kept by default, and whether leaving asks (otherwise the default is used without asking).
     pub editor_save: EditorSave,
     pub editor_ask: bool,
+    /// Ask before a file is sent to the Recycle Bin (Ctrl+Z puts it back either way).
+    pub confirm_delete: bool,
+    /// The graph at the top of NuEditor's panel (its tabs change it, and it is remembered).
+    pub editor_graph: EditorGraph,
     /// NuEditor copies: format, JPEG quality (1..=100), the text added to the file name, and whether EXIF is carried over.
     pub editor_format: EditorFormat,
     pub editor_quality: u8,
@@ -281,6 +315,8 @@ impl Default for Settings {
             rotate_save: RotateSave::Ask,
             editor_save: EditorSave::Pair,
             editor_ask: true,
+            confirm_delete: true,
+            editor_graph: EditorGraph::Histogram,
             editor_format: EditorFormat::Same,
             editor_quality: 95,
             editor_suffix: "_edit".to_string(),
@@ -395,6 +431,8 @@ impl Settings {
                 }
                 "editor_save" => s.editor_save = EditorSave::from_id(v).unwrap_or(s.editor_save),
                 "editor_ask" => s.editor_ask = parse_bool(v).unwrap_or(s.editor_ask),
+                "confirm_delete" => s.confirm_delete = parse_bool(v).unwrap_or(s.confirm_delete),
+                "editor_graph" => s.editor_graph = EditorGraph::from_id(v).unwrap_or(s.editor_graph),
                 "editor_format" => s.editor_format = EditorFormat::from_id(v).unwrap_or(s.editor_format),
                 "editor_quality" => s.editor_quality = v.parse().ok().filter(|q| (1..=100).contains(q)).unwrap_or(s.editor_quality),
                 "editor_suffix" => s.editor_suffix = v.chars().filter(|c| !"\\/:*?\"<>|".contains(*c)).take(32).collect(),
@@ -493,7 +531,7 @@ impl Settings {
                 RotateSave::Auto => "auto",
             }
         );
-        out += &format!("editor_save = {}\neditor_ask = {}\n", self.editor_save.id(), b(self.editor_ask));
+        out += &format!("editor_save = {}\neditor_ask = {}\nconfirm_delete = {}\neditor_graph = {}\n", self.editor_save.id(), b(self.editor_ask), b(self.confirm_delete), self.editor_graph.id());
         out += &format!(
             "editor_format = {}\neditor_quality = {}\neditor_suffix = {}\neditor_exif = {}\neditor_show_pair = {}\neditor_watermark = {}\n",
             self.editor_format.id(),

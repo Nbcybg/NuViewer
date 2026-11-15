@@ -7,6 +7,7 @@ mod editor_ui;
 mod gallery;
 mod hud;
 mod loading;
+mod menubar;
 mod model3d;
 mod mouse;
 mod ops;
@@ -346,6 +347,8 @@ struct App {
     /// The pointer is on the top edge: the info bar is shown.
     top_bar: bool,
     top_bar_h: f32,
+    /// File / Edit / View / Go / Tools / Help along the top edge (Alt or the pointer on the edge shows it).
+    menubar: nv_win::menubar::MenuBar,
     /// Page (1-based) of the current multi-page document (PDF) being shown; 1 for everything else.
     doc_page: u32,
     /// Camera for 3D models, and where a left-button drag that turns the model last was.
@@ -953,6 +956,10 @@ impl App {
             self.sidebar_hover(*x, *y, *left_down);
             self.strip_hover(*x, *y, *left_down);
             self.editor_hover(*x, *y);
+            // Not while a button is held (a hold-zoom drag, a rubber band): the bar must not jump up over what is being dragged.
+            if !*left_down {
+                self.menubar_hover(*x, *y);
+            }
         }
         if let Event::MouseMove { y, left_down: false, .. } = &ev {
             // Info bar: appears when the pointer touches the top edge, stays while it is over the bar.
@@ -1019,7 +1026,12 @@ impl App {
             Event::MiddleClick => {}
             Event::Char(c) => self.rename_char(c),
             Event::Key(k) if self.rename.is_some() => self.rename_key(k),
-            Event::Key(k) => self.on_key(k),
+            Event::Key(k) => {
+                if !self.menubar_key(k) {
+                    self.on_key(k);
+                }
+            }
+            Event::AltTap => self.menubar_alt(),
             Event::Wheel { delta, ctrl, .. } if self.mode == Mode::Gallery => {
                 let notches = delta as f32 / 120.0;
                 if ctrl {
@@ -1079,7 +1091,7 @@ impl App {
             }
             // A quick second click arrives as DoubleClick: for these gestures it is just another press.
             Event::MouseDown { x, y, ctrl } | Event::DoubleClick { x, y, ctrl } => {
-                if !self.sidebar_press(x, y) && !self.strip_press(x, y) && !self.editor_press(x, y) && !self.controls_press(x, y) {
+                if !self.menubar_press(x, y) && !self.sidebar_press(x, y) && !self.strip_press(x, y) && !self.editor_press(x, y) && !self.controls_press(x, y) {
                     self.viewer_press(x, y, ctrl);
                 }
             }
@@ -1154,6 +1166,7 @@ impl App {
             wheel_acc: 0,
             top_bar: false,
             top_bar_h: 40.0,
+            menubar: menubar::new_bar(),
             doc_page: 1,
             cam: nv_render::Orbit::default(),
             orbit_last: None,
@@ -1530,6 +1543,7 @@ fn main() {
         })
     };
 
+    nv_win::prewarm_siblings();
     // Housekeeping well after startup so it never competes with showing the first image.
     std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_secs(5));

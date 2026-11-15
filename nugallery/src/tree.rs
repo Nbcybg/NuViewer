@@ -65,6 +65,12 @@ pub fn subfolders(dir: &Path) -> Vec<(PathBuf, String)> {
 }
 
 impl Tree {
+    /// No rows yet: the real tree is built on a worker thread (`Tree::new` asks Windows for the known folders and checks that they
+    /// exist, which can take a while on a cold start with a OneDrive or network folder) and handed over when it is ready.
+    pub fn empty() -> Tree {
+        Tree { nodes: Vec::new(), scroll: 0.0 }
+    }
+
     /// The usual roots: Quick access and the drives.
     pub fn new() -> Tree {
         let mut nodes = vec![header("Quick access")];
@@ -86,6 +92,40 @@ impl Tree {
             nodes.push(Node { path: root, name: label, depth: 0, expanded: false, loaded: false, kids: true, header: false, icon });
         }
         Tree { nodes, scroll: 0.0 }
+    }
+
+    /// The drive's volume label arrived (read on a worker thread): show it the way Explorer does, "Games (D:)".
+    pub fn set_drive_label(&mut self, root: &Path, label: &str) {
+        let letter = root.to_string_lossy().trim_end_matches('\\').to_string();
+        if let Some(n) = self.nodes.iter_mut().find(|n| !n.header && n.depth == 0 && matches!(n.icon, Icon::Drive | Icon::Removable | Icon::Network) && norm(&n.path) == norm(root)) {
+            n.name = format!("{label} ({letter})");
+        }
+    }
+
+    /// Where the tree's scroll bar is for a view `view` (window pixels: left, top, right, bottom) with rows `row_h` high:
+    /// (track, thumb), or None when every row fits.
+    pub fn scrollbar(&self, view: [f32; 4], row_h: f32, d: f32) -> Option<([f32; 4], [f32; 4])> {
+        let content = self.nodes.len() as f32 * row_h;
+        let h = view[3] - view[1];
+        if content <= h + 0.5 || h <= 0.0 {
+            return None;
+        }
+        let track = [view[2] - 11.0 * d, view[1], view[2] - 3.0 * d, view[3]];
+        let thumb_h = (h * h / content).clamp(30.0 * d, h);
+        let max = content - h;
+        let y = track[1] + (self.scroll / max).clamp(0.0, 1.0) * (h - thumb_h);
+        Some((track, [track[0], y, track[2], y + thumb_h]))
+    }
+
+    /// Put the top of the scroll thumb at window y `thumb_top` (dragging it).
+    pub fn scroll_thumb_to(&mut self, view: [f32; 4], row_h: f32, d: f32, thumb_top: f32) {
+        let Some((track, thumb)) = self.scrollbar(view, row_h, d) else { return };
+        let range = (track[3] - track[1]) - (thumb[3] - thumb[1]);
+        if range <= 0.0 {
+            return;
+        }
+        let max = self.nodes.len() as f32 * row_h - (view[3] - view[1]);
+        self.scroll = ((thumb_top - track[1]) / range).clamp(0.0, 1.0) * max;
     }
 
     /// A tree with the given roots (tests).
@@ -234,6 +274,32 @@ mod tests {
         let t = Tree::new();
         assert!(t.nodes.iter().any(|n| n.header && n.name == "This PC"));
         assert!(t.nodes.iter().any(|n| matches!(n.icon, Icon::Drive)), "at least the system drive");
+    }
+
+    #[test]
+    fn a_drive_shows_its_volume_label_before_the_letter() {
+        let mut t = Tree::new();
+        let root = t.nodes.iter().find(|n| matches!(n.icon, Icon::Drive)).map(|n| n.path.clone()).expect("a fixed drive");
+        t.set_drive_label(&root, "Photos");
+        let letter = root.to_string_lossy().trim_end_matches('\\').to_string();
+        assert!(t.nodes.iter().any(|n| n.name == format!("Photos ({letter})")));
+    }
+
+    #[test]
+    fn the_scroll_bar_exists_only_when_rows_overflow_and_follows_the_scroll() {
+        let mut t = Tree::with_roots(&(0..50).map(|i| PathBuf::from(format!("C:\\{i}"))).collect::<Vec<_>>());
+        let view = [0.0, 100.0, 300.0, 300.0];
+        let (track, thumb) = t.scrollbar(view, 20.0, 1.0).expect("50 rows of 20 do not fit in 200");
+        assert!(thumb[1] == track[1] && thumb[3] < track[3]);
+        t.scroll = 1e9;
+        t.clamp(20.0, 200.0);
+        let (track, thumb) = t.scrollbar(view, 20.0, 1.0).unwrap();
+        assert!((thumb[3] - track[3]).abs() < 0.5, "scrolled to the end: the thumb is at the bottom");
+        // Dragging the thumb to the middle of the track scrolls about half way.
+        t.scroll_thumb_to(view, 20.0, 1.0, track[1] + ((track[3] - track[1]) - (thumb[3] - thumb[1])) / 2.0);
+        assert!((t.scroll - (1000.0 - 200.0) / 2.0).abs() < 1.0, "{}", t.scroll);
+        let few = Tree::with_roots(&[PathBuf::from("C:\\a")]);
+        assert!(few.scrollbar(view, 20.0, 1.0).is_none());
     }
 
     #[test]

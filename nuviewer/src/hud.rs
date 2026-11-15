@@ -15,9 +15,10 @@ const HELP: &[&str] = &[
     "Ctrl+←  Ctrl+→     previous / next file (documents: skips the pages)",
     "Mouse wheel previous / next  ·  hold left button: zoom 100% (200% if small), drag to pan",
     "Ctrl + drag zoom into an area  ·  Ctrl + wheel zoom  ·  click while zoomed: back to the base view",
-    "F fit  ·  A 100%  (pressing the one that is on switches to the other)  ·  1 2 3 4 5 = that many times fit or 100%  ·  ` resets",
+    "F fit  ·  A 100%  (pressing the one that is on switches to the other)  ·  1 2 3 4 5 = that many times fit or 100%  ·  ` or Ctrl+0 resets",
+    "Ctrl + / Ctrl −  zoom in / out  ·  Alt or F10 (or the pointer on the top edge): menu bar  ·  Alt+F, Alt+E ... open a menu",
     "[  ]  rotate −45° / +45°  ·  Shift+[  Shift+]  rotate 90°  ·  Ctrl+S save the rotation  ·  Ctrl+Z take it back",
-    "V  viewer controls (they also open when the pointer touches the left edge)  ·  E  NuEditor (mock-up)",
+    "V  viewer controls (they also open when the pointer touches the left edge)  ·  E  NuEditor  ·  right-click: Edit in NuEditor / Edit with…",
     "3D: drag turns, Shift+drag moves, wheel zooms, F resets  ·  T texture  N normal map  W wireframe  Shift+S shadow  Shift+T shading  O ortho",
     "3D: X Y Z turn the model 90° about that axis (Shift = back)  ·  U other axis is up  ·  more in Settings > 3D",
     "Right click: menu (Open with…, Settings…)  ·  middle click: close  ·  top edge: info bar",
@@ -27,8 +28,8 @@ const HELP: &[&str] = &[
     "Order: J sort by name / date / size / type  ·  Shift+J ascending / descending  ·  R shuffle (random order, R again restores the sort)",
     "Film strip: pointer at the right edge (or L)  ·  click a thumbnail to jump  ·  wheel scrolls it  ·  its header sorts and shuffles",
     "Read mode (books): B two pages side by side, no gap  ·  Shift+B pairs start at this page  ·  Ctrl+B left-to-right / right-to-left",
-    "F2 rename   Del Recycle Bin   Shift+Del delete permanently   Ctrl+Z undo   F5 copy to…   F6 / M move to…",
-    "Ctrl+C copy image + file   Ctrl+Shift+C copy path   Ctrl+E show in Explorer",
+    "F2 rename   Del Recycle Bin (asks first: Settings > Viewer)   Shift+Del delete permanently   Ctrl+Z undo a delete / move / rename / copy   F5 copy to…   F6 / M move to…",
+    "Ctrl+C copy picture + file   Ctrl+Shift+C copy path   Ctrl+E show in Explorer",
     "Ctrl+,  /  F9  settings        Esc  close this / stop slideshow / back / quit        F1 / H  this help",
 ];
 
@@ -183,7 +184,8 @@ impl App {
 
         // Help (centred).
         if self.hud.show_help {
-            let lines: Vec<String> = HELP.iter().map(|s| s.to_string()).collect();
+            let mut lines: Vec<String> = HELP.iter().map(|s| s.to_string()).collect();
+            lines.extend(nv_core::about::credit_lines());
             if let Some((key, tw, th)) = self.overlay(&lines) {
                 let (x, y) = (((w - tw) / 2.0).max(0.0), ((h - th) / 2.0).max(0.0));
                 let _ = self.renderer.fill_rect([x, y, x + tw, y + th], srgb(0x0E0E0E, 0.92));
@@ -223,9 +225,11 @@ impl App {
         if self.top_bar && self.mode == Mode::Viewer {
             if let Some(text) = self.top_bar_text() {
                 if let Some((key, tw, th)) = self.overlay(&[clip(&text, 220)]) {
-                    self.top_bar_h = th;
-                    let _ = self.renderer.fill_rect([0.0, 0.0, w, th], srgb(0x0E0E0E, 0.88));
-                    let _ = self.renderer.draw_overlay(key, ((w - tw) / 2.0).max(0.0), 0.0, text_c);
+                    // Under the menu bar when that is showing too.
+                    let y0 = if self.menubar.visible() { self.menubar.height(d) } else { 0.0 };
+                    self.top_bar_h = th + y0;
+                    let _ = self.renderer.fill_rect([0.0, y0, w, y0 + th], srgb(0x0E0E0E, 0.88));
+                    let _ = self.renderer.draw_overlay(key, ((w - tw) / 2.0).max(0.0), y0, text_c);
                 }
             }
         }
@@ -237,6 +241,8 @@ impl App {
         self.draw_sidebar();
         self.draw_strip();
         self.draw_editor();
+
+        self.draw_menubar();
 
         // Toast (bottom-left).
         if let Some((msg, _)) = self.hud.toast.clone() {

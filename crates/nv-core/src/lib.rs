@@ -1,5 +1,6 @@
 //! Platform-independent core: folder listing, background decoding/prefetch, thumbnails, gallery layout.
 
+pub mod about;
 pub mod archive;
 pub mod batch;
 pub mod fileops;

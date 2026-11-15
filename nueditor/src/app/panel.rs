@@ -16,6 +16,7 @@ pub const SECTION_PRESETS: usize = 9;
 pub const SECTION_EXPORT: usize = 10;
 /// Panel sections after the seven slider groups: Curves, Hue wheel, Presets, Export.
 pub const SECTION_NAMES: [&str; 4] = ["Curves", "Hue wheel", "Presets", "Export copy"];
+pub const GROUP_COMPOSITION: usize = 4;
 pub const GROUP_HEAL: usize = 5;
 pub const GROUP_FILM: usize = 6;
 
@@ -50,6 +51,10 @@ pub enum Btn {
     LutChoose,
     LutClear,
     ClearStrokes,
+    /// Composition: start the crop frame, cut away the empty corners, take the crop off.
+    CropTool,
+    AutoCrop,
+    ClearCrop,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -220,6 +225,7 @@ impl App {
     pub(super) fn lead_whats(&self, group: usize) -> Vec<What> {
         match group {
             GROUP_HEAL => vec![What::Tools, What::Num(Num::Brush)],
+            GROUP_COMPOSITION => vec![What::Btn(Btn::CropTool), What::Btn(Btn::AutoCrop)],
             _ => Vec::new(),
         }
     }
@@ -227,6 +233,7 @@ impl App {
     /// Items that come after the sliders of a group.
     pub(super) fn tail_whats(&self, group: usize) -> Vec<What> {
         match group {
+            GROUP_COMPOSITION if self.recipe.crop.is_some() => vec![What::Btn(Btn::ClearCrop)],
             GROUP_HEAL if !self.recipe.retouch.is_empty() => vec![What::Btn(Btn::ClearStrokes)],
             GROUP_FILM => {
                 let mut v = vec![What::Btn(Btn::LutChoose)];
@@ -530,6 +537,9 @@ impl App {
                     self.changed();
                 }
             }
+            Btn::CropTool => self.command(chrome::C_CROP),
+            Btn::AutoCrop => self.auto_crop(),
+            Btn::ClearCrop => self.command(chrome::C_CLEARCROP),
             Btn::ClearStrokes => {
                 if !self.recipe.retouch.is_empty() {
                     self.snapshot();
@@ -661,6 +671,9 @@ impl App {
                             None => "Choose a LUT (.cube)…".into(),
                         },
                         Btn::LutClear => "Remove the LUT".into(),
+                        Btn::CropTool => if self.tools.mode == Mode::Crop { "Crop: drag a frame · Enter applies".into() } else { "Crop…  (drag a frame on the picture)".into() },
+                        Btn::AutoCrop => "Crop to the picture (no empty corners)".into(),
+                        Btn::ClearCrop => "Remove the crop".into(),
                         Btn::ClearStrokes => format!("Clear {} heal stroke{}", self.recipe.retouch.len(), if self.recipe.retouch.len() == 1 { "" } else { "s" }),
                     },
                 },

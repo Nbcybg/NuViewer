@@ -543,6 +543,34 @@ pub fn source_to_display(r: &Recipe, w: u32, h: u32, sx: f32, sy: f32) -> (f32, 
     (((cx / rw) - c.x) / c.w, ((cy / rh) - c.y) / c.h)
 }
 
+/// Where the four corners of the original picture (top-left, top-right, bottom-right, bottom-left) are on the canvas the
+/// geometry makes *before* the crop: turned, flipped and tipped (Pitch / Yaw / Zoom), as 0..1 of that canvas. This is the
+/// picture's extent: the editor draws it so the empty corners a turn or a tilt leaves are visible, and the crop is judged
+/// against it. A corner that the tilt throws behind the camera comes back as None.
+pub fn extent_quad(r: &Recipe, w: u32, h: u32) -> [Option<(f32, f32)>; 4] {
+    let angle = r.get(P::Angle) + 90.0 * (r.quarter_turns % 4) as f32;
+    let (rw, rh) = raster::rotated_size(w, h, angle);
+    let (rwf, rhf) = (rw as f32, rh as f32);
+    let a = angle.to_radians();
+    let corners = [(0.0f32, 0.0f32), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
+    corners.map(|(sx, sy)| {
+        let (px, py) = (sx * w as f32 - w as f32 / 2.0, sy * h as f32 - h as f32 / 2.0);
+        let (mut cx, mut cy) = (px * a.cos() - py * a.sin() + rwf / 2.0, px * a.sin() + py * a.cos() + rhf / 2.0);
+        if r.flip_h {
+            cx = rwf - cx;
+        }
+        if r.flip_v {
+            cy = rhf - cy;
+        }
+        if !r.perspective_identity() {
+            let (x, y) = raster::perspective_forward(rw, rh, r.get(P::Pitch), r.get(P::Yaw), r.get(P::Zoom), cx, cy)?;
+            cx = x;
+            cy = y;
+        }
+        Some((cx / rwf, cy / rhf))
+    })
+}
+
 /// The whole recipe on a whole picture: heal strokes on the picture's own pixels, then the geometry, then the per-pixel and
 /// neighbourhood stages on the result.
 pub fn render(src: &Pixels, recipe: &Recipe) -> Pixels {

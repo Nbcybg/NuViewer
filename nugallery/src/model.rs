@@ -252,6 +252,30 @@ pub fn arrange(all: &[Entry], show: Show, folders: bool, search: &str, order: Or
     idx
 }
 
+/// Fold runs of numbered pictures (`shot_0001.png`, `shot_0002.png` ...) into one tile each: `view` is the list in order (indices
+/// into `all`); returns the list with every run reduced to its first frame, and for each run (keyed by the first frame's entry
+/// index) all its frames' entry indices. Only pictures of the same kind and extension are ever folded together, so a RAW and
+/// its JPG are never merged.
+pub fn fold_sequences(all: &[Entry], view: &[usize], min: usize) -> (Vec<usize>, std::collections::HashMap<usize, Vec<usize>>) {
+    let paths: Vec<PathBuf> = view.iter().map(|&i| if all[i].kind == Kind::Picture { all[i].path.clone() } else { PathBuf::new() }).collect();
+    let runs = nv_core::sequence::find_runs(&paths, min);
+    let mut kept = Vec::with_capacity(view.len());
+    let mut members = std::collections::HashMap::new();
+    let (mut i, mut r) = (0, 0);
+    while i < view.len() {
+        if r < runs.len() && runs[r].start == i {
+            kept.push(view[i]);
+            members.insert(view[i], view[runs[r].start..=runs[r].end].to_vec());
+            i = runs[r].end + 1;
+            r += 1;
+        } else {
+            kept.push(view[i]);
+            i += 1;
+        }
+    }
+    (kept, members)
+}
+
 /// The folder being shown.
 pub struct Listing {
     pub dir: PathBuf,
@@ -262,11 +286,15 @@ pub struct Listing {
     pub folders: bool,
     pub search: String,
     pub order: Order,
+    /// Fold image sequences of at least this many frames into one tile (only while sorted by name, ascending).
+    pub fold: Option<usize>,
+    /// The folded runs: entry index of the first frame -> entry indices of all its frames.
+    pub runs: std::collections::HashMap<usize, Vec<usize>>,
 }
 
 impl Listing {
     pub fn new(show: Show, order: Order) -> Self {
-        Listing { dir: PathBuf::new(), all: Vec::new(), view: Vec::new(), show, folders: true, search: String::new(), order }
+        Listing { dir: PathBuf::new(), all: Vec::new(), view: Vec::new(), show, folders: true, search: String::new(), order, fold: None, runs: Default::default() }
     }
 
     pub fn set_entries(&mut self, dir: PathBuf, all: Vec<Entry>) {
@@ -277,6 +305,22 @@ impl Listing {
 
     pub fn rearrange(&mut self) {
         self.view = arrange(&self.all, self.show, self.folders, &self.search, self.order);
+        self.runs.clear();
+        if let Some(min) = self.fold.filter(|_| self.order.key == SortKey::Name && !self.order.descending && self.order.shuffle.is_none()) {
+            let (kept, runs) = fold_sequences(&self.all, &self.view, min);
+            self.view = kept;
+            self.runs = runs;
+        }
+    }
+
+    /// How many frames the tile of entry `id` stands for, if it is a folded sequence.
+    pub fn sequence_len(&self, id: u64) -> Option<usize> {
+        self.runs.iter().find(|(first, _)| self.all[**first].id == id).map(|(_, v)| v.len())
+    }
+
+    /// The paths of every frame of the sequence that entry `id` stands for (None for an ordinary entry).
+    pub fn sequence_files(&self, id: u64) -> Option<Vec<PathBuf>> {
+        self.runs.iter().find(|(first, _)| self.all[**first].id == id).map(|(_, v)| v.iter().map(|&k| self.all[k].path.clone()).collect())
     }
 
     pub fn len(&self) -> usize {
@@ -421,6 +465,49 @@ mod tests {
 
     fn names(all: &[Entry], idx: &[usize]) -> Vec<String> {
         idx.iter().map(|&i| all[i].name.clone()).collect()
+    }
+
+    #[test]
+    fn numbered_pictures_fold_into_one_tile_and_raw_pairs_never_do() {
+        let mut all = Vec::new();
+        for n in 1..=12 {
+            all.push(entry(&format!("shot_{n:04}.png"), Kind::Picture, 10, n));
+        }
+        all.push(entry("DSCF0001.RAF", Kind::Raw, 10, 1));
+        all.push(entry("DSCF0001.JPG", Kind::Picture, 10, 1));
+        all.push(entry("DSCF0002.RAF", Kind::Raw, 10, 1));
+        all.push(entry("DSCF0002.JPG", Kind::Picture, 10, 1));
+        all.push(entry("cover.png", Kind::Picture, 10, 1));
+        let order = Order::default();
+        let view = arrange(&all, Show::Media, true, "", order);
+        let (kept, runs) = fold_sequences(&all, &view, 10);
+        assert_eq!(kept.len(), view.len() - 11, "12 frames become one tile");
+        assert_eq!(runs.len(), 1);
+        let first = *runs.keys().next().unwrap();
+        assert_eq!(all[first].name, "shot_0001.png");
+        assert_eq!(runs[&first].len(), 12);
+        // The RAW / JPG pairs are all still there, separately.
+        for name in ["DSCF0001.RAF", "DSCF0001.JPG", "DSCF0002.RAF", "DSCF0002.JPG"] {
+            assert!(kept.iter().any(|&i| all[i].name == name), "{name} must stay listed");
+        }
+        // Fewer frames than the minimum: nothing folds.
+        assert_eq!(fold_sequences(&all, &view, 13).0.len(), view.len());
+    }
+
+    #[test]
+    fn a_listing_folds_only_while_sorted_by_name_upwards() {
+        let mut l = Listing::new(Show::Media, Order::default());
+        let all: Vec<Entry> = (1..=10).map(|n| entry(&format!("f_{n:03}.png"), Kind::Picture, 1, n)).collect();
+        l.fold = Some(5);
+        l.set_entries(PathBuf::from("C:	"), all);
+        assert_eq!(l.len(), 1);
+        let id = l.get(0).unwrap().id;
+        assert_eq!(l.sequence_len(id), Some(10));
+        assert_eq!(l.sequence_files(id).map(|v| v.len()), Some(10));
+        l.order.key = SortKey::Size;
+        l.rearrange();
+        assert_eq!(l.len(), 10, "another order shows every picture");
+        assert!(l.runs.is_empty());
     }
 
     #[test]

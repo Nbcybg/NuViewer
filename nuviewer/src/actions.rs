@@ -85,6 +85,17 @@ impl App {
                 self.view.reset_to_base();
                 invalidate(self.hwnd);
             }
+            // Ctrl + / Ctrl - : one wheel notch of zoom about the middle of the window (3D: the camera moves closer / away).
+            Action::ZoomIn | Action::ZoomOut if !gallery => {
+                let notch = if a == Action::ZoomIn { 1.0 } else { -1.0 };
+                if self.is_model() {
+                    self.cam.zoom_by(notch);
+                } else if let Some(img) = self.view_size() {
+                    let win = self.renderer.size();
+                    self.view.zoom_at(img, win, ((win.0 / 2) as i32, (win.1 / 2) as i32), notch);
+                }
+                invalidate(self.hwnd);
+            }
             Action::RotatePlus45 => self.rotate_by(45.0),
             Action::RotateMinus45 => self.rotate_by(-45.0),
             Action::RotateCw90 => self.rotate_by(90.0),

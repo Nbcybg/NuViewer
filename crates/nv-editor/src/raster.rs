@@ -115,17 +115,36 @@ fn rotate_any(src: &Pixels, degrees: f32) -> Pixels {
 /// Keystone and zoom, on a canvas of the same size: the picture is a flat sheet seen from a camera; `pitch` tips the sheet
 /// about the horizontal axis (top away / towards you), `yaw` about the vertical one, each -100..100 (100 = 40 degrees), and
 /// `zoom` (percent, 100 = none) enlarges the middle. The corners the tilt leaves empty are transparent.
+/// The sheet's two axes and its normal for a pitch / yaw (each -100..100 = up to 40 degrees).
+fn sheet_axes(pitch: f32, yaw: f32) -> ([f32; 3], [f32; 3], [f32; 3]) {
+    let (t, p) = ((pitch / 100.0 * 40.0).to_radians(), (yaw / 100.0 * 40.0).to_radians());
+    let (st, ct, sp, cp) = (t.sin(), t.cos(), p.sin(), p.cos());
+    // R = Ry(yaw) * Rx(pitch); its columns are the sheet's two axes and its normal.
+    ([cp, 0.0, -sp], [sp * st, ct, cp * st], [sp * ct, -st, cp * ct])
+}
+
+/// Where the point (`x`, `y`) of a `w` x `h` canvas goes when `perspective` is applied with the same arguments: the other
+/// direction of that function's mapping. None if the point is behind the camera (it can't be seen).
+pub fn perspective_forward(w: u32, h: u32, pitch: f32, yaw: f32, zoom: f32, x: f32, y: f32) -> Option<(f32, f32)> {
+    let (r1, r2, _) = sheet_axes(pitch, yaw);
+    let f = 0.9 * w.max(h) as f32;
+    let k = 100.0 / zoom.clamp(100.0, 400.0);
+    let (cx, cy) = (w as f32 / 2.0, h as f32 / 2.0);
+    let (a, b) = (x - cx, y - cy);
+    let xc = [a * r1[0] + b * r2[0], a * r1[1] + b * r2[1], a * r1[2] + b * r2[2]];
+    let pz = xc[2] + f;
+    if pz <= 1e-3 * f {
+        return None;
+    }
+    Some((cx + f * xc[0] / pz / k, cy + f * xc[1] / pz / k))
+}
+
 pub fn perspective(src: &Pixels, pitch: f32, yaw: f32, zoom: f32) -> Pixels {
     let (w, h) = (src.w as usize, src.h as usize);
     if w == 0 || h == 0 || (pitch == 0.0 && yaw == 0.0 && zoom == 100.0) {
         return src.clone();
     }
-    let (t, p) = ((pitch / 100.0 * 40.0).to_radians(), (yaw / 100.0 * 40.0).to_radians());
-    let (st, ct, sp, cp) = (t.sin(), t.cos(), p.sin(), p.cos());
-    // R = Ry(yaw) * Rx(pitch); its columns are the sheet's two axes and its normal.
-    let r1 = [cp, 0.0, -sp];
-    let r2 = [sp * st, ct, cp * st];
-    let r3 = [sp * ct, -st, cp * ct];
+    let (r1, r2, r3) = sheet_axes(pitch, yaw);
     let f = 0.9 * w.max(h) as f32;
     let k = 100.0 / zoom.clamp(100.0, 400.0);
     let (cx, cy) = (w as f32 / 2.0, h as f32 / 2.0);
@@ -236,6 +255,34 @@ fn parallel_rows(buf: &mut [u8], stride: usize, f: impl Fn(usize, &mut [u8]) + S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn perspective_forward_lands_where_the_picture_really_goes() {
+        // Red = x, green = y: after the warp, the output pixel at forward(x, y) must still carry that colour.
+        let (w, h) = (200u32, 160u32);
+        let mut rgba = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                rgba.extend_from_slice(&[x as u8, y as u8, 0, 255]);
+            }
+        }
+        let src = Pixels::new(w, h, rgba);
+        for (pitch, yaw, zoom) in [(30.0, 0.0, 100.0), (0.0, -40.0, 100.0), (25.0, 20.0, 150.0)] {
+            let out = perspective(&src, pitch, yaw, zoom);
+            for (x, y) in [(100.0, 80.0), (60.0, 40.0), (150.0, 110.0)] {
+                let Some((fx, fy)) = perspective_forward(w, h, pitch, yaw, zoom, x, y) else { continue };
+                if fx < 2.0 || fy < 2.0 || fx > w as f32 - 3.0 || fy > h as f32 - 3.0 {
+                    continue;
+                }
+                let o = ((fy as usize) * w as usize + fx as usize) * 4;
+                assert!(out.rgba[o + 3] > 0, "{pitch} {yaw} {zoom} ({x},{y}) -> ({fx},{fy}) is empty");
+                assert!((out.rgba[o] as f32 - x).abs() <= 4.0 && (out.rgba[o + 1] as f32 - y).abs() <= 4.0, "{pitch} {yaw} {zoom}: ({x},{y}) -> ({fx},{fy}) holds {:?}", &out.rgba[o..o + 2]);
+            }
+        }
+        // No tilt, no zoom: every point stays.
+        let (x, y) = perspective_forward(200, 160, 0.0, 0.0, 100.0, 37.0, 51.0).unwrap();
+        assert!((x - 37.0).abs() < 1e-3 && (y - 51.0).abs() < 1e-3);
+    }
 
     /// 3x2 picture with a distinct colour per pixel: red channel = x + 10*y.
     fn sample() -> Pixels {
