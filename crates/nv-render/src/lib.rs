@@ -55,6 +55,8 @@ pub struct Renderer {
     ps: ID3D11PixelShader,
     cbuf: ID3D11Buffer,
     blend: ID3D11BlendState,
+    /// Rasterizer state with the scissor test on, so `set_clip` can confine drawing to a rectangle.
+    clip_rs: ID3D11RasterizerState,
     /// 1x1 white texture used by `fill_rect`.
     white: ID3D11ShaderResourceView,
     /// Full-size viewer images (with mips), keyed by caller-chosen id.
@@ -217,6 +219,10 @@ impl Renderer {
             let mut blend = None;
             device.CreateBlendState(&bd, Some(&mut blend)).map_err(err("CreateBlendState"))?;
 
+            let rd = D3D11_RASTERIZER_DESC { FillMode: D3D11_FILL_SOLID, CullMode: D3D11_CULL_NONE, DepthClipEnable: true.into(), ScissorEnable: true.into(), ..Default::default() };
+            let mut clip_rs = None;
+            device.CreateRasterizerState(&rd, Some(&mut clip_rs)).map_err(err("CreateRasterizerState"))?;
+
             let white_px = [255u8; 4];
             let white = upload_immutable(&device, 1, 1, &white_px)?.1;
 
@@ -229,6 +235,7 @@ impl Renderer {
                 ps: ps.ok_or("ps")?,
                 cbuf: cbuf.ok_or("cbuf")?,
                 blend: blend.ok_or("blend")?,
+                clip_rs: clip_rs.ok_or("rasterizer")?,
                 white,
                 textures: HashMap::new(),
                 thumbs: HashMap::new(),
@@ -562,7 +569,7 @@ impl Renderer {
             unsafe {
                 self.ctx.OMSetRenderTargets(Some(&[Some(rtv)]), None);
                 self.ctx.OMSetDepthStencilState(None, 0);
-                self.ctx.RSSetState(None);
+                self.ctx.RSSetState(&self.clip_rs);
                 self.ctx.IASetInputLayout(None);
                 self.ctx.OMSetBlendState(&self.blend, None, 0xFFFF_FFFF);
                 self.ctx.IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -671,8 +678,26 @@ impl Renderer {
             self.ctx.VSSetConstantBuffers(0, Some(&[Some(self.cbuf.clone())]));
             self.ctx.PSSetShader(&self.ps, None);
             self.ctx.PSSetConstantBuffers(0, Some(&[Some(self.cbuf.clone())]));
+            self.ctx.RSSetState(&self.clip_rs);
         }
+        self.set_clip(None);
         true
+    }
+
+    /// Confine everything drawn from now on to `r` = [left, top, right, bottom] in client pixels (`None`: the whole
+    /// window). Reset at the start of every frame.
+    pub fn set_clip(&mut self, r: Option<[f32; 4]>) {
+        let full = [0.0, 0.0, self.size.0 as f32, self.size.1 as f32];
+        let r = r.unwrap_or(full);
+        let rect = windows::Win32::Foundation::RECT {
+            left: r[0].floor().max(0.0) as i32,
+            top: r[1].floor().max(0.0) as i32,
+            right: (r[2].ceil() as i32).clamp(0, self.size.0 as i32),
+            bottom: (r[3].ceil() as i32).clamp(0, self.size.1 as i32),
+        };
+        unsafe {
+            self.ctx.RSSetScissorRects(Some(&[rect]));
+        }
     }
 
     /// Present the frame (vsync). DXGI_STATUS_OCCLUDED is a success code, so `is_err()` ignores it.

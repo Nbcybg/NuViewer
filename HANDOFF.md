@@ -293,6 +293,67 @@ the Write / Edit tools. The repo mixes CRLF and LF files: edit with line-ending-
 **Not done / ideas:** an exposure setting for RAW (the developed picture is darker than the camera JPEG by design); PDF through our
 profiles needs our own renderer; CBZ page navigation (`file.cbz?page=N`); the actual gallery split.
 
+### Session 10 (2026-11-15): NuGallery, the gallery as its own program
+
+The user asked for: the gallery split off but seamless and as fast; a right-click menu (open, slideshow, quick edit, edit with,
+show location, refresh, shuffle, select item/all/none, copy image/file/path, cut, paste, copy to, move to, print, new folder,
+rename, delete, compress (several files), quick convert); mouse edges (left tree + folder data + folder size, bottom taskbar,
+right preview / name / size / histogram / editable metadata / EXIF, top toolbar); wheel = previous / next file, left click
+selects, middle click views, Ctrl+wheel = columns; Space = view, Enter = next file, 1-5 zoom, ~ reset; batch rename / convert /
+time stamp / remove metadata; `nuviewer.exe` alone opens the gallery; time the thumbnails.
+
+- **New crate `nugallery`** (`nugallery.exe`, same folder as `nuviewer.exe`): `app.rs` (state, events, async scan / thumbnails /
+  jobs, edge panels), `draw.rs` (grid / details / list, toolbar, overlays), `panels.rs` (left and right panels), `menus.rs`,
+  `ops.rs` (file operations, jobs), `batch_ui.rs` (the four batch dialogs, `nv_win::ui::Form`), `model.rs` (entries, show / sort /
+  search, selection), `grid.rs`, `chrome.rs` (layout of panels and toolbar buttons, shared by drawing and hit-testing), `tree.rs`,
+  `info.rs` (preview, histogram, properties), `input.rs` (text box), `state.rs` (`%APPDATA%\NuViewer\gallery.ini`, env
+  `NUGALLERY_STATE`), `gfx.rs` (text cache), `cpu.rs` (first frames, below). `colour.rs` is shared with the viewer by `#[path]`.
+  54 unit tests.
+- **New library code (all unit-tested):** `nv_core::batch` (rename patterns `{name} {n:3} {date} {time} {taken} {folder}`, find /
+  replace, case, two-phase renames for swaps, date parsing, file times), `nv_core::archive` (zip writer, stored for already
+  compressed types), `nv_codecs::metastrip` (lossless removal of EXIF / XMP / IPTC / comments from JPEG, PNG, WebP; keeps the
+  profile and, optionally, the orientation), `nv_editor::convert` (JPEG / PNG / lossless WebP / BMP encoders),
+  `nv_win::files` (shell copy / move / recycle with Explorer's dialogs, file clipboard with cut / copy, print, drives, known
+  folders), `nv_win::props` (title, author, tags, comment, copyright, rating through the shell property system; **COM must be
+  initialised on the calling thread, `ensure_com` does it**: the first version failed on worker threads), renderer `set_clip`.
+- **Hand-over with the viewer:** see `docs/gallery-split.md` "Session 10". `nuviewer.exe` with no picture or with `--gallery` starts
+  `nugallery.exe`; viewer flags `--from-gallery`, `--slideshow`, `--shuffle <seed>`; the viewer's `G` / Tab starts the gallery and
+  closes. `nuviewer/src/gallery.rs` (the old grid) is unreachable and can be deleted (`enter_builtin_gallery` and friends).
+- **Installer / package:** the setup carries both exes (`setup/build.rs` packs `$NUVIEWER_EXE` and `$NUGALLERY_EXE`; blob table in
+  `install.rs`, tested), a Start menu shortcut "NuGallery", uninstall removes both, `tools/package.ps1` builds and zips both.
+  NOT run for real (it would register things on this PC); the unit test installs and uninstalls in a scratch registry key.
+- **Interpretation choices to confirm with the user:** (1) "wheel = next / prev file" in the gallery moves the selection by one
+  file per notch (Shift+wheel scrolls); (2) "1 2 3 4 5 = zoom preview, ~ = reset zoom thumbnail" became five thumbnail sizes and a
+  reset (the preview panel itself has no zoom); (3) the toolbar / panels slide out when the pointer rests on an edge for ~140 ms
+  and leave ~450 ms after it is gone, each with a Pin button; (4) the toolbar's "Show only..." is a list of kinds (pictures, RAW,
+  JPEG, PNG, GIF, WebP, TIFF, documents, 3D, all files); (5) folders are shown as tiles (folders first) so Up / Back / Forward
+  and the address bar mean something; (6) deleting / copying / moving uses Explorer's own dialogs (so folders work and
+  conflicts are asked), which also means there is no Ctrl+Z in the gallery.
+- **Thumbnail timing** (`tools/bench/gallery-thumbs.ps1`, release build, windowed 1280x800 = 24 tiles, median of 5, ms since the
+  process started; this PC, GTX 1050 Ti). Before the CPU first frame the gallery waited for Direct3D (gpu ~220-330 ms):
+  READY 285 / 237 (cold / warm, 200 PNG) and 352 / 274 (40 x 12 MP JPEG). With the first frames painted on the CPU while the GPU
+  starts (`cpu.rs`): **READY 92 cold / 52 warm (200 PNG, 1000x700); 278 cold / 54 warm (12 MP JPEG)**, process spawn to the
+  title showing it ("wall") 125 / 76 and 304 / 82. The first thumbnail is decoded at 38-74 ms; the cold 12 MP number is decode
+  work (24 pictures, 5 workers), not start-up. The old in-viewer gallery measured ~30-40 ms warm / 150-170 ms cold *inside* the
+  running viewer (no process start, no GPU start), so these are not the same quantity; opening the viewer from the gallery gives
+  the picture in ~26 ms (title "first image 26 ms" for a 500x400 PNG). Fullscreen shows ~60 tiles instead of 24: cold times grow
+  with the tile count, warm ones barely.
+- **Tests:** `tools/test/e2e-gallery.ps1` (23 checks: rename, new folder, search, copy / paste, delete, compress + zip contents,
+  batch convert / rename / time stamp dialogs driven through their controls, metadata dialog, `nuviewer.exe` alone opens the
+  gallery) and `tools/test/e2e-gallery-link.ps1` (8: Space opens the viewer, Esc returns on the last picture, G from a standalone
+  viewer); both use messages only (WM_NV_INJECT_KEY for Ctrl combinations, WM_CHAR for typing) and scratch settings / state /
+  cache. They need no other NuViewer running (single instance). The sections of `e2e.ps1`, `e2e-mouse.ps1`,
+  `e2e-features.ps1`, `e2e-session9.ps1` that tested the in-viewer gallery now `Skip`. Test hooks: injected keys 0xFFF1-0xFFF7
+  start the batch dialogs / compress / quick convert / quick edit.
+- **Not verified:** the right-click menu itself (a native popup; only the command handlers were driven), Print, "Edit with" and
+  Copy image on real data, the taskbar reveal at the bottom edge in the gallery (same code as the viewer's, game holds focus), real
+  mouse input, DPI > 100%, the details edits on a real camera JPEG (round trip tested on a synthetic JPEG), rubber-band selection
+  with real mouse drags, drag and drop of files (not implemented), a thumbnail cache shared with the viewer's film strip (same
+  keys, so it should).
+- **Ideas left:** delete the old grid from the viewer; Ctrl+Z for gallery renames; drag and drop out of / into the gallery;
+  recursive search; folder thumbnails; DirectWrite instead of GDI for names; EXIF thumbnail for faster cold JPEG tiles; tooltips
+  on the toolbar glyphs.
+
 ## 2. Build, test, run
 
 ```powershell

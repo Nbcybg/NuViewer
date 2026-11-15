@@ -1,0 +1,17 @@
+[package]
+name = "nugallery"
+version.workspace = true
+edition.workspace = true
+
+# NuGallery: the folder browser / gallery. Its own program (own window, own process) so the viewer stays small and fast;
+# the two hand work to each other through `nv_win::instance` (see docs/gallery-split.md).
+[[bin]]
+name = "nugallery"
+path = "src/main.rs"
+
+[dependencies]
+nv-core = { path = "../crates/nv-core" }
+nv-codecs = { path = "../crates/nv-codecs" }
+nv-render = { path = "../crates/nv-render" }
+nv-win = { path = "../crates/nv-win" }
+nv-editor = { path = "../crates/nv-editor" }

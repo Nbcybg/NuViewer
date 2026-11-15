@@ -3,8 +3,10 @@
 pub mod assoc;
 pub mod crash;
 pub mod diskstat;
+pub mod files;
 pub mod instance;
 pub mod menu;
+pub mod props;
 pub mod registry;
 pub mod shell;
 pub mod text;
@@ -48,7 +50,7 @@ pub enum Event {
     /// The window has already been resized to the size Windows suggested.
     Dpi(f32),
     /// Another launch of NuViewer asked this window to open something (see `instance`).
-    Open { path: Option<String>, gallery: bool },
+    Open { path: Option<String>, gallery: bool, from_gallery: bool },
     /// A typed character (control characters are filtered out; use `Key` for those).
     Char(char),
 }
@@ -315,6 +317,26 @@ pub fn paint_bgra(hwnd: HWND, x: i32, y: i32, img_w: i32, img_h: i32, bgra: &[u8
     }
 }
 
+/// Paint a top-down 32-bit BGRA block at (x, y) of the client area with plain GDI and touch nothing else (no GPU needed).
+/// The gallery's first frames while Direct3D is still starting use this, tile by tile.
+pub fn paint_bgra_at(hwnd: HWND, x: i32, y: i32, w: i32, h: i32, bgra: &[u8]) {
+    if w <= 0 || h <= 0 || bgra.len() < w as usize * h as usize * 4 {
+        return;
+    }
+    unsafe {
+        let hdc = GetDC(Some(hwnd));
+        if hdc.is_invalid() {
+            return;
+        }
+        let bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER { biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32, biWidth: w, biHeight: -h, biPlanes: 1, biBitCount: 32, biCompression: 0, ..Default::default() },
+            ..Default::default()
+        };
+        SetDIBitsToDevice(hdc, x, y, w as u32, h as u32, 0, 0, 0, h as u32, bgra.as_ptr() as *const c_void, &bmi, DIB_RGB_COLORS);
+        ReleaseDC(Some(hwnd), hdc);
+    }
+}
+
 /// UI scale of the monitor the window is on (1.0 = 96 DPI).
 pub fn dpi_scale(hwnd: HWND) -> f32 {
     let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(hwnd) };
@@ -381,11 +403,19 @@ pub fn run<F>(title: &str, width: i32, height: i32, fullscreen: bool, init: F) -
 where
     F: FnOnce(HWND, u32, u32) -> Result<Handler, String>,
 {
+    run_as(instance::Program::Viewer, title, width, height, fullscreen, init)
+}
+
+/// `run` for either program: the window class decides which single-instance lookup finds the window.
+pub fn run_as<F>(program: instance::Program, title: &str, width: i32, height: i32, fullscreen: bool, init: F) -> Result<(), String>
+where
+    F: FnOnce(HWND, u32, u32) -> Result<Handler, String>,
+{
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let _ = windows::Win32::System::Com::CoInitializeEx(None, windows::Win32::System::Com::COINIT_APARTMENTTHREADED);
         let hinst = GetModuleHandleW(None).map_err(|e| e.to_string())?;
-        let class = w!("NuViewerWindow");
+        let class = program.class();
         let wc = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
             style: CS_DBLCLKS,
@@ -446,6 +476,12 @@ where
         drop(Box::from_raw(state));
     }
     Ok(())
+}
+
+/// The modifier keys a mouse message reports in its wParam (MK_CONTROL, MK_SHIFT); Alt is not part of it. Handlers read
+/// them through `modifiers()`, so a posted message (a test) and a real click behave alike.
+fn mouse_mods(wp: WPARAM) -> Mods {
+    Mods { ctrl: wp.0 & 0x0008 != 0, shift: wp.0 & 0x0004 != 0, alt: modifiers().alt }
 }
 
 fn lo_i16(l: isize) -> i32 {
@@ -513,7 +549,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_COPYDATA => {
             // Answer 1 only if the request was really handled, so the sender retries while we're still starting up.
             match instance::request_from_message(lp) {
-                Some(req) => LRESULT(dispatch(Event::Open { path: req.path, gallery: req.gallery }) as isize),
+                Some(req) => LRESULT(dispatch(Event::Open { path: req.path, gallery: req.gallery, from_gallery: req.from_gallery }) as isize),
                 None => LRESULT(0),
             }
         }
@@ -543,17 +579,24 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_SYSCHAR if wp.0 as u32 == 0x0D => LRESULT(0), // swallow the character so Windows doesn't beep
+        // Alt+Left / Right / Up are "back", "forward", "up" in the gallery; nothing in Windows needs them.
+        WM_SYSKEYDOWN if matches!(wp.0 as u32, 0x25..=0x27) => {
+            let mut m = modifiers();
+            m.alt = true;
+            call_with_mods(m, || dispatch(Event::Key(wp.0 as u32)));
+            LRESULT(0)
+        }
         WM_MOUSEWHEEL => {
             // Wheel coords are in screen space.
             let mut pt = windows::Win32::Foundation::POINT { x: lo_i16(lp.0), y: hi_i16(lp.0) };
             let _ = windows::Win32::Graphics::Gdi::ScreenToClient(hwnd, &mut pt);
             let ctrl = (wp.0 & 0x0008) != 0; // MK_CONTROL
-            dispatch(Event::Wheel { delta: hi_i16(wp.0 as isize), x: pt.x, y: pt.y, ctrl });
+            call_with_mods(mouse_mods(wp), || dispatch(Event::Wheel { delta: hi_i16(wp.0 as isize), x: pt.x, y: pt.y, ctrl }));
             LRESULT(0)
         }
         WM_LBUTTONDOWN => {
             SetCapture(hwnd);
-            dispatch(Event::MouseDown { x: lo_i16(lp.0), y: hi_i16(lp.0), ctrl: (wp.0 & 0x0008) != 0 });
+            call_with_mods(mouse_mods(wp), || dispatch(Event::MouseDown { x: lo_i16(lp.0), y: hi_i16(lp.0), ctrl: (wp.0 & 0x0008) != 0 }));
             LRESULT(0)
         }
         WM_LBUTTONUP => {
@@ -562,18 +605,18 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_MBUTTONUP => {
-            dispatch(Event::MiddleClick);
+            call_with_mods(mouse_mods(wp), || dispatch(Event::MiddleClick));
             LRESULT(0)
         }
         WM_RBUTTONUP => {
-            dispatch(Event::RightClick { x: lo_i16(lp.0), y: hi_i16(lp.0) });
+            call_with_mods(mouse_mods(wp), || dispatch(Event::RightClick { x: lo_i16(lp.0), y: hi_i16(lp.0) }));
             LRESULT(0)
         }
         WM_LBUTTONDBLCLK => {
             // The second press of a quick double click arrives as this instead of WM_LBUTTONDOWN: capture the mouse
             // like a normal press so a held-button gesture (zoom, drag) works on it too, and its release is seen.
             SetCapture(hwnd);
-            dispatch(Event::DoubleClick { x: lo_i16(lp.0), y: hi_i16(lp.0), ctrl: (wp.0 & 0x0008) != 0 });
+            call_with_mods(mouse_mods(wp), || dispatch(Event::DoubleClick { x: lo_i16(lp.0), y: hi_i16(lp.0), ctrl: (wp.0 & 0x0008) != 0 }));
             LRESULT(0)
         }
         WM_CAPTURECHANGED => {
@@ -584,7 +627,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_MOUSEMOVE => {
             let left_down = (wp.0 & 0x0001) != 0; // MK_LBUTTON
-            dispatch(Event::MouseMove { x: lo_i16(lp.0), y: hi_i16(lp.0), left_down });
+            call_with_mods(mouse_mods(wp), || dispatch(Event::MouseMove { x: lo_i16(lp.0), y: hi_i16(lp.0), left_down }));
             LRESULT(0)
         }
         WM_CLOSE => {

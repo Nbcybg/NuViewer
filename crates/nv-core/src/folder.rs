@@ -217,7 +217,7 @@ impl FolderList {
 }
 
 /// A well mixed number for `path` under `seed`: sorting by it gives a random but repeatable order.
-fn shuffle_key(path: &Path, seed: u64) -> u64 {
+pub fn shuffle_key(path: &Path, seed: u64) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325 ^ seed;
     for b in path.file_name().unwrap_or_default().to_string_lossy().to_lowercase().bytes() {
         h = (h ^ b as u64).wrapping_mul(0x100_0000_01b3);

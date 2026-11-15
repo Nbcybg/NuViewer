@@ -94,6 +94,29 @@ Both are the same Cargo workspace: `nuviewer/` stays, a new `nugallery/` binary 
 2. Add `nugallery` with its own window, using the same `gallery.rs` through the trait.
 3. Make the viewer's `G` key start (or focus) `nugallery.exe` and delete the gallery mode from the viewer.
 
+## Session 10: the split is done (NuGallery)
+
+`nugallery/` is a new binary crate. What came out differently from the plan above:
+
+* **No `GalleryHost` trait.** The viewer's grid code was written against `App`; instead of abstracting it, NuGallery was
+  written fresh (grid, details, list, panels, menus, file operations) on the shared libraries (`nv-core`, `nv-codecs`,
+  `nv-render`, `nv-win`, `nv-editor`). `nuviewer/src/gallery.rs` still holds the old in-process grid, but nothing can reach it
+  any more (`enter_gallery` now starts NuGallery and closes the viewer); it is waiting to be deleted.
+* **Hand-over:** gallery to viewer = `nuviewer.exe <file> --from-gallery [--slideshow] [--shuffle <seed>]` (a running viewer
+  is reused through the single-instance forward, which now carries a `from_gallery` flag). Viewer to gallery = `G`, or on close
+  when it was started by the gallery: one `OpenRequest` to the gallery's window (`WM_COPYDATA`, class `NuGalleryWindow`,
+  mutex `Local\NuGallery.SingleInstance.v1`) naming the last picture seen, which the gallery selects. No debounced "seen"
+  messages were needed: the viewer remembers the last path and sends it once at exit.
+* **Order is shared** through `settings.ini` (sort, ascending / descending, written by the gallery when it exits or when the
+  sort changes) and `--shuffle <seed>` (`nv_core::folder::shuffle_key` is public; a test checks both programs order a folder
+  identically). The filter ("show only…") is not shared: the viewer walks every picture of the folder.
+* `nuviewer.exe` started with no picture, or with `--gallery`, starts `nugallery.exe` (found next to it) and exits; without a
+  gallery next to it the viewer opens empty as before.
+* The renderer gained `set_clip` (scissor rectangle) for scrolling panels and text boxes.
+
+Start-up of the gallery runs four things at once (window, Direct3D device on a thread, folder listing on a thread, thumbnail
+workers); thumbnails that are decoded before the GPU exists wait in memory and are uploaded for the first frame.
+
 ## Done so far
 
 * Session 7: all gallery-only code is in `gallery.rs`; the thumbnail workers start lazily (`App::thumb_pool`).

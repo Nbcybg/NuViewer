@@ -8,16 +8,18 @@ use windows::Win32::System::Com::{CoCreateInstance, CoTaskMemFree, IPersistFile,
 use windows::Win32::UI::Shell::{IShellLinkW, SHGetKnownFolderPath, ShellLink, FOLDERID_Desktop, FOLDERID_Programs, KF_FLAG_DEFAULT};
 
 pub const APP_EXE: &str = "nuviewer.exe";
+pub const GALLERY_EXE: &str = "nugallery.exe";
 pub const UNINSTALLER: &str = "uninstall.exe";
 const SHORTCUT: &str = "NuViewer.lnk";
 const SHORTCUT_TYPES: &str = "NuViewer file types.lnk";
+const SHORTCUT_GALLERY: &str = "NuGallery.lnk";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 static PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.bin"));
 const PAYLOAD_LEN: &str = include_str!(concat!(env!("OUT_DIR"), "/payload.len"));
 
-/// The compressed-in nuviewer.exe, unpacked.
-pub fn payload() -> Result<Vec<u8>, String> {
+/// The files packed into this setup (nuviewer.exe first, then nugallery.exe when it was built), unpacked: (name, bytes).
+pub fn payload() -> Result<Vec<(String, Vec<u8>)>, String> {
     if PAYLOAD.is_empty() {
         return Err("this setup was built without nuviewer.exe inside it".into());
     }
@@ -26,7 +28,22 @@ pub fn payload() -> Result<Vec<u8>, String> {
     if data.len() != want {
         return Err("the setup data is damaged (size mismatch)".into());
     }
-    Ok(data)
+    unpack(&data)
+}
+
+/// Split the blob made by build.rs: per file a name length (u8), the name, a data length (u64 LE) and the data.
+fn unpack(mut data: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let damaged = || "the setup data is damaged (file table)".to_string();
+    let mut out = Vec::new();
+    while !data.is_empty() {
+        let n = *data.first().ok_or_else(damaged)? as usize;
+        let name = data.get(1..1 + n).ok_or_else(damaged)?;
+        let len = u64::from_le_bytes(data.get(1 + n..9 + n).ok_or_else(damaged)?.try_into().map_err(|_| damaged())?) as usize;
+        let body = data.get(9 + n..9 + n + len).ok_or_else(damaged)?;
+        out.push((String::from_utf8_lossy(name).into_owned(), body.to_vec()));
+        data = &data[9 + n + len..];
+    }
+    Ok(out)
 }
 
 /// Where things go. `real()` is the user's actual profile; tests and the `/regprefix` switch redirect everything.
@@ -95,17 +112,25 @@ pub struct Options {
     pub desktop: bool,
 }
 
-/// Ask a running NuViewer to close (an upgrade can't replace a running exe) and wait briefly.
+/// Ask a running NuViewer and NuGallery to close (an upgrade can't replace a running exe) and wait briefly.
 fn close_running_viewer() {
     use windows::core::w;
     use windows::Win32::Foundation::{LPARAM, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, PostMessageW, WM_CLOSE};
     for _ in 0..30 {
-        match unsafe { FindWindowW(w!("NuViewerWindow"), None) } {
-            Ok(h) if !h.is_invalid() => unsafe {
-                let _ = PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0));
-            },
-            _ => return,
+        let mut any = false;
+        for class in [w!("NuViewerWindow"), w!("NuGalleryWindow")] {
+            if let Ok(h) = unsafe { FindWindowW(class, None) } {
+                if !h.is_invalid() {
+                    any = true;
+                    unsafe {
+                        let _ = PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0));
+                    }
+                }
+            }
+        }
+        if !any {
+            return;
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
@@ -136,16 +161,20 @@ fn create_shortcut(lnk: &Path, target: &Path, args: &str, desc: &str) -> Result<
 }
 
 /// Copy the files, register the file types, create shortcuts and the Add/Remove Programs entry.
-/// `payload` is the unpacked nuviewer.exe; `self_exe` is copied next to it as the uninstaller.
+/// `files` are the unpacked program files (nuviewer.exe first); `self_exe` is copied next to them as the uninstaller.
 /// Returns the installed nuviewer.exe.
-pub fn install(env: &Env, opts: &Options, payload: &[u8], self_exe: &Path) -> Result<PathBuf, String> {
+pub fn install(env: &Env, opts: &Options, files: &[(String, Vec<u8>)], self_exe: &Path) -> Result<PathBuf, String> {
     if opts.dir.parent().is_none() || !opts.dir.is_absolute() {
         return Err(format!("\"{}\" isn't a usable install folder (pick a folder, not a whole drive).", opts.dir.display()));
     }
     close_running_viewer();
     std::fs::create_dir_all(&opts.dir).map_err(|e| format!("couldn't create {}: {e}", opts.dir.display()))?;
     let exe = opts.dir.join(APP_EXE);
-    std::fs::write(&exe, payload).map_err(|e| format!("couldn't write {} ({e}). Is NuViewer still running?", exe.display()))?;
+    for (name, bytes) in files {
+        let target = opts.dir.join(name);
+        std::fs::write(&target, bytes).map_err(|e| format!("couldn't write {} ({e}). Is NuViewer still running?", target.display()))?;
+    }
+    let has_gallery = files.iter().any(|(n, _)| n == GALLERY_EXE);
     let uninstaller = opts.dir.join(UNINSTALLER);
     if self_exe != uninstaller {
         std::fs::copy(self_exe, &uninstaller).map_err(|e| format!("couldn't write {}: {e}", uninstaller.display()))?;
@@ -159,6 +188,9 @@ pub fn install(env: &Env, opts: &Options, payload: &[u8], self_exe: &Path) -> Re
     if opts.start_menu {
         create_shortcut(&env.start_menu.join(SHORTCUT), &exe, "", "Fast, lightweight image viewer")?;
         create_shortcut(&env.start_menu.join(SHORTCUT_TYPES), &exe, "--associate", "Choose which image formats open with NuViewer")?;
+        if has_gallery {
+            create_shortcut(&env.start_menu.join(SHORTCUT_GALLERY), &opts.dir.join(GALLERY_EXE), "", "Browse folders as thumbnails")?;
+        }
     }
     if opts.desktop {
         create_shortcut(&env.desktop.join(SHORTCUT), &exe, "", "Fast, lightweight image viewer")?;
@@ -175,7 +207,7 @@ pub fn install(env: &Env, opts: &Options, payload: &[u8], self_exe: &Path) -> Re
     registry::set_string(&key, Some("QuietUninstallString"), &format!("{} /uninstall /S", q(&uninstaller)))?;
     registry::set_dword(&key, "NoModify", 1)?;
     registry::set_dword(&key, "NoRepair", 1)?;
-    registry::set_dword(&key, "EstimatedSize", ((payload.len() * 2) / 1024) as u32)?;
+    registry::set_dword(&key, "EstimatedSize", ((files.iter().map(|(_, b)| b.len()).sum::<usize>() * 2) / 1024) as u32)?;
     Ok(exe)
 }
 
@@ -187,13 +219,14 @@ pub fn uninstall(env: &Env, dir: &Path) -> Result<(), String> {
     let layout = env.layout();
     registry::unregister(&layout, APP_EXE, &nv_win::assoc::all_exts());
     registry::delete_tree(&env.uninstall_key());
-    for lnk in [env.start_menu.join(SHORTCUT), env.start_menu.join(SHORTCUT_TYPES), env.desktop.join(SHORTCUT)] {
+    for lnk in [env.start_menu.join(SHORTCUT), env.start_menu.join(SHORTCUT_TYPES), env.start_menu.join(SHORTCUT_GALLERY), env.desktop.join(SHORTCUT)] {
         let _ = std::fs::remove_file(lnk);
     }
     let exe = dir.join(APP_EXE);
     if exe.exists() {
         std::fs::remove_file(&exe).map_err(|e| format!("couldn't remove {} ({e}). Is NuViewer still running?", exe.display()))?;
     }
+    let _ = std::fs::remove_file(dir.join(GALLERY_EXE));
     if let Some(data) = &env.data_dir {
         let _ = std::fs::remove_dir_all(data);
     }
@@ -233,8 +266,11 @@ mod tests {
         let dir = root.join("app");
         let opts = Options { dir: dir.clone(), exts: vec![".jpg".into(), ".png".into()], start_menu: true, desktop: true };
 
-        let exe = install(&env, &opts, b"fake exe", &fake_self).unwrap();
+        let files = vec![(APP_EXE.to_string(), b"fake exe".to_vec()), (GALLERY_EXE.to_string(), b"fake gallery".to_vec())];
+        let exe = install(&env, &opts, &files, &fake_self).unwrap();
         assert_eq!(std::fs::read(&exe).unwrap(), b"fake exe");
+        assert_eq!(std::fs::read(dir.join(GALLERY_EXE)).unwrap(), b"fake gallery");
+        assert!(env.start_menu.join(SHORTCUT_GALLERY).is_file());
         assert!(dir.join(UNINSTALLER).is_file());
         assert!(env.start_menu.join(SHORTCUT).is_file() && env.start_menu.join(SHORTCUT_TYPES).is_file() && env.desktop.join(SHORTCUT).is_file());
         assert_eq!(existing_install(&env), Some(dir.clone()));
@@ -248,12 +284,12 @@ mod tests {
 
         // Re-running with fewer formats must drop the ones that are no longer ticked.
         let opts2 = Options { exts: vec![".gif".into()], start_menu: false, desktop: false, dir: dir.clone() };
-        install(&env, &opts2, b"fake exe 2", &fake_self).unwrap();
+        install(&env, &opts2, &[(APP_EXE.to_string(), b"fake exe 2".to_vec())], &fake_self).unwrap();
         assert_eq!(registry::registered_exts(&layout), vec![".gif"]);
         assert_eq!(std::fs::read(&exe).unwrap(), b"fake exe 2");
 
         uninstall(&env, &dir).unwrap();
-        assert!(!exe.exists());
+        assert!(!exe.exists() && !dir.join(GALLERY_EXE).exists());
         assert!(!registry::is_registered(&layout));
         assert!(registry::registered_exts(&layout).is_empty());
         assert!(registry::read_string(&env.uninstall_key(), Some("DisplayName")).is_none());
@@ -263,9 +299,24 @@ mod tests {
     }
 
     #[test]
+    fn the_payload_table_round_trips_and_rejects_damage() {
+        let mut blob = Vec::new();
+        for (n, d) in [("a.exe", &b"123"[..]), ("b.exe", &b""[..])] {
+            blob.push(n.len() as u8);
+            blob.extend(n.as_bytes());
+            blob.extend((d.len() as u64).to_le_bytes());
+            blob.extend(d);
+        }
+        assert_eq!(unpack(&blob).unwrap(), vec![("a.exe".to_string(), b"123".to_vec()), ("b.exe".to_string(), Vec::new())]);
+        assert!(unpack(&blob[..blob.len() - 3]).is_err());
+        assert!(unpack(&[5, 1]).is_err());
+        assert_eq!(unpack(&[]).unwrap(), vec![]);
+    }
+
+    #[test]
     fn refuses_a_drive_root() {
         let env = Env { reg_prefix: Some("Software\\NuViewerSetupTest_root".into()), start_menu: PathBuf::new(), desktop: PathBuf::new(), data_dir: None };
         let opts = Options { dir: PathBuf::from("C:\\"), exts: vec![], start_menu: false, desktop: false };
-        assert!(install(&env, &opts, b"x", Path::new("x.exe")).is_err());
+        assert!(install(&env, &opts, &[(APP_EXE.to_string(), b"x".to_vec())], Path::new("x.exe")).is_err());
     }
 }

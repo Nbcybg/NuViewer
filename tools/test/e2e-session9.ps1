@@ -77,14 +77,7 @@ try {
     Compress-Archive -Path "$sandbox\page.png" -DestinationPath "$d\book.zip" -Force
     Set-Content -Path "$d\notes.txt" -Value "First line of the notes`nsecond line" -Encoding ASCII
     Use-Settings "$sandbox\docs_off.ini" "documents = false"
-    Check 'gallery opens (documents off)' (Open-Viewer "$d\a.png" @('--gallery', '--windowed'))
-    Start-Sleep -Milliseconds 600
-    Check "documents off: one picture is listed  [$(Title)]" ((Title) -like '*1/1*')
-    Close-Viewer
-    Use-Settings "$sandbox\docs_on.ini" "documents = true"
-    Check 'gallery opens (documents on)' (Open-Viewer "$d\a.png" @('--gallery', '--windowed'))
-    $ok = Wait-Until { (Title) -like '*thumbs 3/3*' } 8000
-    Check "documents on: three tiles, all with thumbnails  [$(Title)]" ($null -ne $ok)
+    Skip 'documents in the gallery' 'the gallery is NuGallery now (its own program), which always lists documents'
     Close-Viewer
 }
 finally {

@@ -26,6 +26,7 @@ pub mod model;
 #[cfg(windows)]
 mod metafile;
 pub mod metadata;
+pub mod metastrip;
 mod orient;
 mod pcx;
 #[cfg(windows)]
@@ -314,6 +315,11 @@ pub fn supported_extensions() -> Vec<&'static str> {
     }
     v.extend(SVG_EXTS);
     v
+}
+
+/// Is this a camera RAW format (listed separately from ordinary pictures in the gallery's filters)?
+pub fn is_raw_ext(ext: &str) -> bool {
+    RAW_EXTS.contains(&ext.to_ascii_lowercase().as_str())
 }
 
 pub fn is_supported_ext(ext: &str) -> bool {

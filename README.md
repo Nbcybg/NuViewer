@@ -64,7 +64,32 @@ wide scan (more than 1.2 × as wide as tall, i.e. a double-page spread already) 
 should be the **first of a pair** and press `Shift+B`: pairs now start there (remembered for that folder during the run).
 `Ctrl+B` swaps the sides for right-to-left books. Next / previous move a whole spread; the slideshow too.
 
-## Keys and mouse
+## NuGallery (the gallery)
+
+`nugallery.exe` is the folder browser. Start `nuviewer.exe` without a picture (or `nugallery.exe [folder or file]`) and it
+opens; it remembers the last folder, view and pinned panels. It starts fullscreen like the viewer (`--windowed` opts out).
+
+- **Edges** (the pointer rests there for a moment): **left** the folder tree plus folder data and folder size, **right** the
+  details of the focused file (preview, name, size, histogram, editable properties, EXIF), **top** the toolbar (previous /
+  next file, back, forward, up, address bar, sort, show only…, thumbnails / details / list, search, tools, exit), **bottom**
+  the Windows taskbar. Each panel has a *Pin* button (or `Ctrl+B` / `Ctrl+I` / `Ctrl+T`) to keep it open and docked.
+- **Mouse:** wheel = previous / next file (Shift+wheel scrolls), Ctrl+wheel = thumbnail size (columns), click selects (Ctrl
+  adds, Shift ranges, dragging on empty space draws a selection box), double click or middle click views the file (a folder is
+  entered), right click = menu. Alt+F4 exits.
+- **Keys:** Space = view in NuViewer, Enter = next file, `1`-`5` = thumbnail size, `` ` `` = reset the size, `V` = view
+  (thumbnails / details / list), `J` sort, `R` shuffle, `S` slideshow, F2 rename, Del Recycle Bin, Shift+Del delete for good,
+  Ctrl+N new folder, Ctrl+C / X / V, Ctrl+Shift+C copy path, F6 / F7 move / copy to, F5 refresh, Ctrl+F search, Ctrl+L address
+  bar, Backspace or Alt+Up = up, Alt+Left / Right = back / forward, F1 = the whole list.
+- **Menu:** open, slideshow, quick edit (rotate, flip), edit with…, show file location, refresh, shuffle, select (item, all,
+  none), copy image / file / path, cut, paste, copy to, move to, print, new folder, rename, delete, **compress** (when several
+  files are selected), quick convert (JPEG, PNG, WebP, BMP, resized JPEG). With several files selected a **Batch** submenu (also
+  under Tools) opens: rename (pattern with `{name}`, `{n:3}`, `{date}`, `{taken}`…, find / replace, case), convert, change
+  time stamp, remove metadata. Properties are written through Windows' property system, so JPEG and TIFF keep them in the
+  file itself.
+- The viewer follows the gallery's order (sort is shared; shuffle is passed along), and closing it returns to the gallery with
+  the last picture seen selected.
+
+## Keys and mouse (the viewer)
 
 Press **F1** (or **H**) in the app for this list; these are the defaults and **Settings** changes them.
 
@@ -191,13 +216,13 @@ cargo build --release
 cargo test
 ```
 
-The exe is `target\release\nuviewer.exe`. If the drive holding the project is short on space, point cargo elsewhere
+The exes are `target\release\nuviewer.exe` and `target\release\nugallery.exe` (keep them in one folder). If the drive holding the project is short on space, point cargo elsewhere
 with `CARGO_TARGET_DIR`.
 
 `tools\package.ps1` builds a release and produces
 
 - `dist\NuViewer-<version>-setup.exe`: installer and uninstaller in one file (see below),
-- `dist\NuViewer-<version>-win64.zip`: portable copy (exe, this file, and `.cmd` helpers for the file types).
+- `dist\NuViewer-<version>-win64.zip`: portable copy (both exes, this file, and `.cmd` helpers for the file types).
 
 ### Installer
 
@@ -223,7 +248,8 @@ crates/nv-core     folder listing, decode pool + prefetch, thumbnails, gallery l
 crates/nv-codecs   all decoders, EXIF/ICC handling, resizing, metadata
 crates/nv-render   Direct3D 11 renderer (textures, mips, bicubic shader, overlays)
 crates/nv-win      Win32: window, input, text rasterising, shell integration, registry, form toolkit + file-type chooser, crash handling
-nuviewer           the app (start-up, viewer, gallery, HUD, file actions)
+nuviewer           the viewer (start-up, one picture at a time, HUD, film strip, editing)
+nugallery          the gallery program (grid / details / list, panels, menus, file operations, batch)
 setup              installer / uninstaller (carries a compressed nuviewer.exe)
 ```
 

@@ -52,6 +52,39 @@ const EDGE_POLL_MS: u32 = 80;
 /// In fullscreen the pointer disappears after this long without moving.
 const CURSOR_IDLE_MS: u32 = 2000;
 
+/// The viewer was started by NuGallery (`--from-gallery`): when it closes it brings the gallery back on the last picture seen.
+static FROM_GALLERY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The picture on screen most recently (path), for the gallery to select when it comes back.
+static LAST_SEEN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+/// `--slideshow`: start the slideshow as soon as the first picture is up.
+static START_SLIDESHOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// NuGallery's executable: next to this one.
+fn gallery_exe() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let p = exe.with_file_name("nugallery.exe");
+    p.is_file().then_some(p)
+}
+
+/// Start NuGallery (or hand it `path` if it is running). False if it isn't installed next to us.
+pub(crate) fn launch_gallery(path: Option<&Path>, windowed: bool) -> bool {
+    let Some(exe) = gallery_exe() else { return false };
+    let mut cmd = std::process::Command::new(exe);
+    if let Some(p) = path {
+        cmd.arg(p);
+    }
+    if windowed {
+        cmd.arg("--windowed");
+    }
+    match cmd.spawn() {
+        Ok(child) => {
+            nv_win::instance::allow_foreground(child.id());
+            true
+        }
+        Err(_) => false,
+    }
+}
+
 const VK_BACK: u32 = 0x08;
 const VK_RETURN: u32 = 0x0D;
 const VK_UP: u32 = 0x26;
@@ -523,6 +556,11 @@ impl App {
         }
         let want = self.wanted();
         let cur_id = self.id_at(self.folder.index);
+        if FROM_GALLERY.load(Ordering::Relaxed) {
+            if let Ok(mut last) = LAST_SEEN.lock() {
+                *last = self.folder.files.get(self.folder.index).map(|p| p.display().to_string());
+            }
+        }
         self.renderer.show(cur_id);
         self.evict();
 
@@ -939,7 +977,12 @@ impl App {
             }
             Event::Paint => self.draw(),
             Event::User => self.on_user(),
-            Event::Open { path, gallery } => self.open_request(path, gallery),
+            Event::Open { path, gallery, from_gallery } => {
+                if from_gallery {
+                    FROM_GALLERY.store(true, Ordering::Relaxed);
+                }
+                self.open_request(path, gallery)
+            }
             Event::Timer(TIMER_ANIM) => self.on_timer(),
             Event::Timer(TIMER_TOAST) => self.on_toast_timer(),
             Event::Timer(TIMER_SLIDE) => self.slideshow_tick(),
@@ -1153,6 +1196,9 @@ impl App {
         if start_gallery {
             app.enter_gallery();
         }
+        if START_SLIDESHOW.swap(false, Ordering::Relaxed) {
+            app.toggle_slideshow();
+        }
         app
     }
 }
@@ -1269,7 +1315,12 @@ impl Boot {
             }
             Event::Paint => self.paint(),
             Event::Key(VK_ESCAPE) | Event::MiddleClick => quit(),
-            Event::Open { path, gallery } => self.pending_open = Some((path, gallery)),
+            Event::Open { path, gallery, from_gallery } => {
+                if from_gallery {
+                    FROM_GALLERY.store(true, Ordering::Relaxed);
+                }
+                self.pending_open = Some((path, gallery))
+            }
             Event::User => {
                 // Folder listing (may arrive after the image; an unreadable folder just means "no images").
                 if self.folder.is_none() {
@@ -1396,7 +1447,13 @@ enum Shell {
 fn main() {
     nv_win::crash::install();
     // Flags may appear anywhere; the first argument that isn't a flag is the file or folder to open.
-    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    let mut args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    // `--shuffle <seed>` (from the gallery): walk the folder in the same random order the gallery shows.
+    let mut shuffle_seed: Option<u64> = None;
+    if let Some(i) = args.iter().position(|a| a == "--shuffle") {
+        shuffle_seed = args.get(i + 1).and_then(|v| v.to_string_lossy().parse().ok());
+        args.drain(i..(i + 2).min(args.len()));
+    }
     let flag = |name: &str| args.iter().any(|a| a == name);
     // Command-line maintenance modes: no window, just a message.
     if flag("--settings") {
@@ -1413,6 +1470,17 @@ fn main() {
     }
     let arg: Option<PathBuf> = args.iter().find(|a| !a.to_string_lossy().starts_with("--")).map(|a| nv_win::instance::absolute(Path::new(a)));
     let start_gallery = flag("--gallery");
+    // Started on its own (no picture asked for) or with --gallery: this is NuGallery's job now. The viewer is only for
+    // looking at one picture; if the gallery isn't installed next to us, carry on as before.
+    if !flag("--new-window") && (start_gallery || arg.is_none()) && launch_gallery(arg.as_deref(), flag("--windowed")) {
+        return;
+    }
+    if flag("--from-gallery") {
+        FROM_GALLERY.store(true, Ordering::Relaxed);
+    }
+    if flag("--slideshow") {
+        START_SLIDESHOW.store(true, Ordering::Relaxed);
+    }
     // Pictures open borderless-fullscreen from the first frame (--windowed opts out; --fullscreen is accepted and is the default). --actual-size starts at 100%.
     let startup_settings = Settings::load();
     CANVAS.store(startup_settings.canvas, Ordering::Relaxed);
@@ -1424,7 +1492,7 @@ fn main() {
 
     // One window: if NuViewer is already running, hand it this request and exit (--new-window opts out).
     if !flag("--new-window") {
-        let request = nv_win::instance::OpenRequest { path: arg.as_ref().map(|p| p.display().to_string()), gallery: start_gallery };
+        let request = nv_win::instance::OpenRequest { path: arg.as_ref().map(|p| p.display().to_string()), gallery: false, from_gallery: flag("--from-gallery") };
         if let nv_win::instance::Instance::Forwarded = nv_win::instance::claim_or_forward(&request) {
             return;
         }
@@ -1471,7 +1539,7 @@ fn main() {
     let (folder_tx, folder_rx) = mpsc::channel();
     {
         let (wake, arg) = (wake.clone(), arg.clone());
-        let order = nv_core::Order { key: startup_settings.sort, descending: startup_settings.sort_desc, shuffle: None };
+        let order = nv_core::Order { key: startup_settings.sort, descending: startup_settings.sort_desc, shuffle: shuffle_seed };
         std::thread::spawn(move || {
             let r = match &arg {
                 Some(p) => FolderList::open_with(p, order),
@@ -1520,6 +1588,14 @@ fn main() {
         }) as Box<dyn FnMut(Event)>)
     });
 
+    // Closed after being opened from the gallery: bring it back, on the picture that was seen last.
+    if FROM_GALLERY.load(Ordering::Relaxed) {
+        let path = LAST_SEEN.lock().ok().and_then(|l| l.clone());
+        let req = nv_win::instance::OpenRequest { path: path.clone(), gallery: true, from_gallery: false };
+        if !nv_win::instance::send_to(nv_win::instance::Program::Gallery, &req) {
+            launch_gallery(path.as_deref().map(Path::new), false);
+        }
+    }
     // The decode statistics of this session (per format and stage) for whoever wants to look at them.
     nv_codecs::stats::save(&nv_codecs::stats::default_path());
     if let Err(e) = result {

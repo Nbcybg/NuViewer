@@ -48,6 +48,17 @@ fn gps_coordinate(exif: &exif::Exif, value_tag: Tag, ref_tag: Tag) -> Option<f64
     Some(if negative { -deg } else { deg })
 }
 
+/// The date a picture was taken, as the camera wrote it: "2025:06:01 14:30:05" (local time, no zone). None if the file has
+/// no EXIF date. Only the first bytes of a JPEG are read for this, so it is cheap enough for a whole folder.
+pub fn date_taken(path: &Path) -> Option<String> {
+    let file = std::fs::File::open(path).ok()?;
+    let exif = exif::Reader::new().read_from_container(&mut std::io::BufReader::new(file)).ok()?;
+    let f = exif.get_field(Tag::DateTimeOriginal, In::PRIMARY).or_else(|| exif.get_field(Tag::DateTimeDigitized, In::PRIMARY)).or_else(|| exif.get_field(Tag::DateTime, In::PRIMARY))?;
+    let s = f.display_value().to_string().trim_matches('"').trim().to_string();
+    // The reader shows it as "2025-06-01 14:30:05"; hand back the digits in one fixed spelling.
+    (s.len() >= 10 && s.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)).then_some(s)
+}
+
 /// Label/value rows describing `path`: file facts first, then whatever EXIF it carries.
 /// `utc_offset_minutes` converts the modified time to local time.
 pub fn describe(path: &Path, utc_offset_minutes: i32) -> Vec<(String, String)> {

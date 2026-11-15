@@ -110,6 +110,13 @@ pub fn prune_cache() -> (usize, u64) {
     }
 }
 
+/// Throw away the cached thumbnail of `path` (it is made again next time).
+pub fn forget(path: &Path) {
+    if let (Ok(meta), Some(dir)) = (std::fs::metadata(path), cache_dir().as_ref()) {
+        let _ = std::fs::remove_file(dir.join(format!("{:016x}.jpg", cache_key(path, &meta))));
+    }
+}
+
 /// Thumbnail for `path`: from the disk cache if present, otherwise decoded, downscaled and cached.
 pub fn make_thumb(path: &Path) -> Result<Image, String> {
     let meta = std::fs::metadata(path).map_err(|e| format!("stat: {e}"))?;

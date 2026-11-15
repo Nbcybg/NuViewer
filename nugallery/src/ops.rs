@@ -1,0 +1,661 @@
+//! What the commands do: open in the viewer, rename, delete, copy / cut / paste, move / copy to, print, compress,
+//! convert, quick edit. Short things run on the UI thread (the shell shows its own progress for copies); anything that
+//! reads or writes many files runs as a *job* on a worker thread with a progress line and Esc to cancel.
+
+use crate::app::{same_dir, Active, App, Focus, Job, JobResult, Msg};
+use crate::input::TextInput;
+use crate::menus::{Preset, QuickOp};
+use nv_core::fileops;
+use nv_editor::{convert::Out, raster, save, Pixels};
+use nv_win::files::{self, Op};
+use nv_win::shell;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+/// The viewer's executable: next to this one.
+pub fn viewer_exe() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("NUVIEWER_EXE").map(PathBuf::from).filter(|p| p.is_file()) {
+        return Some(p);
+    }
+    let exe = std::env::current_exe().ok()?;
+    let sibling = exe.with_file_name("nuviewer.exe");
+    sibling.is_file().then_some(sibling)
+}
+
+/// Where originals are kept before a picture is rewritten (the same place the viewer uses, so its clean-up covers it).
+pub fn backup_dir() -> PathBuf {
+    let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    base.join("NuViewer").join("undo")
+}
+
+/// How a conversion is done.
+#[derive(Clone)]
+pub struct ConvertSpec {
+    pub out: Out,
+    pub max_edge: Option<u32>,
+    /// Folder for the results (None: next to each original).
+    pub dest: Option<PathBuf>,
+    /// Added to the name before the extension ("_small").
+    pub suffix: String,
+    /// Send the originals to the Recycle Bin once their copy exists.
+    pub delete_originals: bool,
+}
+
+/// Convert one picture; returns the new file.
+pub fn convert_one(src: &Path, spec: &ConvertSpec) -> Result<PathBuf, String> {
+    let ext = src.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let img = nv_codecs::decode_file_first_frame(src)?;
+    if img.mesh.is_some() {
+        return Err("3D models can't be converted to a picture".into());
+    }
+    let img = img.finish_for_cpu();
+    let img = match spec.max_edge {
+        Some(m) if img.width.max(img.height) > m => nv_codecs::downscale(&img, m),
+        _ => img,
+    };
+    let pixels = Pixels::new(img.width, img.height, img.rgba);
+    // A JPEG made from a JPEG keeps its EXIF (camera, date, ...), with the orientation set to upright.
+    let exif = if matches!(spec.out, Out::Jpeg(_)) && matches!(ext.as_str(), "jpg" | "jpeg" | "jpe" | "jfif") {
+        std::fs::read(src).ok().and_then(|b| save::exif_of_jpeg(&b, (pixels.w, pixels.h)))
+    } else {
+        None
+    };
+    let bytes = convert_encode(&pixels, spec.out, exif.as_deref())?;
+    let dir = spec.dest.clone().or_else(|| src.parent().map(Path::to_path_buf)).ok_or("no folder")?;
+    let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "picture".into());
+    let name = format!("{stem}{}.{}", spec.suffix, spec.out.ext());
+    let dst = fileops::unique_path(&dir, std::ffi::OsStr::new(&name));
+    save::write_atomic(&dst, &bytes).map_err(|e| format!("{}: {e}", dst.display()))?;
+    // The copy keeps the original's date.
+    if let Some((_, modified)) = nv_core::batch::read_file_times(src) {
+        let _ = nv_core::batch::set_file_times(&dst, modified, nv_core::batch::WhichTimes { created: false, modified: true, accessed: false });
+    }
+    Ok(dst)
+}
+
+fn convert_encode(p: &Pixels, out: Out, exif: Option<&[u8]>) -> Result<Vec<u8>, String> {
+    nv_editor::convert::encode(p, out, [255, 255, 255], exif)
+}
+
+/// Turn / flip a JPEG or PNG in place (the original goes to the backup folder first). The file's date is kept.
+pub fn quick_edit_one(path: &Path, op: QuickOp) -> Result<(), String> {
+    let fmt = save::Format::of_path(path).ok_or("only JPEG and PNG pictures can be rewritten")?;
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let img = nv_codecs::decode_file(path)?;
+    if img.frame_count() > 1 {
+        return Err("animated pictures can't be edited here".into());
+    }
+    if img.reduced_from.is_some() {
+        return Err("too large to rewrite safely".into());
+    }
+    let img = img.finish_for_cpu();
+    let src = Pixels::new(img.width, img.height, img.rgba);
+    let out = match op {
+        QuickOp::RotateLeft => raster::rotate(&src, -90.0),
+        QuickOp::RotateRight => raster::rotate(&src, 90.0),
+        QuickOp::FlipH => raster::flip_horizontal(&src),
+        QuickOp::FlipV => raster::flip_vertical(&src),
+    };
+    let exif = if fmt == save::Format::Jpeg { save::exif_of_jpeg(&bytes, (out.w, out.h)) } else { None };
+    let encoded = save::encode(&out, fmt, exif.as_deref())?;
+    let times = nv_core::batch::read_file_times(path);
+    let _ = save::backup_copy(path, &backup_dir());
+    save::write_atomic(path, &encoded).map_err(|e| e.to_string())?;
+    if let Some((_, modified)) = times {
+        let _ = nv_core::batch::set_file_times(path, modified, nv_core::batch::WhichTimes { created: false, modified: true, accessed: false });
+    }
+    Ok(())
+}
+
+/// Remove metadata from one file (JPEG, PNG, WebP), keeping its date. Ok(false): there was nothing to remove.
+pub fn strip_one(path: &Path, keep_orientation: bool) -> Result<bool, String> {
+    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let data = std::fs::read(path).map_err(|e| e.to_string())?;
+    match nv_codecs::metastrip::strip(&data, &ext, keep_orientation)? {
+        None => Ok(false),
+        Some(s) => {
+            let times = nv_core::batch::read_file_times(path);
+            let _ = save::backup_copy(path, &backup_dir());
+            save::write_atomic(path, &s.bytes).map_err(|e| e.to_string())?;
+            if let Some((_, modified)) = times {
+                let _ = nv_core::batch::set_file_times(path, modified, nv_core::batch::WhichTimes { created: false, modified: true, accessed: false });
+            }
+            Ok(true)
+        }
+    }
+}
+
+impl App {
+    /// The selected entries' paths (or the focused item's).
+    pub fn picked_paths(&self) -> Vec<PathBuf> {
+        self.sel.entries(&self.listing).into_iter().map(|e| e.path.clone()).collect()
+    }
+
+    fn picked_files(&self) -> Vec<PathBuf> {
+        self.sel.entries(&self.listing).into_iter().filter(|e| !e.is_dir()).map(|e| e.path.clone()).collect()
+    }
+
+    // ---- the viewer ------------------------------------------------------------------------------------
+
+    /// Show `path` in NuViewer (it comes up in front; Esc there returns here with that picture selected).
+    pub fn launch_viewer(&mut self, path: &Path, slideshow: bool) {
+        let Some(exe) = viewer_exe() else {
+            // No viewer next to us: let Windows decide.
+            if let Err(e) = files::open_default(self.hwnd, path) {
+                self.toast(format!("Can't open it: {e}"));
+            }
+            return;
+        };
+        let mut cmd = std::process::Command::new(exe);
+        cmd.arg(path).arg("--from-gallery");
+        if slideshow {
+            cmd.arg("--slideshow");
+        }
+        if let Some(seed) = self.shuffle_seed {
+            cmd.arg("--shuffle").arg(seed.to_string());
+        }
+        match cmd.spawn() {
+            Ok(child) => nv_win::instance::allow_foreground(child.id()),
+            Err(e) => self.toast(format!("Couldn't start NuViewer: {e}")),
+        }
+    }
+
+    pub fn launch_viewer_settings(&mut self) {
+        match viewer_exe() {
+            Some(exe) => {
+                let _ = std::process::Command::new(exe).arg("--settings").spawn();
+            }
+            None => self.toast("NuViewer isn't next to NuGallery, so its settings can't be opened"),
+        }
+    }
+
+    /// Space / double click / middle click / Open: a folder is entered, a picture is shown in the viewer, anything else
+    /// opens with its own program.
+    pub fn open_selected(&mut self, slideshow: bool) {
+        let Some(e) = self.sel.entries(&self.listing).first().map(|e| (e.path.clone(), e.is_dir(), e.viewable())) else { return };
+        let (path, is_dir, viewable) = e;
+        if is_dir {
+            if !slideshow {
+                self.go(path, Vec::new(), true);
+            }
+        } else if viewable {
+            self.launch_viewer(&path, slideshow);
+        } else if let Err(err) = files::open_default(self.hwnd, &path) {
+            self.toast(format!("Can't open it: {err}"));
+        }
+    }
+
+    pub fn show_location(&mut self) {
+        if let Some(p) = self.picked_paths().first() {
+            shell::reveal_in_explorer(p);
+        }
+    }
+
+    pub fn edit_with(&mut self, index: Option<usize>) {
+        let command = match index {
+            Some(i) => match self.settings.external.get(i) {
+                Some(e) => e.command.clone(),
+                None => return,
+            },
+            None => match shell::pick_program(self.hwnd) {
+                Some(p) => format!("\"{}\"", p.display()),
+                None => return,
+            },
+        };
+        let paths = self.picked_files();
+        for p in paths.iter().take(10) {
+            if let Err(e) = shell::run_external(&command, p) {
+                self.toast(e);
+                break;
+            }
+        }
+    }
+
+    // ---- rename / new folder -------------------------------------------------------------------------------
+
+    pub fn start_rename(&mut self) {
+        let Some(e) = self.sel.cursor.and_then(|c| self.listing.get(c)).map(|e| (e.path.clone(), e.name.clone(), e.is_dir())) else { return };
+        let ti = if e.2 { TextInput::selected(&e.1) } else { TextInput::name_selected(&e.1) };
+        self.active = Some(Active { focus: Focus::Rename(e.0), ti, error: None });
+        nv_win::invalidate(self.hwnd);
+    }
+
+    pub fn finish_rename(&mut self, path: PathBuf, text: &str, mut active: Active) {
+        let name = text.trim();
+        if name == path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default() {
+            return;
+        }
+        match fileops::rename_file(&path, name) {
+            Ok(new) => {
+                self.toast(format!("Renamed to {name}"));
+                self.refresh(vec![new]);
+            }
+            Err(e) => {
+                active.error = Some(e);
+                self.active = Some(active);
+            }
+        }
+    }
+
+    pub fn new_folder(&mut self) {
+        let dir = self.listing.dir.clone();
+        if dir.as_os_str().is_empty() {
+            return;
+        }
+        self.active = Some(Active { focus: Focus::NewFolder(dir), ti: TextInput::selected("New folder"), error: None });
+        nv_win::invalidate(self.hwnd);
+    }
+
+    pub fn finish_new_folder(&mut self, dir: PathBuf, text: &str, mut active: Active) {
+        let name = text.trim();
+        if let Err(e) = fileops::valid_file_name(name) {
+            active.error = Some(e);
+            self.active = Some(active);
+            return;
+        }
+        let path = dir.join(name);
+        if path.exists() {
+            active.error = Some("a file or folder with that name already exists".into());
+            self.active = Some(active);
+            return;
+        }
+        match std::fs::create_dir(&path) {
+            Ok(()) => {
+                self.toast(format!("Folder {name} created"));
+                self.refresh(vec![path]);
+            }
+            Err(e) => {
+                active.error = Some(e.to_string());
+                self.active = Some(active);
+            }
+        }
+    }
+
+    // ---- delete / clipboard / copy to / move to -----------------------------------------------------------
+
+    pub fn delete_selected(&mut self, permanent: bool) {
+        let paths = self.picked_paths();
+        if paths.is_empty() {
+            return;
+        }
+        let n = paths.len();
+        if permanent && !shell::confirm(self.hwnd, &format!("Delete {} permanently?\n\nThis can't be undone.", if n == 1 { paths[0].file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default() } else { format!("{n} items") })) {
+            return;
+        }
+        let hint = self.sel.cursor;
+        match files::run(self.hwnd, if permanent { Op::Delete } else { Op::Recycle }, &paths, None, false) {
+            Ok(()) => {
+                self.toast(if permanent { format!("Deleted {n} item{}", if n == 1 { "" } else { "s" }) } else { format!("Moved {n} item{} to the Recycle Bin", if n == 1 { "" } else { "s" }) });
+                self.cursor_hint = hint;
+                self.refresh(Vec::new());
+            }
+            Err(e) if e == "cancelled" => self.refresh(Vec::new()),
+            Err(e) => self.toast(format!("Couldn't delete: {e}")),
+        }
+    }
+
+    pub fn copy_files(&mut self, cut: bool) {
+        let paths = self.picked_paths();
+        if paths.is_empty() {
+            return;
+        }
+        match files::clipboard_set_files(self.hwnd, &paths, cut) {
+            Ok(()) => {
+                self.cut = if cut { paths.clone() } else { Vec::new() };
+                self.toast(format!("{} {} item{} — paste with Ctrl+V here or in Explorer", if cut { "Cut" } else { "Copied" }, paths.len(), if paths.len() == 1 { "" } else { "s" }));
+            }
+            Err(e) => self.toast(format!("Couldn't use the clipboard: {e}")),
+        }
+    }
+
+    pub fn copy_path(&mut self) {
+        let paths = self.picked_paths();
+        if paths.is_empty() {
+            return;
+        }
+        let text = paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join("\r\n");
+        match shell::clipboard_copy_text(self.hwnd, &text) {
+            Ok(()) => self.toast(if paths.len() == 1 { "Path copied".to_string() } else { format!("{} paths copied", paths.len()) }),
+            Err(e) => self.toast(format!("Couldn't use the clipboard: {e}")),
+        }
+    }
+
+    pub fn copy_image(&mut self) {
+        let Some(path) = self.sel.entries(&self.listing).into_iter().find(|e| e.viewable()).map(|e| e.path.clone()) else { return };
+        match nv_codecs::decode_file_first_frame(&path) {
+            Ok(img) => {
+                let img = img.finish_for_cpu();
+                let mut bgra = img.rgba.clone();
+                for px in bgra.chunks_exact_mut(4) {
+                    px.swap(0, 2);
+                }
+                match files::clipboard_set_image(self.hwnd, img.width, img.height, &bgra) {
+                    Ok(()) => self.toast("Image copied"),
+                    Err(e) => self.toast(format!("Couldn't use the clipboard: {e}")),
+                }
+            }
+            Err(e) => self.toast(format!("Can't read the picture: {}", nv_codecs::errors::plain(&e))),
+        }
+    }
+
+    pub fn paste(&mut self) {
+        let Some((paths, cut)) = files::clipboard_files(self.hwnd) else {
+            self.toast("There are no files on the clipboard");
+            return;
+        };
+        let dir = self.listing.dir.clone();
+        let same_folder = paths.iter().all(|p| p.parent().map(|d| same_dir(d, &dir)).unwrap_or(false));
+        if cut && same_folder {
+            return;
+        }
+        match files::run(self.hwnd, if cut { Op::Move } else { Op::Copy }, &paths, Some(&dir), same_folder) {
+            Ok(()) => {
+                let select: Vec<PathBuf> = if same_folder { Vec::new() } else { paths.iter().filter_map(|p| p.file_name().map(|n| dir.join(n))).collect() };
+                self.toast(format!("Pasted {} item{}", paths.len(), if paths.len() == 1 { "" } else { "s" }));
+                self.refresh(select);
+            }
+            Err(e) if e == "cancelled" => self.refresh(Vec::new()),
+            Err(e) => self.toast(format!("Couldn't paste: {e}")),
+        }
+    }
+
+    pub fn transfer_selected(&mut self, mv: bool) {
+        let paths = self.picked_paths();
+        if paths.is_empty() {
+            return;
+        }
+        let title = if mv { "Move to" } else { "Copy to" };
+        let Some(dest) = shell::pick_folder(self.hwnd, title, self.last_dest.as_deref().or(Some(&self.listing.dir))) else { return };
+        self.last_dest = Some(dest.clone());
+        if same_dir(&dest, &self.listing.dir) {
+            self.toast("That is the folder you are in");
+            return;
+        }
+        match files::run(self.hwnd, if mv { Op::Move } else { Op::Copy }, &paths, Some(&dest), false) {
+            Ok(()) => {
+                self.toast(format!("{} {} item{} to {}", if mv { "Moved" } else { "Copied" }, paths.len(), if paths.len() == 1 { "" } else { "s" }, dest.display()));
+                self.refresh(Vec::new());
+            }
+            Err(e) if e == "cancelled" => self.refresh(Vec::new()),
+            Err(e) => self.toast(format!("Couldn't {}: {e}", if mv { "move" } else { "copy" })),
+        }
+    }
+
+    pub fn print_selected(&mut self) {
+        let paths: Vec<PathBuf> = self.sel.entries(&self.listing).into_iter().filter(|e| e.viewable()).map(|e| e.path.clone()).collect();
+        if paths.is_empty() {
+            return;
+        }
+        if paths.len() > 3 && !shell::confirm(self.hwnd, &format!("Open the print window for each of the {} files?", paths.len())) {
+            return;
+        }
+        for p in paths.iter().take(20) {
+            if let Err(e) = files::print(self.hwnd, p) {
+                self.toast(format!("Can't print {}: {e}", p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()));
+                break;
+            }
+        }
+    }
+
+    /// Make the thumbnails of the files in this folder again.
+    pub fn rebuild_thumbs(&mut self) {
+        for e in self.listing.all.iter().filter(|e| e.has_thumb()) {
+            nv_core::thumbs::forget(&e.path);
+        }
+        if let Some(r) = self.renderer.as_mut() {
+            r.retain_thumbs(|_| false);
+        }
+        self.staged.clear();
+        self.thumb_failed.clear();
+        self.preview_id = None;
+        self.timing.visible_ready_ms = None;
+        self.timing.nav_start = Some(std::time::Instant::now());
+        self.request_thumbs();
+        self.toast("Thumbnails are being made again");
+    }
+
+    // ---- jobs ------------------------------------------------------------------------------------------------
+
+    /// Run `work` on a thread. It gets a `progress` function (text for the progress line; returns false once the user
+    /// pressed Esc) and returns what to tell the user and what to select afterwards.
+    pub fn spawn_job<F>(&mut self, label: &str, work: F)
+    where
+        F: FnOnce(&dyn Fn(String) -> bool) -> JobResult + Send + 'static,
+    {
+        if self.job.is_some() {
+            self.toast("Another operation is still running");
+            return;
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.job = Some(Job { cancel: cancel.clone(), label: label.to_string() });
+        self.job_text = "starting…".into();
+        let (tx, wake) = (self.tx.clone(), self.wake.clone());
+        std::thread::spawn(move || {
+            let progress = {
+                let (tx, wake, cancel) = (tx.clone(), wake.clone(), cancel.clone());
+                move |text: String| {
+                    let _ = tx.send(Msg::JobProgress(text));
+                    wake();
+                    !cancel.load(Ordering::Relaxed)
+                }
+            };
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&progress))).unwrap_or(JobResult { message: "The operation stopped unexpectedly".into(), refresh: true, select: Vec::new() });
+            let _ = tx.send(Msg::JobDone(result));
+            wake();
+        });
+        nv_win::invalidate(self.hwnd);
+    }
+
+    pub fn compress_selected(&mut self) {
+        let paths = self.picked_paths();
+        if paths.is_empty() {
+            return;
+        }
+        let dir = self.listing.dir.clone();
+        let stem = if paths.len() == 1 {
+            paths[0].file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Archive".into())
+        } else {
+            dir.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Archive".into())
+        };
+        let dest = fileops::unique_path(&dir, std::ffi::OsStr::new(&format!("{stem}.zip")));
+        let offset = nv_win::utc_offset_minutes();
+        self.spawn_job("Compressing", move |progress| {
+            let entries = nv_core::archive::collect(&paths);
+            if entries.is_empty() {
+                return JobResult { message: "Nothing to compress".into(), refresh: false, select: Vec::new() };
+            }
+            let total = entries.len();
+            match nv_core::archive::write_zip(&dest, &entries, offset, &mut |done, _| progress(format!("{done} / {total} files"))) {
+                Ok(()) => {
+                    let size = std::fs::metadata(&dest).map(|m| crate::draw::fmt_bytes(m.len())).unwrap_or_default();
+                    JobResult { message: format!("Created {} ({size})", dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()), refresh: true, select: vec![dest.clone()] }
+                }
+                Err(e) if e == "cancelled" => JobResult { message: "Compress cancelled".into(), refresh: true, select: Vec::new() },
+                Err(e) => JobResult { message: format!("Couldn't compress: {e}"), refresh: true, select: Vec::new() },
+            }
+        });
+    }
+
+    pub fn quick_convert(&mut self, p: Preset) {
+        let suffix = match p {
+            Preset::Resize(n) => format!("_{n}px"),
+            _ => String::new(),
+        };
+        let spec = ConvertSpec { out: p.target(), max_edge: p.max_edge(), dest: None, suffix, delete_originals: false };
+        self.convert_selected(spec);
+    }
+
+    pub fn convert_selected(&mut self, spec: ConvertSpec) {
+        let paths: Vec<PathBuf> = self.sel.entries(&self.listing).into_iter().filter(|e| e.viewable()).map(|e| e.path.clone()).collect();
+        if paths.is_empty() {
+            return;
+        }
+        let hwnd_val = self.hwnd.0 as isize;
+        self.spawn_job("Converting", move |progress| {
+            let total = paths.len();
+            let (mut ok, mut failed) = (Vec::new(), Vec::new());
+            let mut originals = Vec::new();
+            for (i, p) in paths.iter().enumerate() {
+                if !progress(format!("{} / {total}  {}", i + 1, p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())) {
+                    break;
+                }
+                match convert_one(p, &spec) {
+                    Ok(new) => {
+                        ok.push(new);
+                        originals.push(p.clone());
+                    }
+                    Err(e) => failed.push(format!("{}: {}", p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), nv_codecs::errors::plain(&e))),
+                }
+            }
+            if spec.delete_originals && !originals.is_empty() {
+                let hwnd = windows_hwnd(hwnd_val);
+                let _ = files::run(hwnd, Op::Recycle, &originals, None, false);
+            }
+            let mut message = format!("Converted {} of {total} to {}", ok.len(), spec.out.label());
+            if let Some(f) = failed.first() {
+                message += &format!(" — {} failed (first: {f})", failed.len());
+            }
+            JobResult { message, refresh: true, select: ok }
+        });
+    }
+
+    pub fn quick_edit(&mut self, op: QuickOp) {
+        let paths: Vec<PathBuf> = self.picked_files();
+        if paths.is_empty() {
+            return;
+        }
+        self.spawn_job(op.label(), move |progress| {
+            let total = paths.len();
+            let (mut done, mut first_error) = (0, None);
+            for (i, p) in paths.iter().enumerate() {
+                if !progress(format!("{} / {total}", i + 1)) {
+                    break;
+                }
+                match quick_edit_one(p, op) {
+                    Ok(()) => done += 1,
+                    Err(e) => {
+                        first_error.get_or_insert(format!("{}: {e}", p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()));
+                    }
+                }
+            }
+            let mut message = format!("{}: {done} of {total} done (originals are kept in the undo folder)", op.label());
+            if let Some(e) = first_error {
+                message += &format!(" — {e}");
+            }
+            JobResult { message, refresh: true, select: paths.clone() }
+        });
+        // Thumbnails of rewritten files change: they are made again when the folder is re-read.
+    }
+}
+
+fn windows_hwnd(v: isize) -> nv_win::WindowHandle {
+    nv_win::WindowHandle(v as *mut std::ffi::c_void)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("nv_gal_ops_{tag}_{}_{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// A small 3-colour PNG: the left half red, the right half blue.
+    fn write_png(path: &Path, w: u32, h: u32) {
+        let mut rgba = Vec::new();
+        for _ in 0..h {
+            for x in 0..w {
+                rgba.extend(if x < w / 2 { [255, 0, 0, 255] } else { [0, 0, 255, 255] });
+            }
+        }
+        let bytes = save::encode(&Pixels::new(w, h, rgba), save::Format::Png, None).unwrap();
+        fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn converting_makes_a_new_file_and_keeps_the_original() {
+        let d = temp_dir("conv");
+        let src = d.join("pic.png");
+        write_png(&src, 40, 20);
+        let spec = ConvertSpec { out: Out::Jpeg(90), max_edge: Some(20), dest: None, suffix: "_small".into(), delete_originals: false };
+        let dst = convert_one(&src, &spec).unwrap();
+        assert_eq!(dst.file_name().unwrap().to_string_lossy(), "pic_small.jpg");
+        assert!(src.exists());
+        let img = nv_codecs::decode_file(&dst).unwrap().finish_for_cpu();
+        assert_eq!((img.width, img.height), (20, 10), "longest side 20");
+        assert!(img.rgba[0] > 200 && img.rgba[2] < 60, "left half still red");
+        // Converting again never overwrites.
+        let again = convert_one(&src, &spec).unwrap();
+        assert_ne!(again, dst);
+        // Into another folder, as PNG -> WebP.
+        let other = d.join("out");
+        fs::create_dir_all(&other).unwrap();
+        let w = convert_one(&src, &ConvertSpec { out: Out::Webp, max_edge: None, dest: Some(other.clone()), suffix: String::new(), delete_originals: false }).unwrap();
+        assert_eq!(w, other.join("pic.webp"));
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn quick_edit_turns_the_picture_and_backs_up_the_original() {
+        let d = temp_dir("edit");
+        let f = d.join("a.png");
+        write_png(&f, 40, 20);
+        let before = fs::read(&f).unwrap();
+        quick_edit_one(&f, QuickOp::RotateRight).unwrap();
+        let img = nv_codecs::decode_file(&f).unwrap().finish_for_cpu();
+        assert_eq!((img.width, img.height), (20, 40), "turned a quarter");
+        // Rotated clockwise: the left (red) half is now on top.
+        assert!(img.rgba[0] > 200 && img.rgba[2] < 60, "top is red");
+        let last = (img.width * img.height * 4) as usize - 4;
+        assert!(img.rgba[last] < 60 && img.rgba[last + 2] > 200, "bottom is blue");
+        quick_edit_one(&f, QuickOp::RotateLeft).unwrap();
+        let back = nv_codecs::decode_file(&f).unwrap().finish_for_cpu();
+        assert_eq!((back.width, back.height), (40, 20));
+        assert_ne!(before.len(), 0);
+        assert!(quick_edit_one(&d.join("x.tga"), QuickOp::FlipH).is_err());
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn metadata_stripping_rewrites_only_when_there_is_something_to_remove() {
+        let d = temp_dir("strip");
+        let f = d.join("t.png");
+        write_png(&f, 8, 8);
+        assert_eq!(strip_one(&f, true), Ok(false), "nothing to remove");
+        // Add a text chunk after IHDR by hand.
+        let mut bytes = fs::read(&f).unwrap();
+        let mut chunk = Vec::new();
+        let data = b"Comment\0secret";
+        chunk.extend((data.len() as u32).to_be_bytes());
+        chunk.extend(b"tEXt");
+        chunk.extend(data);
+        let mut crc = flate2_crc(b"tEXt", data);
+        chunk.extend(crc.to_be_bytes());
+        crc = 0;
+        let _ = crc;
+        bytes.splice(33..33, chunk);
+        fs::write(&f, &bytes).unwrap();
+        let before = nv_core::batch::read_file_times(&f).unwrap().1;
+        assert_eq!(strip_one(&f, true), Ok(true));
+        assert!(!fs::read(&f).unwrap().windows(4).any(|w| w == b"tEXt"));
+        assert_eq!(nv_core::batch::read_file_times(&f).unwrap().1, before, "the date is kept");
+        assert!(strip_one(&d.join("n.bmp"), true).is_err());
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    fn flate2_crc(kind: &[u8], data: &[u8]) -> u32 {
+        // CRC-32 of kind + data, bitwise (the tests of nv-codecs use flate2; this crate doesn't depend on it).
+        let mut crc = 0xFFFF_FFFFu32;
+        for &b in kind.iter().chain(data) {
+            crc ^= b as u32;
+            for _ in 0..8 {
+                crc = if crc & 1 != 0 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
+            }
+        }
+        !crc
+    }
+}

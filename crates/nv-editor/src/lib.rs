@@ -7,6 +7,7 @@
 //! * [`save`]: encode (JPEG / PNG), carry the EXIF block over, replace the file safely.
 //! * [`tools`]: the catalogue of tools the editor is meant to have, with their state (the mock-up draws it).
 
+pub mod convert;
 pub mod ops;
 pub mod raster;
 pub mod save;

@@ -284,22 +284,8 @@ try {
         }
     }
 
-    Write-Host "`n[5f] Gallery: the previous picture must not stay on screen"
-    [void][In]::PostMessage($script:win, 0x0100, [IntPtr]0x24, [IntPtr]::Zero); Start-Sleep -Milliseconds 500        # Home: a.png (red)
-    $sc = Grab; $old = $sc.GetPixel($cx - 120, $cy - 80); $sc.Dispose()
-    Check "a.png shows its red field before opening the gallery  [pixel $($old.R),$($old.G),$($old.B)]" (($old.R -gt 150) -and ($old.G -lt 80))
-    [void][In]::PostMessage($script:win, 0x0100, [IntPtr]0x09, [IntPtr]::Zero); Start-Sleep -Milliseconds 700        # Tab: gallery
-    [void][In]::PostMessage($script:win, 0x0100, [IntPtr]0x23, [IntPtr]::Zero); Start-Sleep -Milliseconds 300        # End: select d.png (the big blue one)
-    [void][In]::PostMessage($script:win, 0x0100, [IntPtr]0x0D, [IntPtr]::Zero)                                      # Enter: open it
-    $sw = [Diagnostics.Stopwatch]::StartNew(); $sawOld = $false; $sawNew = $false; $samples = 0
-    while ($sw.ElapsedMilliseconds -lt 6000 -and -not $sawNew) {
-        $sc = Grab; $p = $sc.GetPixel($cx - 120, $cy - 80); $sc.Dispose(); $samples++
-        if (($p.R -gt 150) -and ($p.G -lt 80) -and ($p.B -lt 80)) { $sawOld = $true }
-        if (($p.B -gt 150) -and ($p.R -lt 80)) { $sawNew = $true }
-    }
-    Check "opening d.png from the gallery never shows the previous picture  [$samples samples]" (-not $sawOld)
-    Check 'and d.png does appear (blue)' $sawNew
-    Check 'title is d.png' ((Title) -like 'd.png*') (Title)
+    Write-Host "`n[5f] Gallery"
+    Skip 'opening a picture from the gallery' 'the gallery is NuGallery now (its own program): see e2e-gallery-link.ps1'
 
     Write-Host "`n[8] Esc closes the fullscreen viewer straight away (no windowed step)"
     [void][In]::PostMessage($script:win, 0x0100, [IntPtr]0x1B, [IntPtr]::Zero)

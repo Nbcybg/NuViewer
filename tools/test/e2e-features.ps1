@@ -144,11 +144,9 @@ try {
     1..12 | ForEach-Object { Make-Picture ("$d\seq_{0:D4}.png" -f $_) 64 64 0 ([System.Drawing.Color]::FromArgb(20 * $_, 30, 200 - 10 * $_)) }
     Use-Settings "$sandbox\s5.ini" "sequences = true`nsequence_min = 5`nfps = 30`ncanvas = 808080"
     Check 'folder opens' (Open-Viewer "$d\other.png")
-    Key 0x09
-    Key 0x23
-    Check "gallery folds the run into one tile  [$(Title)]" (((Title) -like '*sequence, 12 frames*') -and ((Title) -like '*2/2*'))
-    Key 0x0D 700
-    Check 'Enter opens the first frame' ((Title) -like 'seq_0001.png*') (Title)
+    Skip 'gallery folds the run into one tile' 'the gallery is NuGallery now (its own program)'
+    Key 0x27 700   # next picture: the first frame of the run
+    Check 'first frame of the run is shown' ((Title) -like 'seq_0001.png*') (Title)
     $dpi = [In]::GetDpiForWindow($script:win) / 96.0
     $w = $scr.Width; $h = $scr.Height
     $barW = [math]::Min([math]::Max($w * 0.7, 460 * $dpi), 920 * $dpi); $barW = [math]::Min($barW, $w - 24 * $dpi)

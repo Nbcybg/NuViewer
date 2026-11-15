@@ -14,9 +14,41 @@ use windows::Win32::UI::WindowsAndMessaging::{
 const TAG: usize = 0x4E56_0000;
 const FLAG_GALLERY: usize = 1;
 const FLAG_HAS_PATH: usize = 2;
+const FLAG_FROM_GALLERY: usize = 4;
 
 /// How long a second launch keeps trying to reach a first instance that is still starting up or briefly busy.
 const REACH_TIMEOUT_MS: u64 = 3000;
+
+/// The two programs that each keep to one window.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Program {
+    Viewer,
+    Gallery,
+}
+
+impl Program {
+    fn mutex(self) -> PCWSTR {
+        match self {
+            Program::Viewer => w!("Local\\NuViewer.SingleInstance.v1"),
+            Program::Gallery => w!("Local\\NuGallery.SingleInstance.v1"),
+        }
+    }
+
+    pub(crate) fn class(self) -> PCWSTR {
+        match self {
+            Program::Viewer => w!("NuViewerWindow"),
+            Program::Gallery => w!("NuGalleryWindow"),
+        }
+    }
+
+    /// The window class name (for `nv_win::run_class`).
+    pub fn class_name(self) -> &'static str {
+        match self {
+            Program::Viewer => "NuViewerWindow",
+            Program::Gallery => "NuGalleryWindow",
+        }
+    }
+}
 
 pub enum Instance {
     /// This process is the (only) viewer: carry on starting up.
@@ -30,12 +62,17 @@ pub enum Instance {
 pub struct OpenRequest {
     pub path: Option<String>,
     pub gallery: bool,
+    /// The viewer was started by the gallery: when it closes it brings the gallery back (on the last picture seen).
+    pub from_gallery: bool,
 }
 
 pub fn encode(req: &OpenRequest) -> (usize, Vec<u16>) {
     let mut flags = TAG;
     if req.gallery {
         flags |= FLAG_GALLERY;
+    }
+    if req.from_gallery {
+        flags |= FLAG_FROM_GALLERY;
     }
     match &req.path {
         Some(p) => {
@@ -55,7 +92,7 @@ pub fn decode(tag: usize, payload: &[u16]) -> Option<OpenRequest> {
         let end = payload.iter().position(|&c| c == 0).unwrap_or(payload.len());
         String::from_utf16_lossy(&payload[..end])
     });
-    Some(OpenRequest { path, gallery: tag & FLAG_GALLERY != 0 })
+    Some(OpenRequest { path, gallery: tag & FLAG_GALLERY != 0, from_gallery: tag & FLAG_FROM_GALLERY != 0 })
 }
 
 /// Try to hand `req` to the window `hwnd`. True only if that window actually processed it.
@@ -76,8 +113,24 @@ fn deliver(hwnd: HWND, req: &OpenRequest) -> bool {
 /// Become the primary instance, or forward `req` to the running one.
 /// If a running instance can't be reached (hung, or it opened without a window), we just carry on as a new window.
 pub fn claim_or_forward(req: &OpenRequest) -> Instance {
+    claim_or_forward_as(Program::Viewer, req)
+}
+
+/// Hand `req` to the running window of `program` once, without waiting for it or claiming anything. True if it was
+/// handled. (The viewer uses this to bring the gallery back; the gallery to reach the viewer.)
+pub fn send_to(program: Program, req: &OpenRequest) -> bool {
     unsafe {
-        let mutex = CreateMutexW(None, false, w!("Local\\NuViewer.SingleInstance.v1"));
+        match FindWindowW(program.class(), PCWSTR::null()) {
+            Ok(hwnd) => deliver(hwnd, req),
+            Err(_) => false,
+        }
+    }
+}
+
+/// `claim_or_forward` for either program.
+pub fn claim_or_forward_as(program: Program, req: &OpenRequest) -> Instance {
+    unsafe {
+        let mutex = CreateMutexW(None, false, program.mutex());
         let already_running = GetLastError() == ERROR_ALREADY_EXISTS;
         match (mutex, already_running) {
             (Ok(handle), false) => {
@@ -88,7 +141,7 @@ pub fn claim_or_forward(req: &OpenRequest) -> Instance {
             (Ok(_), true) => {
                 let deadline = std::time::Instant::now() + std::time::Duration::from_millis(REACH_TIMEOUT_MS);
                 while std::time::Instant::now() < deadline {
-                    if let Ok(hwnd) = FindWindowW(w!("NuViewerWindow"), PCWSTR::null()) {
+                    if let Ok(hwnd) = FindWindowW(program.class(), PCWSTR::null()) {
                         if deliver(hwnd, req) {
                             return Instance::Forwarded;
                         }
@@ -98,6 +151,13 @@ pub fn claim_or_forward(req: &OpenRequest) -> Instance {
                 Instance::Primary
             }
         }
+    }
+}
+
+/// Let the process `pid` take the foreground (a program we just started, so its window comes up in front).
+pub fn allow_foreground(pid: u32) {
+    unsafe {
+        let _ = AllowSetForegroundWindow(pid);
     }
 }
 
@@ -134,9 +194,10 @@ mod tests {
     #[test]
     fn requests_round_trip() {
         for req in [
-            OpenRequest { path: Some("C:\\Pics\\รูป 1.jpg".into()), gallery: false },
-            OpenRequest { path: Some("D:\\x".into()), gallery: true },
-            OpenRequest { path: None, gallery: false },
+            OpenRequest { path: Some("C:\\Pics\\รูป 1.jpg".into()), gallery: false, from_gallery: false },
+            OpenRequest { path: Some("D:\\x".into()), gallery: true, from_gallery: false },
+            OpenRequest { path: None, gallery: false, from_gallery: true },
+            OpenRequest { path: Some("E:\\y.png".into()), gallery: false, from_gallery: true },
         ] {
             let (tag, payload) = encode(&req);
             assert_eq!(decode(tag, &payload), Some(req));
@@ -151,7 +212,7 @@ mod tests {
 
     #[test]
     fn missing_terminator_is_tolerated() {
-        let (tag, _) = encode(&OpenRequest { path: Some("ab".into()), gallery: false });
+        let (tag, _) = encode(&OpenRequest { path: Some("ab".into()), gallery: false, from_gallery: false });
         assert_eq!(decode(tag, &[97, 98]).unwrap().path.as_deref(), Some("ab"));
     }
 }

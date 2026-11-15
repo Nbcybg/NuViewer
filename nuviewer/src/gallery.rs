@@ -113,7 +113,24 @@ impl App {
         self.thumb_request(todo);
     }
 
+    /// The gallery is its own program now (NuGallery): start it on this folder with the current picture selected and close
+    /// the viewer. The grid code below is no longer reachable from the viewer and is waiting to be deleted.
     pub(crate) fn enter_gallery(&mut self) {
+        if !self.settle_rotation() {
+            return;
+        }
+        let target = self.folder.files.get(self.folder.index).cloned().or_else(|| (!self.folder.dir.as_os_str().is_empty()).then(|| self.folder.dir.clone()));
+        if crate::launch_gallery(target.as_deref(), nv_win::is_fullscreen() == false) {
+            // The gallery shows where we were; it must not be told again when this window closes.
+            crate::FROM_GALLERY.store(false, Ordering::Relaxed);
+            quit();
+            return;
+        }
+        self.toast("NuGallery isn't installed next to NuViewer");
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn enter_builtin_gallery(&mut self) {
         if self.folder.files.is_empty() || !self.settle_rotation() {
             return;
         }

@@ -3,6 +3,18 @@
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
 ### Added
+- **NuGallery, the gallery as a program of its own** (`nugallery.exe`, next to `nuviewer.exe`). Starting `nuviewer.exe` with no
+  picture opens it; Space / double click / middle click opens a picture in NuViewer, Esc there comes back to the gallery on the
+  last picture seen, `G` in the viewer goes the other way. Folders and files as thumbnails (with names), a details list or a
+  list; the folder tree, folder data and size on the left edge, preview / name / size / histogram / editable properties
+  (title, author, tags, comment, copyright, star rating) / EXIF on the right edge, the toolbar (next / previous, back /
+  forward / up, address bar, sort, show only, view, search, tools, exit) on the top edge, the Windows taskbar on the bottom
+  edge. Right-click menu: open, slideshow, quick edit, edit with…, show file location, refresh, shuffle, select, copy image /
+  file / path, cut, paste, copy to…, move to…, print, new folder, rename, delete, compress (several files), quick convert.
+  **Batch** for several files: rename by pattern, convert (format, quality, size, folder), change time stamps (set, shift or
+  from the EXIF date), remove metadata (lossless for JPEG / PNG / WebP). Wheel = previous / next file, Ctrl+wheel = thumbnail
+  size, `1`-`5` size levels, `` ` `` resets, Space = view, Enter = next file. `tools\bench\gallery-thumbs.ps1` times how fast
+  the thumbnails of a folder appear (cold and warm cache).
 - **CMYK done properly.** Decoders (JPEG incl. YCCK, PSD / PSB, TIFF, JPEG 2000) hand over the raw inks; one colour engine
   converts them through the embedded profile, or through the profile chosen in Settings > CMYK & RAW (Coated FOGRA39, built
   in, by default; SWOP; any `.icc`) and the viewer says when it assumed one. Adobe's inverted CMYK / YCCK is handled; PSD /

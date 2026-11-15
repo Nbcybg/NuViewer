@@ -125,12 +125,7 @@ try {
     Check 'viewer opened the image' ($null -ne $win) $viewer.MainWindowTitle
     if ($win) {
         Start-Sleep -Milliseconds 500
-        # Gallery: a middle click must NOT close it (G enters the gallery).
-        [void][Win]::PostMessage($win, 0x0100, [IntPtr]0x47, [IntPtr]::Zero); Start-Sleep -Milliseconds 400
-        [void][Win]::PostMessage($win, 0x0208, [IntPtr]::Zero, [IntPtr](100 + (100 -shl 16))); Start-Sleep -Milliseconds 600
-        Check 'middle click in the gallery does not close' (-not $viewer.HasExited)
-        [void][Win]::PostMessage($win, 0x0100, [IntPtr]0x1B, [IntPtr]::Zero); Start-Sleep -Milliseconds 400   # Esc: back to the viewer
-        Check 'Esc went back to the viewer (still running)' (-not $viewer.HasExited)
+        Skip 'middle click in the gallery' 'the gallery is NuGallery now (its own program): see e2e-gallery.ps1'
         # Viewer: a real middle mouse click on the picture area closes it.
         $r = New-Object Win+RECT; [void][Win]::GetWindowRect($win, [ref]$r)
         [void][Win]::SetWindowPos($win, [IntPtr]-1, 0, 0, 0, 0, 3)   # HWND_TOPMOST, so nothing else covers the click point

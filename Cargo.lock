@@ -1140,6 +1140,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nugallery"
+version = "0.1.0"
+dependencies = [
+ "nv-codecs",
+ "nv-core",
+ "nv-editor",
+ "nv-render",
+ "nv-win",
+]
+
+[[package]]
 name = "num"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1285,6 +1296,7 @@ dependencies = [
 name = "nv-core"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "nv-codecs",
 ]
 
@@ -1292,6 +1304,7 @@ dependencies = [
 name = "nv-editor"
 version = "0.1.0"
 dependencies = [
+ "image-webp",
  "jpeg-encoder",
  "png",
 ]
