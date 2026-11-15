@@ -1278,6 +1278,8 @@ struct Boot {
     dpi: f32,
     /// A second launch asked us to open something while we were still starting; applied once the App exists.
     pending_open: Option<(Option<String>, bool)>,
+    /// Keys pressed while the window was still starting (Alt+Enter, Enter, arrows ...): replayed once the viewer exists.
+    pending_keys: Vec<(u32, nv_win::Mods)>,
 }
 
 enum Step {
@@ -1321,6 +1323,11 @@ impl Boot {
             }
             Event::Paint => self.paint(),
             Event::Key(VK_ESCAPE) | Event::MiddleClick => quit(),
+            Event::Key(vk) => {
+                if self.pending_keys.len() < 16 {
+                    self.pending_keys.push((vk, nv_win::modifiers()));
+                }
+            }
             Event::Open { path, gallery, from_gallery } => {
                 if from_gallery {
                     FROM_GALLERY.store(true, Ordering::Relaxed);
@@ -1381,6 +1388,9 @@ impl Boot {
                             );
                             if let Some((path, gallery)) = self.pending_open.take() {
                                 app.open_request(path, gallery);
+                            }
+                            for (vk, mods) in std::mem::take(&mut self.pending_keys) {
+                                nv_win::call_with_mods(mods, || app.handle(Event::Key(vk)));
                             }
                             return Step::Go(Box::new(app));
                         }
@@ -1493,7 +1503,8 @@ fn main() {
     colour::apply_at_startup(&startup_settings);
     nv_codecs::set_model_textures(startup_settings.model_textures);
     nv_core::folder::set_include_documents(startup_settings.documents);
-    let start_fullscreen = !flag("--windowed") && startup_settings.start_fullscreen;
+    // Window or fullscreen: as the last window was (shared with NuGallery), else the setting.
+    let start_fullscreen = !flag("--windowed") && nv_win::winstate::load().map(|s| s.fullscreen).unwrap_or(startup_settings.start_fullscreen);
     let actual_size = flag("--actual-size");
 
     // One window: if NuViewer is already running, hand it this request and exit (--new-window opts out).
@@ -1578,6 +1589,7 @@ fn main() {
             actual_size,
             dpi: nv_win::dpi_scale(hwnd),
             pending_open: None,
+            pending_keys: Vec::new(),
         });
         Ok(Box::new(move |ev: Event| {
             shell = match std::mem::replace(&mut shell, Shell::Done) {

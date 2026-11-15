@@ -841,6 +841,12 @@ impl App {
             Event::RightClick { x, y } => self.on_right_click(x, y),
             Event::MiddleClick => self.on_middle_click(),
             Event::Open { path, .. } => {
+                // The viewer (or a second launch) says where we should be: window or fullscreen as it was.
+                if let Some(s) = nv_win::winstate::load() {
+                    if s.fullscreen != nv_win::is_fullscreen() {
+                        crate::draw::toggle_fullscreen(self);
+                    }
+                }
                 nv_win::instance::bring_to_front(self.hwnd);
                 if let Some(p) = path {
                     self.show_path(Path::new(&p));

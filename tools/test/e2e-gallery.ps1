@@ -71,7 +71,9 @@ $n = (Get-ChildItem $root -File).Count
 Check 'Ctrl+C then Ctrl+V adds a copy' ($n -eq 9) ("files=$n " + ((Get-ChildItem $root -File).Name -join ','))
 
 # --- delete (to Recycle Bin)
-Key 0x2E 1500
+Key 0x2E 300
+[void](Wait-Until { (Get-ChildItem $root -File).Count -lt $n } 8000)
+Start-Sleep -Milliseconds 500
 $n2 = (Get-ChildItem $root -File).Count
 Check 'Del removes the selected file' ($n2 -eq ($n - 1)) "files=$n2"
 
@@ -186,13 +188,13 @@ $gp.Kill(); Start-Sleep -Milliseconds 400
 $leaf = Split-Path $root -Leaf
 Set-Content $env:NUGALLERY_STATE "dir = $root`r`nview = thumbs`r`n" -Encoding ASCII
 $vp0 = Start-Process (Join-Path $Dir 'nuviewer.exe') -ArgumentList @('--windowed') -PassThru
-$g0 = Wait-Until { Get-Process nugallery -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -ge (Get-Date).AddSeconds(-8) -and $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like '*NuGallery*' } | Select-Object -First 1 } 10000
+$g0 = Wait-Until { Get-Process nugallery -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -ge (Get-Date).AddSeconds(-8) -and $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like '* items*' } | Select-Object -First 1 } 10000
 Check 'nuviewer.exe alone opens the last folder' ($g0 -and $g0.MainWindowTitle -like "*$leaf*") ($g0.MainWindowTitle)
 if ($g0) { $g0.Kill(); Start-Sleep -Milliseconds 400 }
 $pics = Split-Path ([Environment]::GetFolderPath('MyPictures')) -Leaf
 Set-Content $env:NUGALLERY_STATE "dir = Z:\no\such\folder`r`n" -Encoding ASCII
 $vp0 = Start-Process (Join-Path $Dir 'nuviewer.exe') -ArgumentList @('--windowed') -PassThru
-$g0 = Wait-Until { Get-Process nugallery -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -ge (Get-Date).AddSeconds(-8) -and $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like '*NuGallery*' } | Select-Object -First 1 } 10000
+$g0 = Wait-Until { Get-Process nugallery -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -ge (Get-Date).AddSeconds(-8) -and $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like '* items*' } | Select-Object -First 1 } 10000
 Check 'a missing last folder falls back to Pictures' ($g0 -and $g0.MainWindowTitle -like "*$pics*") ($g0.MainWindowTitle)
 if ($g0) { $g0.Kill(); Start-Sleep -Milliseconds 400 }
 Remove-Item $env:NUGALLERY_STATE -ErrorAction SilentlyContinue

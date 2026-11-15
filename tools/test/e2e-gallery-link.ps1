@@ -56,6 +56,36 @@ Check 'G leaves the viewer' ($gone2 -eq $true)
 Start-Sleep -Milliseconds 900
 Write-Host ("gallery: " + (GT))
 Check 'G shows that picture in the gallery' ((GT) -like '*selected: pic03.png*') (GT)
+# Window or fullscreen follows from one program to the other (and the window stays in the same place).
+$mon = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+function Rect-Of([IntPtr]$h) { $rr = New-Object In+RECT; [void][In]::GetWindowRect($h, [ref]$rr); $rr }
+function Is-Full-Rect($rr) { (($rr.R - $rr.L) -eq $mon.Width) -and (($rr.B - $rr.T) -eq $mon.Height) }
+function Alt-Enter-On([IntPtr]$h) { [void][In]::PostMessage($h, 0x0104, [IntPtr]0x0D, [IntPtr]0x201C0001); Start-Sleep -Milliseconds 1000 }
+$gr = Rect-Of $gw
+Check 'the gallery is a window to begin with' (-not (Is-Full-Rect $gr)) "$($gr.R-$gr.L)x$($gr.B-$gr.T)"
+$script:win = $gw; Click 640 330; Key 0x20 100
+$t3 = Get-Date
+$vp4 = Wait-Until { Get-Process nuviewer -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -ge $t3.AddSeconds(-3) -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1 } 12000
+Start-Sleep -Milliseconds 800
+$vr = Rect-Of $vp4.MainWindowHandle
+Check 'the viewer opens as a window too, where the gallery is' ((-not (Is-Full-Rect $vr)) -and ([math]::Abs($vr.L - $gr.L) -le 2) -and ([math]::Abs($vr.T - $gr.T) -le 2) -and ([math]::Abs(($vr.R - $vr.L) - ($gr.R - $gr.L)) -le 2)) "viewer $($vr.L),$($vr.T) $($vr.R-$vr.L)x$($vr.B-$vr.T); gallery $($gr.L),$($gr.T) $($gr.R-$gr.L)x$($gr.B-$gr.T)"
+Alt-Enter-On $vp4.MainWindowHandle
+Check 'Alt+Enter makes the viewer fullscreen' (Is-Full-Rect (Rect-Of $vp4.MainWindowHandle))
+$script:win = $vp4.MainWindowHandle; Key 0x1B 100
+Wait-Until { $vp4.Refresh(); $vp4.HasExited } 5000 | Out-Null
+Start-Sleep -Milliseconds 1200
+Check 'back in the gallery it is fullscreen as well' (Is-Full-Rect (Rect-Of $gw)) ("gallery " + (Rect-Of $gw).R)
+Alt-Enter-On $gw
+Check 'Alt+Enter in the gallery: window again' (-not (Is-Full-Rect (Rect-Of $gw)))
+$script:win = $gw; Click 640 330; Key 0x20 100
+$t4 = Get-Date
+$vp5 = Wait-Until { Get-Process nuviewer -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -ge $t4.AddSeconds(-3) -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1 } 12000
+Start-Sleep -Milliseconds 800
+Check 'and the next viewer is a window' (-not (Is-Full-Rect (Rect-Of $vp5.MainWindowHandle)))
+$script:win = $vp5.MainWindowHandle; Key 0x1B 100
+Wait-Until { $vp5.Refresh(); $vp5.HasExited } 5000 | Out-Null
+Start-Sleep -Milliseconds 800
+
 # Closing the gallery closes the viewer it opened, and nothing comes back afterwards.
 $t2 = Get-Date
 $script:win = $gw

@@ -126,7 +126,7 @@ fn main() {
     });
 
     let opts = Options { windowed: flag("--windowed"), bench_out, bench_exit: flag("--bench-exit") };
-    let fullscreen = !opts.windowed && settings.start_fullscreen;
+    let fullscreen = !opts.windowed && nv_win::winstate::load().map(|s| s.fullscreen).unwrap_or(settings.start_fullscreen);
     let result = nv_win::run_as(nv_win::instance::Program::Gallery, "NuGallery", 1280, 800, fullscreen, move |hwnd: WindowHandle, w, h| {
         hwnd_slot.store(hwnd.0 as isize, Ordering::Release);
         let mut app = App::new(hwnd, (w, h), nv_win::dpi_scale(hwnd), wake, gpu_rx, tx, rx, thumbs, persist, settings, opts, started);

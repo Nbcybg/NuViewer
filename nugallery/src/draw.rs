@@ -31,6 +31,8 @@ pub fn toggle_fullscreen(app: &mut App) {
     app.relayout();
     app.clamp_scroll();
     app.request_thumbs();
+    // A frame of the new size right away, not at the next paint (see the viewer's toggle).
+    app.draw();
     nv_win::invalidate(app.hwnd);
 }
 

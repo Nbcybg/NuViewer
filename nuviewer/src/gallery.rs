@@ -119,6 +119,7 @@ impl App {
         if !self.settle_rotation() {
             return;
         }
+        nv_win::remember_window(self.hwnd); // the gallery opens as a window / fullscreen like this one, in the same place
         let target = self.folder.files.get(self.folder.index).cloned().or_else(|| (!self.folder.dir.as_os_str().is_empty()).then(|| self.folder.dir.clone()));
         if crate::launch_gallery(target.as_deref(), nv_win::is_fullscreen() == false) {
             // The gallery shows where we were; it must not be told again when this window closes.

@@ -11,6 +11,7 @@ pub mod registry;
 pub mod shell;
 pub mod text;
 pub mod ui;
+pub mod winstate;
 
 use std::ffi::c_void;
 use windows::core::{w, PCWSTR};
@@ -210,6 +211,12 @@ pub fn call_with_mods<R>(mods: Mods, f: impl FnOnce() -> R) -> R {
 /// Toggle borderless fullscreen on the window's current monitor. Returns whether it is fullscreen now.
 /// The caller must resize its swapchain afterwards: the resulting WM_SIZE arrives while the handler is busy.
 pub fn toggle_fullscreen(hwnd: HWND) -> bool {
+    let now = toggle_fullscreen_now(hwnd);
+    remember_window(hwnd); // the other program follows
+    now
+}
+
+fn toggle_fullscreen_now(hwnd: HWND) -> bool {
     use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
     unsafe {
         FULLSCREEN_SAVED.with(|saved| {
@@ -386,7 +393,45 @@ pub fn com_init() -> bool {
 }
 
 pub fn quit() {
+    if let Some(h) = main_window() {
+        remember_window(h);
+    }
     unsafe { PostQuitMessage(0) }
+}
+
+/// Is a rectangle at least partly on some monitor (a window remembered on a screen that is gone must not open off-screen)?
+fn on_a_screen(x: i32, y: i32, w: i32, h: i32) -> bool {
+    use windows::Win32::Graphics::Gdi::{MonitorFromRect, MONITOR_DEFAULTTONULL};
+    let r = windows::Win32::Foundation::RECT { left: x + 40, top: y + 10, right: x + w.max(80) - 40, bottom: y + h.max(60) };
+    unsafe { !MonitorFromRect(&r, MONITOR_DEFAULTTONULL).is_invalid() }
+}
+
+/// Write down whether this program is fullscreen and where its window is (`winstate`), so the other program can follow.
+pub fn remember_window(hwnd: HWND) {
+    unsafe {
+        if !IsWindow(Some(hwnd)).as_bool() {
+            return;
+        }
+        let fullscreen = is_fullscreen();
+        let saved = FULLSCREEN_SAVED.with(|s| s.borrow().as_ref().map(|(_, r, _)| *r));
+        let mut rect = windows::Win32::Foundation::RECT::default();
+        let have = if let Some(r) = saved {
+            rect = r;
+            true
+        } else if IsIconic(hwnd).as_bool() {
+            false
+        } else if IsZoomed(hwnd).as_bool() {
+            let mut placement = WINDOWPLACEMENT { length: std::mem::size_of::<WINDOWPLACEMENT>() as u32, ..Default::default() };
+            let ok = GetWindowPlacement(hwnd, &mut placement).is_ok();
+            rect = placement.rcNormalPosition;
+            ok
+        } else {
+            GetWindowRect(hwnd, &mut rect).is_ok()
+        };
+        let prior = winstate::load();
+        let rect = if have { Some((rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top)) } else { prior.and_then(|p| p.rect) };
+        winstate::save(&winstate::WinState { fullscreen, rect });
+    }
 }
 
 static MAIN_WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
@@ -461,6 +506,11 @@ where
         let have_work = SystemParametersInfoW(SPI_GETWORKAREA, 0, Some(&mut work as *mut _ as *mut c_void), SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0)).is_ok();
         let (width, height) = if have_work { (width.min(work.right - work.left), height.min(work.bottom - work.top)) } else { (width, height) };
         let (x, y) = if have_work { (work.left + (work.right - work.left - width) / 2, work.top + (work.bottom - work.top - height) / 2) } else { (CW_USEDEFAULT, CW_USEDEFAULT) };
+        // Where the window was last time (shared with the other program), if that is still on a screen.
+        let (x, y, width, height) = match winstate::load().and_then(|s| s.rect) {
+            Some((rx, ry, rw, rh)) if on_a_screen(rx, ry, rw, rh) => (rx, ry, rw, rh),
+            _ => (x, y, width, height),
+        };
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE(0),
             class,
@@ -495,6 +545,7 @@ where
         let state = Box::into_raw(Box::new(State { handler, busy: false, dead: false }));
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, state as isize);
         invalidate(hwnd);
+        remember_window(hwnd);
         // Background work that finished while `init` ran posted its wake-up before we could receive it.
         let _ = PostMessageW(Some(hwnd), WM_APP, WPARAM(0), LPARAM(0));
 
@@ -627,6 +678,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_SYSCHAR if wp.0 as u32 == 0x0D => LRESULT(0), // swallow the character so Windows doesn't beep
+        // Letting go of Alt (after Alt+Enter, say) would put the window in "menu mode" and swallow the next key press (the
+        // Enter that follows to open the gallery): there is no menu bar here, so nothing is lost by ignoring it. Alt+Space
+        // (the system menu) is a WM_SYSKEYDOWN and is not affected.
+        WM_SYSKEYUP if wp.0 as u32 == 0x12 => LRESULT(0),
         // Alt+Left / Right / Up are "back", "forward", "up" in the gallery; nothing in Windows needs them.
         WM_SYSKEYDOWN if matches!(wp.0 as u32, 0x25..=0x27) => {
             let mut m = modifiers();
@@ -682,6 +737,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             CLOSE_VETO.store(false, std::sync::atomic::Ordering::Relaxed);
             dispatch(Event::Close);
             if !CLOSE_VETO.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                remember_window(hwnd);
                 let _ = DestroyWindow(hwnd);
             }
             LRESULT(0)

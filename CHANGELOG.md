@@ -3,6 +3,7 @@
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
 ### Added
+- **Window state follows between the viewer and the gallery** (`window.ini` next to `settings.ini`): a window in one means a window in the other, in the same place; fullscreen likewise. Keys pressed while the viewer is still starting (Alt+Enter, Enter, arrows) are kept and replayed instead of lost. Letting go of Alt no longer enters menu mode and swallows the next key. Switching between a window and fullscreen no longer shows the old frame stretched for a moment (`DXGI_SCALING_NONE`, and a frame of the new size is drawn at once).
 - **NuGallery follow-ups:** folder tiles show the first picture inside as a cover; a scroll bar; type a letter to jump to the
   first name starting with it (the old letter shortcuts moved to Ctrl+R shuffle, Ctrl+J sort, Ctrl+1/2/3 view, F8 slideshow);
   drag files out to Explorer / other programs and drop files in (WM_DROPFILES; the viewer opens a dropped picture); panels

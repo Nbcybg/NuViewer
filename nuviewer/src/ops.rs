@@ -130,6 +130,9 @@ impl App {
             self.gallery.scroll = lay.clamp_scroll(self.gallery.scroll);
             self.request_thumbs();
         }
+        // Draw the new size at once: until a frame of the new size is presented Windows stretches the old one over the
+        // changed window, which looks like the picture jumping to another ratio.
+        self.draw();
         invalidate(self.hwnd);
     }
 

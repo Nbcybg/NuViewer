@@ -184,6 +184,9 @@ impl Renderer {
                 BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
                 BufferCount: 2,
                 SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
+                // While the window changes size (a fullscreen toggle, a drag of the edge) and the buffers have not caught up
+                // yet, show the last frame as it is instead of stretching it over the new size (a squashed picture).
+                Scaling: DXGI_SCALING_NONE,
                 ..Default::default()
             };
             let swapchain = factory
