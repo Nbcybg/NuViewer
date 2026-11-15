@@ -27,8 +27,7 @@ try {
     if (-not (Test-Path $galleryExe)) { throw "missing $galleryExe" }
     $editorExe = Join-Path $target 'release\nueditor.exe'
     if (-not (Test-Path $editorExe)) { throw "missing $editorExe" }
-    $importerExe = Join-Path $target 'release
-uimporter.exe'
+    $importerExe = Join-Path $target 'release\nuimporter.exe'
     if (-not (Test-Path $importerExe)) { throw "missing $importerExe" }
 
     # The installer carries nuviewer.exe inside itself (setup\build.rs reads $env:NUVIEWER_EXE), so it is built second.
