@@ -3,6 +3,9 @@ name = "nv-win"
 version.workspace = true
 edition.workspace = true
 
+[dependencies]
+windows-core = "0.62"
+
 [dependencies.windows]
 workspace = true
 features = [
@@ -16,6 +19,8 @@ features = [
   "Win32_System_Performance",
   "Win32_Security",
   "Win32_Storage_FileSystem",
+  "Win32_System_Ole",
+  "Win32_System_SystemServices",
   "Win32_System_Registry",
   "Win32_System_Threading",
   "Win32_System_Time",

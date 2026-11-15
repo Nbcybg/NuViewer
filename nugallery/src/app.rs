@@ -28,8 +28,8 @@ pub const TIMER_TASKBAR: u32 = 4;
 pub const TIMER_CURSOR: u32 = 5;
 
 /// Pointer must rest on an edge this long before the panel there slides out, and be away this long before it goes.
-const EDGE_DWELL: Duration = Duration::from_millis(140);
-const EDGE_LEAVE: Duration = Duration::from_millis(450);
+const EDGE_DWELL: Duration = Duration::from_millis(0);
+const EDGE_LEAVE: Duration = Duration::from_millis(350);
 /// The right panel loads its details this long after the focus last moved (so arrowing through a folder stays fast).
 const INFO_DEBOUNCE_MS: u32 = 130;
 const TOAST_MS: u32 = 3500;
@@ -186,6 +186,15 @@ pub struct App {
     pub cursor_hint: Option<usize>,
     /// The CPU-painted first frames (see `cpu.rs`); gone once the GPU is drawing.
     pub cpu: Option<crate::cpu::Canvas>,
+    /// NuViewer was started from here: closing the gallery closes it too.
+    pub viewer_started: bool,
+    /// Type-ahead: the letters typed so far and when the last one came.
+    pub typeahead: String,
+    pub typeahead_at: Option<Instant>,
+    /// Dragging the scroll bar: where inside the thumb it was grabbed.
+    pub sb_drag: Option<f32>,
+    /// The left button went down on a selected item here: moving on from it starts dragging the files out.
+    pub drag_from: Option<(i32, i32)>,
 }
 
 pub fn worker_threads() -> usize {
@@ -271,6 +280,11 @@ impl App {
             pending_select: Vec::new(),
             cursor_hint: None,
             cpu: None,
+            viewer_started: false,
+            typeahead: String::new(),
+            typeahead_at: None,
+            sb_drag: None,
+            drag_from: None,
         };
         app.timing.window_ms = Some(started.elapsed().as_secs_f64() * 1000.0);
         app.sync_cell();
@@ -626,7 +640,7 @@ impl App {
         let order = vis.clone().chain(near.filter(|i| !vis.contains(i)));
         let todo: Vec<PathBuf> = order
             .filter_map(|i| self.listing.get(i))
-            .filter(|e| e.has_thumb() && !self.has_thumb(e.id) && !self.thumb_failed.contains(&e.id))
+            .filter(|e| e.wants_thumb() && !self.has_thumb(e.id) && !self.thumb_failed.contains(&e.id))
             .map(|e| e.path.clone())
             .collect();
         self.thumbs.request(todo);
@@ -831,8 +845,13 @@ impl App {
                     self.show_path(Path::new(&p));
                 }
             }
+            Event::Drop { paths, x, y } => self.on_drop(paths, x, y),
             Event::Close => {
                 self.save_state();
+                // Closing the gallery closes the program: a viewer it opened goes with it.
+                if self.viewer_started {
+                    nv_win::instance::close_window(nv_win::instance::Program::Viewer);
+                }
                 if self.job.is_some() {
                     if let Some(j) = &self.job {
                         j.cancel.store(true, Ordering::Relaxed);
@@ -1036,6 +1055,10 @@ impl App {
                 self.edge = None;
             }
             _ => {}
+        }
+        // The panel comes out the moment the pointer touches its edge (no waiting for the timer).
+        if self.edge.is_some() {
+            self.edge_tick();
         }
         if self.panels.top_open || self.panels.left_open || self.panels.right_open {
             set_timer(self.hwnd, TIMER_EDGE, 40);
@@ -1241,7 +1264,40 @@ impl App {
         self.panels_changed();
     }
 
+    /// Typing letters with nothing in a text box jumps to the first item whose name starts with them (like Explorer);
+    /// the same letter again goes on to the next one.
+    fn type_ahead(&mut self, c: char) {
+        let now = Instant::now();
+        if self.typeahead_at.map(|t| now.duration_since(t) > Duration::from_millis(1000)).unwrap_or(true) {
+            self.typeahead.clear();
+        }
+        self.typeahead_at = Some(now);
+        self.typeahead.extend(c.to_lowercase());
+        let n = self.listing.len();
+        if n == 0 {
+            return;
+        }
+        let first = self.typeahead.chars().next().unwrap_or(' ');
+        let repeated = self.typeahead.chars().all(|x| x == first);
+        let key: String = if repeated { first.to_string() } else { self.typeahead.clone() };
+        let cur = self.sel.cursor.unwrap_or(0);
+        let start = if repeated { (cur + 1) % n } else { cur };
+        for k in 0..n {
+            let i = (start + k) % n;
+            if self.listing.get(i).map(|e| e.name.to_lowercase().starts_with(&key)).unwrap_or(false) {
+                self.select_only(i);
+                return;
+            }
+        }
+    }
+
     fn on_char(&mut self, c: char) {
+        if self.active.is_none() {
+            if c.is_alphanumeric() && !('1'..='5').contains(&c) {
+                self.type_ahead(c);
+            }
+            return;
+        }
         let Some(a) = self.active.as_mut() else { return };
         a.ti.insert(c);
         a.error = None;
@@ -1412,13 +1468,12 @@ impl App {
             0xFFF5 => self.compress_selected(),
             0xFFF6 => self.quick_convert(crate::menus::Preset::Png),
             0xFFF7 => self.quick_edit(crate::menus::QuickOp::RotateRight),
-            0x52 if !ctrl && !alt => self.toggle_shuffle(),
-            0x4A if !ctrl && !alt => self.set_sort(self.listing.order.key.next()),
-            0x56 if !ctrl && !alt => {
-                let next = ViewMode::ALL[(ViewMode::ALL.iter().position(|v| *v == self.mode).unwrap_or(0) + 1) % 3];
-                self.set_mode(next);
-            }
-            0x53 if !ctrl && !alt => self.open_selected(true), // S: slideshow
+            0x52 if ctrl => self.toggle_shuffle(),
+            0x4A if ctrl => self.set_sort(self.listing.order.key.next()),
+            0x31 if ctrl => self.set_mode(ViewMode::Thumbs),
+            0x32 if ctrl => self.set_mode(ViewMode::Details),
+            0x33 if ctrl => self.set_mode(ViewMode::List),
+            0x77 => self.open_selected(true), // F8: slideshow
             _ => {}
         }
     }
@@ -1445,6 +1500,9 @@ impl App {
 
     pub fn exit(&mut self) {
         self.save_state();
+        if self.viewer_started {
+            nv_win::instance::close_window(nv_win::instance::Program::Viewer);
+        }
         nv_win::quit();
     }
 
@@ -1496,7 +1554,7 @@ impl App {
         }
     }
 
-    fn item_at(&self, x: i32, y: i32) -> Option<usize> {
+    pub fn item_at(&self, x: i32, y: i32) -> Option<usize> {
         if self.chrome.over_panel(x as f32, y as f32) {
             return None;
         }
@@ -1523,7 +1581,39 @@ impl App {
         }
     }
 
+    /// The scroll bar of the items: (track, thumb), None when everything fits.
+    pub fn scrollbar(&self) -> Option<([f32; 4], [f32; 4])> {
+        let g = self.grid();
+        let max = g.max_scroll();
+        if max <= 0.0 {
+            return None;
+        }
+        let d = self.dpi;
+        let track = [g.area[2] - 16.0 * d, g.area[1], g.area[2] - 5.0 * d, g.area[3]];
+        let th = track[3] - track[1];
+        let view = g.area[3] - g.area[1];
+        let thumb_h = (th * view / g.content_height()).clamp(36.0 * d, th);
+        let y = track[1] + (g.clamp(self.scroll) / max) * (th - thumb_h);
+        Some((track, [track[0], y, track[2], y + thumb_h]))
+    }
+
+    /// Put the top of the scroll thumb at window y.
+    fn scroll_thumb_to(&mut self, thumb_top: f32) {
+        let Some((track, thumb)) = self.scrollbar() else { return };
+        let g = self.grid();
+        let range = (track[3] - track[1]) - (thumb[3] - thumb[1]);
+        if range <= 0.0 {
+            return;
+        }
+        let frac = ((thumb_top - track[1]) / range).clamp(0.0, 1.0);
+        self.scroll = frac * g.max_scroll();
+        self.request_thumbs();
+        invalidate(self.hwnd);
+    }
+
     fn on_mouse_up(&mut self) {
+        self.sb_drag = None;
+        self.drag_from = None;
         if self.rubber.take().is_some() {
             self.update_title();
             invalidate(self.hwnd);
@@ -1531,6 +1621,18 @@ impl App {
     }
 
     fn drag_move(&mut self, x: i32, y: i32) {
+        if let Some(grab) = self.sb_drag {
+            self.scroll_thumb_to(y as f32 - grab);
+            return;
+        }
+        if let Some((sx, sy)) = self.drag_from {
+            let (dx, dy) = ((x - sx) as f32, (y - sy) as f32);
+            if (dx * dx + dy * dy).sqrt() > 8.0 * self.dpi {
+                self.drag_from = None;
+                self.start_drag();
+            }
+            return;
+        }
         let Some(r) = self.rubber.as_mut() else { return };
         r.now = (x as f32, y as f32);
         let (start_x, start_y, scroll0) = (r.start.0, r.start.1, r.scroll0);
@@ -1604,6 +1706,20 @@ impl App {
             self.right_click_panel(fx, fy);
             return;
         }
+        // The scroll bar.
+        if let Some((track, thumb)) = self.scrollbar() {
+            let d = self.dpi;
+            if contains_f([track[0] - 5.0 * d, track[1], track[2] + 3.0 * d, track[3]], fx, fy) {
+                if contains_f(thumb, fx, fy) {
+                    self.sb_drag = Some(fy - thumb[1]);
+                } else {
+                    let half = (thumb[3] - thumb[1]) / 2.0;
+                    self.sb_drag = Some(half);
+                    self.scroll_thumb_to(fy - half);
+                }
+                return;
+            }
+        }
         // The details header sorts.
         if self.mode == ViewMode::Details && fy >= self.chrome.area[1] && fy < self.chrome.area[1] + self.header_h() {
             if let Some(k) = crate::draw::header_hit(self, fx) {
@@ -1632,6 +1748,7 @@ impl App {
                     self.sel.toggle(&self.listing, i);
                     self.show_cursor();
                 } else {
+                    self.drag_from = Some((x, y));
                     if !self.sel.is_selected(self.listing.get(i).map(|e| e.id).unwrap_or(0)) || self.sel.count(&self.listing) <= 1 {
                         self.sel.only(&self.listing, i);
                     } else {
@@ -1732,6 +1849,10 @@ impl App {
         }
         self.context_menu(x, y);
     }
+}
+
+fn contains_f(r: [f32; 4], x: f32, y: f32) -> bool {
+    x >= r[0] && x < r[2] && y >= r[1] && y < r[3]
 }
 
 pub fn same_dir(a: &Path, b: &Path) -> bool {

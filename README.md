@@ -76,8 +76,8 @@ opens; it remembers the last folder, view and pinned panels. It starts fullscree
 - **Mouse:** wheel = previous / next file (Shift+wheel scrolls), Ctrl+wheel = thumbnail size (columns), click selects (Ctrl
   adds, Shift ranges, dragging on empty space draws a selection box), double click or middle click views the file (a folder is
   entered), right click = menu. Alt+F4 exits.
-- **Keys:** Space = view in NuViewer, Enter = next file, `1`-`5` = thumbnail size, `` ` `` = reset the size, `V` = view
-  (thumbnails / details / list), `J` sort, `R` shuffle, `S` slideshow, F2 rename, Del Recycle Bin, Shift+Del delete for good,
+- **Keys:** Space = view in NuViewer, Enter = next file, `1`-`5` = thumbnail size, `` ` `` = reset the size, **a letter jumps to the first name that starts with it**,
+  Ctrl+1 / 2 / 3 = thumbnails / details / list, Ctrl+J sort, Ctrl+R shuffle, F8 slideshow, F2 rename, Del Recycle Bin, Shift+Del delete for good,
   Ctrl+N new folder, Ctrl+C / X / V, Ctrl+Shift+C copy path, F6 / F7 move / copy to, F5 refresh, Ctrl+F search, Ctrl+L address
   bar, Backspace or Alt+Up = up, Alt+Left / Right = back / forward, F1 = the whole list.
 - **Menu:** open, slideshow, quick edit (rotate, flip), edit with…, show file location, refresh, shuffle, select (item, all,
@@ -86,6 +86,13 @@ opens; it remembers the last folder, view and pinned panels. It starts fullscree
   under Tools) opens: rename (pattern with `{name}`, `{n:3}`, `{date}`, `{taken}`…, find / replace, case), convert, change
   time stamp, remove metadata. Properties are written through Windows' property system, so JPEG and TIFF keep them in the
   file itself.
+- **Folders show a cover**: the first picture inside is on the folder's tile. The items have a **scroll bar** (drag it, or click
+  the track). **Drag and drop:** files can be dragged out of the gallery to Explorer or any program that takes files, and files
+  dropped on the gallery (from Explorer, or another program) are copied or moved into the folder under the pointer or the
+  current folder (moved within a drive, copied between drives; Ctrl forces a copy, Shift a move). Dropping a picture on the
+  viewer opens it.
+- **Closing:** closing the gallery closes the viewer it opened; closing a viewer that was opened from the gallery returns to the
+  gallery; with no gallery running, closing the viewer ends the program.
 - The viewer follows the gallery's order (sort is shared; shuffle is passed along), and closing it returns to the gallery with
   the last picture seen selected.
 

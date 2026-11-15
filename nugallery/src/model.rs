@@ -42,6 +42,11 @@ impl Entry {
         matches!(self.kind, Kind::Raw | Kind::Picture | Kind::Document | Kind::Model)
     }
 
+    /// Gets a thumbnail request: pictures and documents their own, a folder the first picture in it (its "cover").
+    pub fn wants_thumb(&self) -> bool {
+        self.has_thumb() || self.is_dir()
+    }
+
     /// Can the viewer show it?
     pub fn viewable(&self) -> bool {
         self.has_thumb() && !(self.kind == Kind::Document && !nv_codecs::is_supported_ext(&self.ext))
@@ -67,6 +72,39 @@ pub fn kind_of_ext(ext: &str) -> Kind {
         Kind::Picture
     } else {
         Kind::Other
+    }
+}
+
+/// The thumbnail work: a picture's own thumbnail, or for a folder the thumbnail of the first picture in it (by name,
+/// ordinary pictures before RAW files). `Err` for a folder without pictures.
+pub fn thumb_work(path: &Path) -> Result<nv_codecs::Image, String> {
+    if !path.is_dir() {
+        return nv_core::thumbs::make_thumb(path);
+    }
+    let rd = std::fs::read_dir(path).map_err(|e| e.to_string())?;
+    let mut best: Option<(bool, String, PathBuf)> = None;
+    for e in rd.flatten().take(4000) {
+        let Ok(t) = e.file_type() else { continue };
+        if !t.is_file() {
+            continue;
+        }
+        let name = e.file_name().to_string_lossy().into_owned();
+        let ext = Path::new(&name).extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
+        if !nv_codecs::is_supported_ext(&ext) || matches!(kind_of_ext(&ext), Kind::Model | Kind::Document) {
+            continue;
+        }
+        let raw = nv_codecs::is_raw_ext(&ext);
+        let better = match &best {
+            None => true,
+            Some((braw, bname, _)) => (raw, nv_core::folder::natural_cmp(&name, bname)) < (*braw, std::cmp::Ordering::Equal),
+        };
+        if better {
+            best = Some((raw, name, e.path()));
+        }
+    }
+    match best {
+        Some((_, _, p)) => nv_core::thumbs::make_thumb(&p),
+        None => Err("no picture in this folder".into()),
     }
 }
 
@@ -478,6 +516,31 @@ mod tests {
         assert_eq!(got, [("a.jpg".into(), Kind::Picture, 5), ("b.raf".into(), Kind::Raw, 1), ("c.xyz".into(), Kind::Other, 1), ("sub".into(), Kind::Folder, 0)]);
         assert!(es.iter().all(|e| e.modified > 1_600_000_000));
         assert!(scan(&d.join("nope"), false).is_err());
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_folder_gets_the_first_picture_in_it_as_its_cover() {
+        let d = std::env::temp_dir().join(format!("nv_gal_cover_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(d.join("empty")).unwrap();
+        fs::create_dir_all(d.join("pics")).unwrap();
+        fs::write(d.join("pics").join("notes.txt"), "x").unwrap();
+        assert!(thumb_work(&d.join("empty")).is_err());
+        assert!(thumb_work(&d.join("pics")).is_err(), "text is not a cover");
+        // Two PNGs: b is red, a is blue; the cover is the first by name (a).
+        let make = |name: &str, c: [u8; 3]| {
+            let mut rgba = Vec::new();
+            for _ in 0..64 {
+                rgba.extend([c[0], c[1], c[2], 255]);
+            }
+            let px = nv_editor::Pixels::new(8, 8, rgba);
+            fs::write(d.join("pics").join(name), nv_editor::save::encode(&px, nv_editor::save::Format::Png, None).unwrap()).unwrap();
+        };
+        make("b.png", [255, 0, 0]);
+        make("a.png", [0, 0, 255]);
+        let t = thumb_work(&d.join("pics")).unwrap();
+        assert!(t.rgba[2] > 200 && t.rgba[0] < 60, "the cover is a.png (blue): {:?}", &t.rgba[..4]);
         let _ = fs::remove_dir_all(&d);
     }
 

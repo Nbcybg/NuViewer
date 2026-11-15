@@ -117,7 +117,7 @@ fn main() {
         });
     }
     // 3. The thumbnail workers (idle until the first request).
-    let thumbs = Loader::thumbs(app::worker_threads(), wake.clone());
+    let thumbs = Loader::new(app::worker_threads(), false, wake.clone(), Arc::new(model::thumb_work));
     // Housekeeping long after start-up, so it never competes with the first thumbnails.
     std::thread::spawn(|| {
         std::thread::sleep(Duration::from_secs(8));

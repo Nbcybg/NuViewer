@@ -330,3 +330,108 @@ pub fn known_folder(which: &str) -> Option<PathBuf> {
         s.map(PathBuf::from)
     }
 }
+
+// ---- dragging files out to Explorer and other programs ------------------------------------------------------------
+
+mod dnd {
+    use windows::core::{implement, HRESULT, BOOL};
+    use windows::Win32::Foundation::{DRAGDROP_S_CANCEL, DRAGDROP_S_DROP, DRAGDROP_S_USEDEFAULTCURSORS, S_OK};
+    use windows::Win32::System::Ole::{IDropSource, IDropSource_Impl, DROPEFFECT};
+    use windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS;
+
+    /// The drag source: the drag ends with a drop when the left button is let go, and with a cancel on Esc.
+    #[implement(IDropSource)]
+    pub struct Source;
+
+    impl IDropSource_Impl for Source_Impl {
+        fn QueryContinueDrag(&self, escape: BOOL, keys: MODIFIERKEYS_FLAGS) -> HRESULT {
+            if escape.as_bool() {
+                DRAGDROP_S_CANCEL
+            } else if keys.0 & 0x0001 == 0 {
+                DRAGDROP_S_DROP
+            } else {
+                S_OK
+            }
+        }
+
+        fn GiveFeedback(&self, _effect: DROPEFFECT) -> HRESULT {
+            DRAGDROP_S_USEDEFAULTCURSORS
+        }
+    }
+}
+
+/// What a drag ended as.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DragEnd {
+    /// Dropped and copied.
+    Copied,
+    /// Dropped and moved (the files are gone from here).
+    Moved,
+    /// Dropped as a shortcut or something else.
+    Other,
+    /// Cancelled, or dropped where nothing takes files.
+    None,
+}
+
+/// Start dragging `paths` (all in one folder) out of the window: Explorer, other file managers, chat and mail programs
+/// accept them like files dragged from Explorer. Blocks until the button is released; call it from a mouse-move handler
+/// while the left button is down.
+pub fn drag_files(paths: &[PathBuf]) -> Result<DragEnd, String> {
+    use windows::core::Interface;
+    use windows::Win32::System::Com::{CoTaskMemFree, IDataObject};
+    use windows::Win32::System::Ole::{DoDragDrop, OleInitialize, DROPEFFECT, DROPEFFECT_COPY, DROPEFFECT_LINK, DROPEFFECT_MOVE};
+    use windows::Win32::UI::Shell::Common::ITEMIDLIST;
+    use windows::Win32::UI::Shell::{ILFindLastID, SHCreateDataObject, SHParseDisplayName};
+    let first = paths.first().ok_or("nothing to drag")?;
+    let parent = first.parent().ok_or("no folder")?;
+    unsafe {
+        let _ = OleInitialize(None);
+        let parse = |p: &Path| -> Result<*mut ITEMIDLIST, String> {
+            let mut w: Vec<u16> = p.as_os_str().encode_wide().collect();
+            w.push(0);
+            let mut pidl: *mut ITEMIDLIST = std::ptr::null_mut();
+            SHParseDisplayName(PCWSTR(w.as_ptr()), None, &mut pidl, 0, None).map_err(|e| format!("{}: {e}", p.display()))?;
+            Ok(pidl)
+        };
+        let parent_pidl = parse(parent)?;
+        let mut abs: Vec<*mut ITEMIDLIST> = Vec::new();
+        for p in paths {
+            match parse(p) {
+                Ok(x) => abs.push(x),
+                Err(e) => {
+                    for a in abs {
+                        CoTaskMemFree(Some(a as *const c_void));
+                    }
+                    CoTaskMemFree(Some(parent_pidl as *const c_void));
+                    return Err(e);
+                }
+            }
+        }
+        let children: Vec<*const ITEMIDLIST> = abs.iter().map(|&a| ILFindLastID(a) as *const ITEMIDLIST).collect();
+        let data: Result<IDataObject, _> = SHCreateDataObject(Some(parent_pidl as *const ITEMIDLIST), Some(&children), None::<&IDataObject>);
+        let result = match data {
+            Ok(data) => {
+                let src: windows::Win32::System::Ole::IDropSource = dnd::Source.into();
+                let mut effect = DROPEFFECT(0);
+                let hr = DoDragDrop(&data, &src, DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK, &mut effect);
+                let _ = data.cast::<windows::core::IUnknown>();
+                if hr.0 == 0x0004_0100 {
+                    Ok(match effect {
+                        e if e == DROPEFFECT_MOVE => DragEnd::Moved,
+                        e if e == DROPEFFECT_COPY => DragEnd::Copied,
+                        e if e.0 == 0 => DragEnd::None,
+                        _ => DragEnd::Other,
+                    })
+                } else {
+                    Ok(DragEnd::None)
+                }
+            }
+            Err(e) => Err(format!("drag: {e}")),
+        };
+        for a in abs {
+            CoTaskMemFree(Some(a as *const c_void));
+        }
+        CoTaskMemFree(Some(parent_pidl as *const c_void));
+        result
+    }
+}

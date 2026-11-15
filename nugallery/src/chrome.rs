@@ -9,7 +9,7 @@ pub const RIGHT_W: f32 = 360.0;
 pub const BTN: f32 = 34.0;
 pub const PAD: f32 = 8.0;
 /// Pointer within this many (logical) pixels of the window edge brings the panel there.
-pub const EDGE_ZONE: f32 = 3.0;
+pub const EDGE_ZONE: f32 = 5.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Btn {

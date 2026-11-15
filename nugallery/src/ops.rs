@@ -156,7 +156,10 @@ impl App {
             cmd.arg("--shuffle").arg(seed.to_string());
         }
         match cmd.spawn() {
-            Ok(child) => nv_win::instance::allow_foreground(child.id()),
+            Ok(child) => {
+                self.viewer_started = true;
+                nv_win::instance::allow_foreground(child.id());
+            }
             Err(e) => self.toast(format!("Couldn't start NuViewer: {e}")),
         }
     }
@@ -395,6 +398,64 @@ impl App {
                 self.toast(format!("Can't print {}: {e}", p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()));
                 break;
             }
+        }
+    }
+
+    /// The pointer left an item with the button down: drag the selected files out to Explorer or another program.
+    pub fn start_drag(&mut self) {
+        let paths = self.picked_paths();
+        if paths.is_empty() || paths.iter().any(|p| p.parent().map(|d| !same_dir(d, &self.listing.dir)).unwrap_or(true)) {
+            return;
+        }
+        nv_win::release_capture();
+        let n = paths.len();
+        match files::drag_files(&paths) {
+            Ok(files::DragEnd::Moved) => {
+                self.toast(format!("Moved {n} item{}", if n == 1 { "" } else { "s" }));
+                self.refresh(Vec::new());
+            }
+            Ok(files::DragEnd::Copied) => self.toast(format!("Copied {n} item{}", if n == 1 { "" } else { "s" })),
+            Ok(_) => {}
+            Err(e) => self.toast(format!("Couldn't start the drag: {e}")),
+        }
+        self.rubber = None;
+        self.drag_from = None;
+        nv_win::invalidate(self.hwnd);
+    }
+
+    /// Files dropped on the window from Explorer or another program: into the folder under the pointer, or into this
+    /// folder. Like Explorer: moved within a drive, copied between drives; Ctrl forces a copy, Shift a move.
+    pub fn on_drop(&mut self, dropped: Vec<String>, x: i32, y: i32) {
+        let target = match self.item_at(x, y).and_then(|i| self.listing.get(i)) {
+            Some(e) if e.is_dir() => e.path.clone(),
+            _ => self.listing.dir.clone(),
+        };
+        let paths: Vec<PathBuf> = dropped
+            .into_iter()
+            .map(PathBuf::from)
+            .filter(|p| !p.parent().map(|d| same_dir(d, &target)).unwrap_or(false) && !crate::tree::is_within(&target, p))
+            .collect();
+        if paths.is_empty() {
+            self.toast("Those files are already in that folder");
+            return;
+        }
+        let drive = |p: &Path| p.to_string_lossy().chars().next().map(|c| c.to_ascii_lowercase());
+        let m = nv_win::modifiers();
+        let op = if m.ctrl {
+            Op::Copy
+        } else if m.shift || drive(&paths[0]) == drive(&target) {
+            Op::Move
+        } else {
+            Op::Copy
+        };
+        let n = paths.len();
+        match files::run(self.hwnd, op, &paths, Some(&target), false) {
+            Ok(()) => {
+                self.toast(format!("{} {n} item{} to {}", if op == Op::Move { "Moved" } else { "Copied" }, if n == 1 { "" } else { "s" }, target.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| target.display().to_string())));
+                self.refresh(Vec::new());
+            }
+            Err(e) if e == "cancelled" => self.refresh(Vec::new()),
+            Err(e) => self.toast(format!("Couldn't drop the files: {e}")),
         }
     }
 

@@ -141,6 +141,43 @@ $f = Form-Wait
 Check 'metadata dialog opens' ($f -ne $null)
 if ($f) { Press $f 2; Start-Sleep -Milliseconds 400 }
 Check 'gallery still running' (-not $gp.HasExited)
+
+# --- type-ahead: a letter jumps to the first name that starts with it
+Key 0x1B 200
+Typed 's'
+Check 'typing s jumps to shot_* (the renamed files)' ((GT) -like '*selected: shot_*') (GT)
+Start-Sleep -Milliseconds 1200
+Typed 'a'
+Check 'typing a jumps to the folder Album X' ((GT) -like '*selected: Album X*') (GT)
+
+# --- a big folder (address bar with Ctrl+L), then the scroll bar
+$big = Join-Path $root 'big'
+New-Item -ItemType Directory $big | Out-Null
+1..80 | ForEach-Object { Make-Picture (Join-Path $big ("b{0:000}.png" -f $_)) 120 90 20 }
+Inject 0x4C 1
+Typed $big
+Key 0x0D 1200
+Check 'address bar opens the folder (80 pictures)' ((Items) -eq 80) (GT)
+function Bar-Rows { $b = Grab; $x = $b.Width - 18; $rows = @(); for ($y = 40; $y -lt $b.Height - 10; $y++) { $c = $b.GetPixel($x, $y); if ($c.R -gt 70 -and $c.G -gt 70 -and $c.B -gt 70) { $rows += $y } }; $b.Dispose(); $rows }
+$before = Bar-Rows
+Check 'a scroll bar thumb is drawn' ($before.Count -gt 20) "rows=$($before.Count)"
+$r = New-Object In+RECT; [void][In]::GetWindowRect($script:win, [ref]$r)
+$h = $r.B - $r.T
+Click (($r.R - $r.L) - 26) ($h - 99)      # click the track near the bottom: the thumb jumps there
+Start-Sleep -Milliseconds 500
+$after = Bar-Rows
+Check 'clicking the track scrolls' (($after | Measure-Object -Minimum).Minimum -gt (($before | Measure-Object -Minimum).Minimum + 100)) "before=$(($before|Measure-Object -Minimum).Minimum) after=$(($after|Measure-Object -Minimum).Minimum)"
+
+# --- Alt+Enter: fullscreen and back to a window in the middle of the screen
+$wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+Inject 0x0D 4 900
+[void][In]::GetWindowRect($script:win, [ref]$r)
+$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+Check 'Alt+Enter goes fullscreen' (($r.R - $r.L) -eq $bounds.Width -and ($r.B - $r.T) -eq $bounds.Height) "$($r.R-$r.L)x$($r.B-$r.T)"
+Inject 0x0D 4 900
+[void][In]::GetWindowRect($script:win, [ref]$r)
+$cx = ($r.L + $r.R) / 2; $cy = ($r.T + $r.B) / 2
+Check 'Alt+Enter again: a window, centred' ((($r.R - $r.L) -lt $bounds.Width) -and ([math]::Abs($cx - ($wa.Left + $wa.Width / 2)) -lt 6) -and ([math]::Abs($cy - ($wa.Top + $wa.Height / 2)) -lt 6)) "rect $($r.L),$($r.T) $($r.R-$r.L)x$($r.B-$r.T)"
 $gp.Kill(); Start-Sleep -Milliseconds 400
 # NuViewer started on its own (no picture) opens NuGallery instead and exits.
 $v = Join-Path $Dir 'nuviewer.exe'

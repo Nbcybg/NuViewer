@@ -1086,6 +1086,12 @@ impl App {
             Event::MouseUp => self.viewer_release(),
             Event::MouseMove { x, y, left_down } => self.viewer_drag(x, y, left_down),
             Event::RightClick { x, y } => self.context_menu(x, y),
+            // Files dropped from Explorer (or another program): show the first one.
+            Event::Drop { paths, .. } => {
+                if let Some(p) = paths.into_iter().next() {
+                    self.open_request(Some(p), false);
+                }
+            }
             // The window's close box / Alt+F4: a rotated picture is saved or dropped first; Cancel keeps the window.
             Event::Close => {
                 if !self.settle_rotation() {
@@ -1591,10 +1597,9 @@ fn main() {
     // Closed after being opened from the gallery: bring it back, on the picture that was seen last.
     if FROM_GALLERY.load(Ordering::Relaxed) {
         let path = LAST_SEEN.lock().ok().and_then(|l| l.clone());
-        let req = nv_win::instance::OpenRequest { path: path.clone(), gallery: true, from_gallery: false };
-        if !nv_win::instance::send_to(nv_win::instance::Program::Gallery, &req) {
-            launch_gallery(path.as_deref().map(Path::new), false);
-        }
+        // If the gallery was closed meanwhile, closing the viewer ends the program: it is not started again.
+        let req = nv_win::instance::OpenRequest { path, gallery: true, from_gallery: false };
+        let _ = nv_win::instance::send_to(nv_win::instance::Program::Gallery, &req);
     }
     // The decode statistics of this session (per format and stage) for whoever wants to look at them.
     nv_codecs::stats::save(&nv_codecs::stats::default_path());

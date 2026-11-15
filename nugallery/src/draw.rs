@@ -137,6 +137,26 @@ pub fn draw_folder(r: &mut Renderer, b: [f32; 4], alpha: f32) {
     let _ = r.fill_rect([x0, y0 + s * 0.22, x0 + s, y0 + s * 0.72], rgb(0xF2C75E, alpha));
 }
 
+/// A folder with the first picture inside it peeking out of the front, like Explorer's folder previews.
+pub fn draw_folder_cover(r: &mut Renderer, b: [f32; 4], id: u64, tw: u32, th: u32) {
+    let (w, h) = (b[2] - b[0], b[3] - b[1]);
+    let s = w.min(h) * 0.86;
+    let (cx, cy) = ((b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0);
+    let (x0, y0) = (cx - s / 2.0, cy - s * 0.42);
+    let _ = r.fill_rect([x0, y0, x0 + s * 0.4, y0 + s * 0.12], rgb(0xC99A33, 1.0));
+    let _ = r.fill_rect([x0, y0 + s * 0.08, x0 + s, y0 + s * 0.8], rgb(0xC99A33, 1.0));
+    // The picture, fitted into the back of the folder.
+    let area = [x0 + s * 0.09, y0 + s * 0.15, x0 + s * 0.91, y0 + s * 0.66];
+    let (aw, ah) = (area[2] - area[0], area[3] - area[1]);
+    let k = (aw / tw as f32).min(ah / th as f32);
+    let (pw, ph) = ((tw as f32 * k).round(), (th as f32 * k).round());
+    let (px, py) = ((area[0] + (aw - pw) / 2.0).round(), (area[1] + (ah - ph) / 2.0).round());
+    let _ = r.fill_rect([px - 2.0, py - 2.0, px + pw + 2.0, py + ph + 2.0], rgb(0xFFFFFF, 0.9));
+    let _ = r.draw_thumb(id, [px, py, px + pw, py + ph]);
+    // The front of the folder over the lower part of the picture.
+    let _ = r.fill_rect([x0, y0 + s * 0.36, x0 + s, y0 + s * 0.8], rgb(0xF2C75E, 0.97));
+}
+
 /// A picture-less file: a card with its extension.
 pub fn draw_card(r: &mut Renderer, text: &mut Text, b: [f32; 4], ext: &str, failed: bool, d: f32) {
     let (w, h) = (b[2] - b[0], b[3] - b[1]);
@@ -174,6 +194,7 @@ impl App {
         self.text.begin_frame();
         self.draw_items(&g, scroll, hover);
         self.draw_rubber();
+        self.draw_scrollbar();
         self.draw_status(&g);
         self.draw_left();
         self.draw_right();
@@ -281,6 +302,15 @@ impl App {
             let cx = (area[0] + area[2]) / 2.0;
             self.text.draw_centered(r, msg, px(16.0, d), cx, area[1] + 80.0 * d, rgb(pal::DIM, 1.0));
         }
+    }
+
+    fn draw_scrollbar(&mut self) {
+        let Some((track, thumb)) = self.scrollbar() else { return };
+        let (mx, my) = (self.last_mouse.0 as f32, self.last_mouse.1 as f32);
+        let hot = self.sb_drag.is_some() || contains(thumb, mx, my);
+        let Some(r) = self.renderer.as_mut() else { return };
+        let _ = r.fill_rect(track, rgb(0xFFFFFF, 0.05));
+        let _ = r.fill_rect(thumb, rgb(0xFFFFFF, if hot { 0.55 } else { 0.28 }));
     }
 
     fn draw_rubber(&mut self) {
@@ -447,7 +477,10 @@ impl App {
 fn draw_visual(r: &mut Renderer, text: &mut Text, e: &Entry, b: [f32; 4], pad: f32, failed: bool, d: f32) {
     let inner = [b[0] + pad, b[1] + pad, b[2] - pad, b[3] - pad];
     if e.is_dir() {
-        draw_folder(r, inner, 1.0);
+        match r.thumb_size(e.id) {
+            Some((tw, th)) if inner[2] - inner[0] > 60.0 * d => draw_folder_cover(r, inner, e.id, tw, th),
+            _ => draw_folder(r, inner, 1.0),
+        }
         return;
     }
     if let Some((tw, th)) = r.thumb_size(e.id) {
@@ -470,8 +503,8 @@ fn help_lines() -> Vec<String> {
         "        double-click / middle click: view  ·  right click: menu  ·  edges: left = folders, right = details,",
         "        top = toolbar, bottom = Windows taskbar (pin a panel with its Pin button, or Ctrl+B / Ctrl+I / Ctrl+T)",
         "Keys    arrows / PgUp / PgDn / Home / End: move  ·  Shift+arrows: extend  ·  Ctrl+A: select all  ·  Esc: clear",
-        "        Space: view in NuViewer  ·  Enter: next file  ·  S: slideshow  ·  Backspace / Alt+↑: up  ·  Alt+← / →: back / forward",
-        "        1 2 3 4 5: thumbnail size  ·  `: reset size  ·  V: thumbnails / details / list  ·  J: sort  ·  R: shuffle",
+        "        Space: view in NuViewer  ·  Enter: next file  ·  F8: slideshow  ·  a letter: jump to the name  ·  Backspace / Alt+↑: up  ·  Alt+← / →: back / forward",
+        "        1 2 3 4 5: thumbnail size  ·  `: reset size  ·  Ctrl+1 / 2 / 3: thumbnails / details / list  ·  Ctrl+J: sort  ·  Ctrl+R: shuffle",
         "        F2 rename  ·  Del Recycle Bin  ·  Shift+Del delete for good  ·  Ctrl+N new folder  ·  F5 refresh",
         "        Ctrl+C copy  ·  Ctrl+X cut  ·  Ctrl+V paste  ·  Ctrl+Shift+C copy path  ·  F6 move to  ·  F7 copy to  ·  Ctrl+P print",
         "        Ctrl+F search  ·  Ctrl+L address bar  ·  F11 fullscreen  ·  F1 this help  ·  Alt+F4 exit",

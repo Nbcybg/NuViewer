@@ -53,6 +53,8 @@ pub enum Event {
     Open { path: Option<String>, gallery: bool, from_gallery: bool },
     /// A typed character (control characters are filtered out; use `Key` for those).
     Char(char),
+    /// Files were dropped on the window (from Explorer or another program); x, y in client pixels.
+    Drop { paths: Vec<String>, x: i32, y: i32 },
 }
 
 /// Modifier keys at the time of the event being handled.
@@ -337,6 +339,13 @@ pub fn paint_bgra_at(hwnd: HWND, x: i32, y: i32, w: i32, h: i32, bgra: &[u8]) {
     }
 }
 
+/// Let go of the mouse capture (before starting a drag-and-drop, which takes the mouse itself).
+pub fn release_capture() {
+    unsafe {
+        let _ = ReleaseCapture();
+    }
+}
+
 /// UI scale of the monitor the window is on (1.0 = 96 DPI).
 pub fn dpi_scale(hwnd: HWND) -> f32 {
     let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(hwnd) };
@@ -431,13 +440,19 @@ where
             return Err("RegisterClassExW failed".into());
         }
         let wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+        // A predictable place: centred on the work area of the primary monitor (not Windows' cascading default, which
+        // also becomes the place the window returns to when it leaves fullscreen).
+        let mut work = windows::Win32::Foundation::RECT::default();
+        let have_work = SystemParametersInfoW(SPI_GETWORKAREA, 0, Some(&mut work as *mut _ as *mut c_void), SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0)).is_ok();
+        let (width, height) = if have_work { (width.min(work.right - work.left), height.min(work.bottom - work.top)) } else { (width, height) };
+        let (x, y) = if have_work { (work.left + (work.right - work.left - width) / 2, work.top + (work.bottom - work.top - height) / 2) } else { (CW_USEDEFAULT, CW_USEDEFAULT) };
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE(0),
             class,
             PCWSTR(wide.as_ptr()),
             WS_OVERLAPPEDWINDOW,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
+            x,
+            y,
             width,
             height,
             None,
@@ -447,6 +462,7 @@ where
         )
         .map_err(|e| e.to_string())?;
         MAIN_WINDOW.store(hwnd.0 as isize, std::sync::atomic::Ordering::Relaxed);
+        windows::Win32::UI::Shell::DragAcceptFiles(hwnd, true);
 
         if fullscreen {
             toggle_fullscreen(hwnd);
@@ -538,6 +554,23 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_TIMER => {
             dispatch(Event::Timer(wp.0 as u32));
+            LRESULT(0)
+        }
+        WM_DROPFILES => {
+            use windows::Win32::UI::Shell::{DragFinish, DragQueryFileW, DragQueryPoint, HDROP};
+            let drop = HDROP(wp.0 as *mut c_void);
+            let n = DragQueryFileW(drop, u32::MAX, None);
+            let mut paths = Vec::new();
+            for i in 0..n {
+                let len = DragQueryFileW(drop, i, None) as usize;
+                let mut buf = vec![0u16; len + 1];
+                let got = DragQueryFileW(drop, i, Some(&mut buf)) as usize;
+                paths.push(String::from_utf16_lossy(&buf[..got.min(len)]));
+            }
+            let mut pt = windows::Win32::Foundation::POINT::default();
+            let _ = DragQueryPoint(drop, &mut pt);
+            DragFinish(drop);
+            dispatch(Event::Drop { paths, x: pt.x, y: pt.y });
             LRESULT(0)
         }
         WM_CHAR => {

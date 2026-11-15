@@ -154,6 +154,22 @@ pub fn claim_or_forward_as(program: Program, req: &OpenRequest) -> Instance {
     }
 }
 
+/// Is a window of `program` open right now?
+pub fn is_running(program: Program) -> bool {
+    unsafe { FindWindowW(program.class(), PCWSTR::null()).map(|h| !h.is_invalid()).unwrap_or(false) }
+}
+
+/// Ask the window of `program` to close (as if its close box was pressed). False if there is none.
+pub fn close_window(program: Program) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
+    unsafe {
+        match FindWindowW(program.class(), PCWSTR::null()) {
+            Ok(h) if !h.is_invalid() => PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0)).is_ok(),
+            _ => false,
+        }
+    }
+}
+
 /// Let the process `pid` take the foreground (a program we just started, so its window comes up in front).
 pub fn allow_foreground(pid: u32) {
     unsafe {

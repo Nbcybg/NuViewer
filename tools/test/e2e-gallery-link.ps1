@@ -56,5 +56,18 @@ Check 'G leaves the viewer' ($gone2 -eq $true)
 Start-Sleep -Milliseconds 900
 Write-Host ("gallery: " + (GT))
 Check 'G shows that picture in the gallery' ((GT) -like '*selected: pic03.png*') (GT)
+# Closing the gallery closes the viewer it opened, and nothing comes back afterwards.
+$t2 = Get-Date
+$script:win = $gw
+Click 640 330; Key 0x20 100
+$vp3 = Wait-Until { Get-Process nuviewer -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -ge $t2 -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1 } 12000
+Check 'a viewer is open again' ($null -ne $vp3)
+[void][In]::PostMessage($gw, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)   # WM_CLOSE on the gallery window
+if ($vp3) { $vgone = Wait-Until { $vp3.Refresh(); $vp3.HasExited } 6000; Check 'closing the gallery closes the viewer' ($vgone -eq $true) }
+$ggone = Wait-Until { $gp.Refresh(); $gp.HasExited } 4000
+Check 'the gallery is gone' ($ggone -eq $true)
+Start-Sleep -Milliseconds 1800
+Check 'nothing is started again' (-not (Get-Process nugallery, nuviewer -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -ge $t2 -and -not $_.HasExited -and $_.Id -ne $vp3.Id }))
+# And the other way round: a viewer closed with the gallery already gone ends the program.
 Get-Process nugallery, nuviewer -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -ge $t0 } | Stop-Process -Force
 Write-Host "pass=$script:pass fail=$script:fail"

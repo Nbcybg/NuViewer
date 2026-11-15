@@ -3,6 +3,12 @@
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
 ### Added
+- **NuGallery follow-ups:** folder tiles show the first picture inside as a cover; a scroll bar; type a letter to jump to the
+  first name starting with it (the old letter shortcuts moved to Ctrl+R shuffle, Ctrl+J sort, Ctrl+1/2/3 view, F8 slideshow);
+  drag files out to Explorer / other programs and drop files in (WM_DROPFILES; the viewer opens a dropped picture); panels
+  slide out the moment the pointer touches the edge; closing the gallery closes its viewer, and closing a viewer whose gallery is
+  gone ends the program instead of starting the gallery again. Windows now open centred on the screen and Alt+Enter returns to
+  that window (it used to come back at Windows' cascading position).
 - **NuGallery, the gallery as a program of its own** (`nugallery.exe`, next to `nuviewer.exe`). Starting `nuviewer.exe` with no
   picture opens it; Space / double click / middle click opens a picture in NuViewer, Esc there comes back to the gallery on the
   last picture seen, `G` in the viewer goes the other way. Folders and files as thumbnails (with names), a details list or a

@@ -154,7 +154,7 @@ impl App {
 
         let mut menu: Vec<Item> = Vec::new();
         menu.push(b.item(Cmd::Open, "Open\tSpace").enabled(has));
-        menu.push(b.item(Cmd::Slideshow, "Slideshow\tS").enabled(any_pic));
+        menu.push(b.item(Cmd::Slideshow, "Slideshow\tF8").enabled(any_pic));
         let quick: Vec<Item> = [QuickOp::RotateLeft, QuickOp::RotateRight, QuickOp::FlipH, QuickOp::FlipV].iter().map(|&q| b.item(Cmd::Quick(q), q.label())).collect();
         menu.push(Item::Submenu { text: "Quick edit".into(), items: quick, enabled: all_rewritable });
         let mut with: Vec<Item> = externals.iter().enumerate().map(|(i, name)| b.item(Cmd::EditWith(i), name.clone())).collect();
@@ -167,7 +167,7 @@ impl App {
         menu.push(b.item(Cmd::ShowLocation, "Show file location\tCtrl+E").enabled(has));
         menu.push(Item::Separator);
         menu.push(b.item(Cmd::Refresh, "Refresh\tF5"));
-        menu.push(b.checked(Cmd::Shuffle, "Shuffle\tR", shuffled));
+        menu.push(b.checked(Cmd::Shuffle, "Shuffle\tCtrl+R", shuffled));
         let select = vec![
             b.item(Cmd::SelectItem, "Item (toggle)").enabled(has),
             b.item(Cmd::SelectAll, "All\tCtrl+A"),
@@ -227,7 +227,7 @@ impl App {
                     menu.push(b.checked(Cmd::Sort(k), format!("{}{}", k.label(), if o.shuffle.is_none() && o.key == k { if o.descending { "  (descending — click again for ascending)" } else { "  (ascending — click again to reverse)" } } else { "" }), o.shuffle.is_none() && o.key == k));
                 }
                 menu.push(Item::Separator);
-                menu.push(b.checked(Cmd::Shuffle, "Shuffle\tR", o.shuffle.is_some()));
+                menu.push(b.checked(Cmd::Shuffle, "Shuffle\tCtrl+R", o.shuffle.is_some()));
             }
             Btn::Show => {
                 for s in Show::ALL_CHOICES {
