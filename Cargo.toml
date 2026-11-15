@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/nv-core", "crates/nv-codecs", "crates/nv-render", "crates/nv-win", "crates/nv-editor", "nuviewer", "nugallery", "setup"]
+members = ["crates/nv-core", "crates/nv-codecs", "crates/nv-render", "crates/nv-win", "crates/nv-editor", "nuviewer", "nugallery", "nueditor", "setup"]
 
 [workspace.package]
 version = "0.1.0"

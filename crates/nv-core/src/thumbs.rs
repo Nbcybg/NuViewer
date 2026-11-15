@@ -38,6 +38,8 @@ fn cache_dir() -> &'static Option<PathBuf> {
 
 fn cache_key(path: &Path, meta: &std::fs::Metadata) -> u64 {
     let mut h = 0xcbf2_9ce4_8422_2325u64;
+    // The picture's NuEditor pair file (if edits are shown) is part of what the thumbnail looks like.
+    fnv1a(&mut h, &crate::pair::stamp(path).to_le_bytes());
     fnv1a(&mut h, path.to_string_lossy().to_lowercase().as_bytes());
     let mtime = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_nanos()).unwrap_or(0);
     fnv1a(&mut h, &mtime.to_le_bytes());
@@ -136,6 +138,7 @@ pub fn make_thumb(path: &Path) -> Result<Image, String> {
     // Shrink first: colour conversion and rotation are then done on ~256 px instead of the full image.
     let small = nv_codecs::downscale(&full, THUMB_MAX).finish_for_thumb();
     drop(full);
+    let small = if crate::pair::stamp(path) != 0 { crate::pair::apply_to_thumb(small, path) } else { small };
 
     if let Some(cf) = &cache_file {
         // Best effort: write to a temp name then rename so readers never see a partial file.

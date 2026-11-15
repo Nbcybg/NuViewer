@@ -51,7 +51,7 @@ pub struct Loader {
 impl Loader {
     /// Pool that fully decodes images.
     pub fn full(threads: usize, notify: Arc<dyn Fn() + Send + Sync>) -> Self {
-        Self::new(threads, true, notify, Arc::new(|p: &Path| nv_codecs::decode_file(p)))
+        Self::new(threads, true, notify, Arc::new(|p: &Path| crate::pair::decode(p)))
     }
 
     /// Pool that produces small thumbnails (served from the disk cache when possible).

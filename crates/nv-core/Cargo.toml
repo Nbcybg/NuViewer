@@ -5,4 +5,5 @@ edition.workspace = true
 
 [dependencies]
 nv-codecs = { path = "../nv-codecs" }
+nv-editor = { path = "../nv-editor" }
 flate2 = "1"

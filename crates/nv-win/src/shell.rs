@@ -393,3 +393,64 @@ mod external_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// The system "Open" dialog for any kind of file: `title`, `filter` as the NUL-separated description / pattern list that ends in
+/// a double NUL (for example `"Pictures\0*.jpg;*.png\0\0"`), and the folder to start in. None if cancelled.
+pub fn open_dialog(hwnd: HWND, title: &str, filter: &str, start_in: Option<&Path>) -> Option<PathBuf> {
+    use windows::Win32::UI::Controls::Dialogs::{GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_PATHMUSTEXIST, OPENFILENAMEW};
+    let mut file = vec![0u16; 2048];
+    let dir: Option<Vec<u16>> = start_in.filter(|d| d.is_dir()).map(|d| d.as_os_str().encode_wide().chain(std::iter::once(0)).collect());
+    let filter: Vec<u16> = filter.encode_utf16().collect();
+    let title: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut ofn = OPENFILENAMEW {
+        lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
+        hwndOwner: hwnd,
+        lpstrFilter: PCWSTR(filter.as_ptr()),
+        lpstrFile: windows::core::PWSTR(file.as_mut_ptr()),
+        nMaxFile: file.len() as u32,
+        lpstrTitle: PCWSTR(title.as_ptr()),
+        lpstrInitialDir: dir.as_ref().map(|d| PCWSTR(d.as_ptr())).unwrap_or(PCWSTR::null()),
+        Flags: OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST,
+        ..Default::default()
+    };
+    unsafe {
+        if !GetOpenFileNameW(&mut ofn).as_bool() {
+            return None;
+        }
+    }
+    let len = file.iter().position(|&c| c == 0).unwrap_or(file.len());
+    Some(PathBuf::from(String::from_utf16_lossy(&file[..len])))
+}
+
+/// The system "Save as" dialog. `default_name` is the suggested file name, `default_ext` (no dot) is added when the user types
+/// none, and the dialog asks before overwriting. None if cancelled.
+pub fn save_dialog(hwnd: HWND, title: &str, filter: &str, default_name: &str, start_in: Option<&Path>, default_ext: &str) -> Option<PathBuf> {
+    use windows::Win32::UI::Controls::Dialogs::{GetSaveFileNameW, OFN_OVERWRITEPROMPT, OFN_PATHMUSTEXIST, OPENFILENAMEW};
+    let mut file = vec![0u16; 2048];
+    for (i, c) in default_name.encode_utf16().take(file.len() - 1).enumerate() {
+        file[i] = c;
+    }
+    let dir: Option<Vec<u16>> = start_in.filter(|d| d.is_dir()).map(|d| d.as_os_str().encode_wide().chain(std::iter::once(0)).collect());
+    let filter: Vec<u16> = filter.encode_utf16().collect();
+    let title: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+    let ext: Vec<u16> = default_ext.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut ofn = OPENFILENAMEW {
+        lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
+        hwndOwner: hwnd,
+        lpstrFilter: PCWSTR(filter.as_ptr()),
+        lpstrFile: windows::core::PWSTR(file.as_mut_ptr()),
+        nMaxFile: file.len() as u32,
+        lpstrTitle: PCWSTR(title.as_ptr()),
+        lpstrDefExt: PCWSTR(ext.as_ptr()),
+        lpstrInitialDir: dir.as_ref().map(|d| PCWSTR(d.as_ptr())).unwrap_or(PCWSTR::null()),
+        Flags: OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST,
+        ..Default::default()
+    };
+    unsafe {
+        if !GetSaveFileNameW(&mut ofn).as_bool() {
+            return None;
+        }
+    }
+    let len = file.iter().position(|&c| c == 0).unwrap_or(file.len());
+    Some(PathBuf::from(String::from_utf16_lossy(&file[..len])))
+}

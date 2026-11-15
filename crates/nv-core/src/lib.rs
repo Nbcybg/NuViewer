@@ -7,6 +7,7 @@ pub mod folder;
 pub mod gallery;
 pub mod keys;
 pub mod loader;
+pub mod pair;
 pub mod sequence;
 pub mod settings;
 pub mod spread;

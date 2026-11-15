@@ -398,6 +398,15 @@ impl App {
             return; // a turn that isn't saved yet comes first
         }
         let Some(op) = self.undo.pop() else {
+            // Nothing of this session's own: a burn-in made in NuEditor (the journal is shared) can still be taken back.
+            if let Some(path) = self.folder.current().cloned() {
+                let dir = crate::rotate::backup_dir();
+                if let Some(e) = nv_editor::journal::last_for(&dir, &path) {
+                    self.restore_backup(&path, &e.backup);
+                    nv_editor::journal::remove(&dir, &e);
+                    return;
+                }
+            }
             self.toast("Nothing to undo");
             return;
         };

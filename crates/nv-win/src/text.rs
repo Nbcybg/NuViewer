@@ -111,3 +111,43 @@ pub fn render_lines(lines: &[String], px: i32, pad: i32) -> TextBitmap {
         TextBitmap { width: w as u32, height: h as u32, rgba, line_height: lh }
     }
 }
+
+/// A watermark of `text` as an RGBA picture: white letters with a soft dark shadow, so it reads on light and dark parts alike.
+/// None for empty text. (width, height, pixels)
+pub fn watermark_bitmap(text: &str) -> Option<(u32, u32, Vec<u8>)> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let px = 96;
+    let bmp = render_lines(&[text.to_string()], px, 8);
+    let (w, h) = (bmp.width as usize, bmp.height as usize);
+    let mut rgba = vec![0u8; w * h * 4];
+    let off = (px / 20).max(2) as usize;
+    // The shadow first (black, a little down and to the right) ...
+    for y in 0..h {
+        for x in 0..w {
+            let a = bmp.rgba[(y * w + x) * 4 + 3] as u32;
+            if a > 0 && x + off < w && y + off < h {
+                let i = ((y + off) * w + x + off) * 4;
+                rgba[i + 3] = rgba[i + 3].max((a * 160 / 255) as u8);
+            }
+        }
+    }
+    // ... then the white letters over it.
+    for y in 0..h {
+        for x in 0..w {
+            let a = bmp.rgba[(y * w + x) * 4 + 3] as u32;
+            if a == 0 {
+                continue;
+            }
+            let i = (y * w + x) * 4;
+            let below = rgba[i + 3] as u32;
+            let out_a = a + below * (255 - a) / 255;
+            let c = (255 * a) / out_a.max(1);
+            rgba[i..i + 3].fill(c as u8);
+            rgba[i + 3] = out_a.min(255) as u8;
+        }
+    }
+    Some((w as u32, h as u32, rgba))
+}

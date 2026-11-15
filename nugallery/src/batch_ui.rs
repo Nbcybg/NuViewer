@@ -6,6 +6,7 @@ use crate::app::{App, JobResult};
 use crate::ops::{self, ConvertSpec};
 use nv_core::batch::{self, CaseMode, PlanItem, RenameSpec, Source, TimeRule, WhichTimes};
 use nv_editor::convert::Out;
+use nv_editor::resample::Algo;
 use nv_win::ui::{Form, ID_CANCEL, ID_OK};
 use std::path::PathBuf;
 
@@ -147,7 +148,7 @@ impl App {
             self.toast("Select the pictures to convert first");
             return;
         }
-        let Ok(form) = Form::new(&format!("Convert {} pictures", paths.len()), 500, 330) else { return };
+        let Ok(form) = Form::new(&format!("Convert {} pictures", paths.len()), 500, 560) else { return };
         form.label(14, 18, 100, 18, "Format");
         form.combo(10, 124, 14, 200, 200, &["JPEG", "PNG", "WebP (lossless)", "BMP"], 0);
         form.label(14, 52, 100, 18, "JPEG quality");
@@ -162,10 +163,32 @@ impl App {
         form.label(124, 146, 360, 18, "(empty: next to each original)");
         form.label(14, 176, 100, 18, "Add to the name");
         form.edit(14, 124, 172, 120, 24, "");
-        form.check(15, 14, 212, 470, 20, "Send the originals to the Recycle Bin afterwards", false);
-        form.label(14, 240, 470, 36, "Pictures that are already in the chosen format are written as a new file too; nothing is ever overwritten.");
-        form.button(ID_OK, 300, 288, 90, 28, "Convert", true);
-        form.button(ID_CANCEL, 396, 288, 90, 28, "Cancel", false);
+        form.check(15, 14, 208, 470, 20, "Send the originals to the Recycle Bin afterwards", false);
+        form.label(14, 240, 100, 18, "Resize with");
+        let algos: Vec<&str> = Algo::ALL.iter().map(|a| a.label()).collect();
+        form.combo(20, 124, 236, 300, 200, &algos, 0);
+        form.check(21, 14, 272, 470, 20, "Apply the edits made in NuEditor (each picture's .nuedit pair file)", false);
+        form.label(14, 302, 100, 18, "Preset look");
+        let presets = nv_editor::preset::list();
+        let mut preset_names = vec!["(none)".to_string()];
+        preset_names.extend(presets.iter().map(|p| p.name.clone()));
+        let preset_refs: Vec<&str> = preset_names.iter().map(|s| s.as_str()).collect();
+        form.combo(22, 124, 298, 300, 200, &preset_refs, 0);
+        form.label(14, 336, 100, 18, "Reduce colours");
+        form.edit(23, 124, 332, 60, 24, "");
+        form.label(192, 336, 290, 18, "2 - 256 (empty: all colours)");
+        form.label(14, 370, 100, 18, "File size at most");
+        form.edit(24, 124, 366, 60, 24, "");
+        form.label(192, 370, 290, 18, "KB (empty: no limit; JPEG quality or size gives)");
+        form.label(14, 404, 100, 18, "Watermark");
+        form.edit(25, 124, 400, 280, 24, "");
+        form.label(124, 430, 360, 18, "(text in the bottom right corner; empty: none)");
+        form.label(14, 460, 100, 18, "Remove background");
+        form.edit(26, 124, 456, 60, 24, "");
+        form.label(192, 460, 290, 18, "0 - 100 tolerance (plain backgrounds; use PNG / WebP)");
+        form.label(14, 490, 470, 36, "Pictures that are already in the chosen format are written as a new file too; nothing is ever overwritten.");
+        form.button(ID_OK, 300, 518, 90, 28, "Convert", true);
+        form.button(ID_CANCEL, 396, 518, 90, 28, "Cancel", false);
         let mut spec: Option<ConvertSpec> = None;
         let hwnd = self.hwnd;
         form.run(&mut |f: &Form, id: u16| match id {
@@ -192,7 +215,19 @@ impl App {
                         return false;
                     }
                 }
-                spec = Some(ConvertSpec { out, max_edge: (max_edge > 0).then_some(max_edge.min(65_535) as u32), dest, suffix: f.text(14), delete_originals: f.is_checked(15) });
+                let mut s = ConvertSpec::simple(out, (max_edge > 0).then_some(max_edge.min(65_535) as u32), dest, f.text(14), f.is_checked(15));
+                s.algo = Algo::ALL.get(f.combo_index(20)).copied().unwrap_or(Algo::Lanczos);
+                s.apply_edits = f.is_checked(21);
+                s.preset = f.combo_index(22).checked_sub(1).and_then(|i| presets.get(i)).map(|p| p.path.clone());
+                let colours = number(&f.text(23), 0);
+                s.colours = (colours >= 2).then_some(colours.min(256) as u32);
+                let kb = number(&f.text(24), 0);
+                s.target_kb = (kb >= 1).then_some(kb.min(1_000_000) as u32);
+                let mark = f.text(25);
+                s.watermark = (!mark.trim().is_empty()).then(|| mark.trim().to_string());
+                let bg = number(&f.text(26), 0);
+                s.remove_bg = (bg >= 1).then_some(bg.min(100) as f32);
+                spec = Some(s);
                 true
             }
             ID_CANCEL => true,

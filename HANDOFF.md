@@ -354,6 +354,61 @@ time stamp / remove metadata; `nuviewer.exe` alone opens the gallery; time the t
   recursive search; folder thumbnails; DirectWrite instead of GDI for names; EXIF thumbnail for faster cold JPEG tiles; tooltips
   on the toolbar glyphs.
 
+### Session 11 (2026-11-15): NuEditor, the third program
+
+Full design, speed rules, status table and open questions: **`docs/nueditor.md`**. Summary of what exists:
+
+- **`nv_editor::recipe`** (one `PARAMS` table -> slider enum `P`; curves, crop, retouch strokes, LUT, hue wheel, flags, `auto`),
+  **`nv_editor::sidecar`** (`IMG.jpg.nuedit`, plain text lines, tolerant reader, identity recipe deletes the file),
+  **`nv_editor::engine`** (geometry + per-pixel stage: 3 byte tables when every step is per channel, general path otherwise;
+  row-banded threads; `Frame` for tiles / vignette; `is_implemented` tells the UI which sliders are live). 39 tests in nv-editor.
+- **`nueditor/`** (`nueditor.exe`, `Program::Editor` in `nv_win::instance`): `main.rs` (args `--from viewer|gallery`,
+  `--via-gallery`, `--angle`, GPU + decode threads), `app.rs` (proxy preview, accordion of sliders from the table, drag / wheel /
+  right-click reset, undo, keys: Tab panel, C original, `,` `.` turn 45, H V flip, I invert, 0 reset, Ctrl+Z/Y/S, Esc),
+  `flow.rs` (leave question with pair file / new file / burn in / discard, the three savers, hand-back). 5 tests.
+- **Hand-over:** viewer `E` (when `nueditor.exe` is next to it) starts the editor and closes (pending turn -> `--angle`); gallery
+  `F4` / right-click "Edit in NuEditor"; Esc in the editor sends the program it came from back to the same picture (gallery
+  re-reads its folder on that `Open`).
+- **Tests:** `tools/test/e2e-editor.ps1` (26) and `e2e-editor-link.ps1` (8), messages only. Unit: nv-win 18, nugallery 55.
+- **Numbers:** 1080p proxy 3.3 / 6.6 / 12.3 ms (tables / general / everything); 12 MP JPEG first image ~115 ms; viewer E -> editor
+  window 159 ms; editor Esc -> viewer 52 ms.
+- **Not done:** installer packing, zoom / pan / 100% crop render, crop frame, curve editor, colour picker, filters (sharpen,
+  clarity, bloom, NR, grain, blur, LUT), heal tools, scopes, resize / convert tools, XML shown in viewer / gallery, shared undo
+  journal. Questions for the user are in `docs/nueditor.md` section 6 (shift meaning, pair file name, Enter default).
+- **Follow-up, same day (answers to the three questions):** WB "shift" is four axes (shadows / highlights x green-magenta /
+  blue-yellow); pair file is plain text `IMG.jpg.nuedit` (not XML, not `.xmp`, which darktable owns); Settings > NuEditor tab (new,
+  window widened to 760) holds the default save way (pair file / new file / burn in, factory pair) and "ask when leaving"
+  (`editor_save`, `editor_ask`). **E1 done:** `nueditor/src/app/view.rs` (fit / zoom to 16x / pan / double click, detail render
+  cut from a pyramid, A/B split `S`, scopes `Y`, false colour `X`) + `nv_editor::scopes` (histogram with clipped %, parade,
+  vector scope with skin line, false colour). Zoom needs an uncut picture. Installer + `tools\package.ps1` carry `nueditor.exe`.
+  e2e-editor.ps1 is 35 checks now. Settings tab not driven by a test (only compiled).
+- **E2 done (same day):** crop frame with ratio lock + straighten line (`R`, `A`, Ctrl+drag), WB picker (`W`), curve editor and hue
+  wheel (two extra panel sections after the seven groups; hue wheel engine in `engine.rs`: `band_weights` shares a hue linearly between
+  two bands), `nv_editor::cropmath`, `nueditor/src/app/tools.rs`. A cropped picture uses a re-made proxy (`ensure_geo`). Tests: nv-editor
+  54, `tools	est\e2e-editor-tools.ps1` (14), e2e-editor.ps1 (42), link (8), settings (9). Not verified: real mouse, DPI > 100%.
+- **E3-E7 done (2026-11-15, one run; the user said "keep going until E7"):**
+  - E3: render on a **worker thread** with stale-drop (`app.rs` `spawn_renderer`, `Msg::Rendered`), `Arc` proxies; save options
+    (Settings > NuEditor: format of a new file, JPEG quality, name suffix, EXIF, watermark text, "show pair files" - fields
+    `editor_format/quality/suffix/exif/watermark/show_pair` in `nv_core::settings`); presets (`nv_editor::preset`, `.nupreset`
+    in `%APPDATA%\NuViewer\presets`, panel section).
+  - E4: `nv_editor::{blur, spatial, lut}`: sharpen, clarity, noise reduction (luma / colour), skin smooth, bloom, film blur, grain,
+    LUT (.cube 3D + 1D). Radii are fractions of the picture's long side. `engine::apply_pixels` now includes them.
+  - E5: `nv_editor::retouch` (clone, heal, remove (push-pull), patch, red-eye), `nueditor/src/app/heal.rs` (mouse, overlay),
+    `engine::{display_to_source, source_to_display}` (mapping through the geometry, tested), `engine::RetouchCache`.
+  - E6: `nv_editor::{resample (7 algorithms), quantize, watermark, bgremove, export}`; panel sections "Presets" and "Export copy"
+    (`app/panel.rs`: `Item` rows = `Num` sliders / `Pick` cycles / `Btn` / presets / tool strip, panel scrolls); Ctrl+Shift+S;
+    NuGallery's Convert dialog got the same tools (`ConvertSpec`, `ops::convert_one` goes through `export::run`).
+  - E7: `nv_core::pair` (viewer decodes with the pair file applied; thumbnails too, pair-file time in the cache key; gallery drops
+    the edited picture's thumbnail on hand-back), `nv_editor::journal` (burn-ins noted in `burn-in-journal.tsv`; viewer Ctrl+Z
+    and editor Ctrl+Alt+Z restore), zoom / picker / heal on turned, flipped, cropped pictures (`view.rs` `sync_base`),
+    Pitch / Yaw / Zoom (`raster::perspective`).
+  - Tests: nv-editor 101, nv-core 71, nueditor 6, nugallery 55, nv-win 18; e2e: `e2e-editor.ps1` 42, `-tools` 14, `-link` 8,
+    `-settings` 9, **`-more` 20** (presets, clone + undo, remove, zoom on turned, Pitch, Export), **`-pair` 10** (viewer shows the pair
+    file, setting off, other size, journal Ctrl+Z). `NUEDITOR_TEST=1` puts a state line in the editor's title for the scripts.
+  - Not verified: the modal system dialogs (Save copy / preset / LUT / delete preset), real mouse, DPI > 100%, RAW / CMYK in the new
+    tools, heal quality on real portraits. See `docs/nueditor.md` sections 7 and 10.
+- Nothing committed (the user did not ask).
+
 ## 2. Build, test, run
 
 ```powershell

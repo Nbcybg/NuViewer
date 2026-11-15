@@ -9,6 +9,7 @@ use windows::Win32::UI::Shell::{IShellLinkW, SHGetKnownFolderPath, ShellLink, FO
 
 pub const APP_EXE: &str = "nuviewer.exe";
 pub const GALLERY_EXE: &str = "nugallery.exe";
+pub const EDITOR_EXE: &str = "nueditor.exe";
 pub const UNINSTALLER: &str = "uninstall.exe";
 const SHORTCUT: &str = "NuViewer.lnk";
 const SHORTCUT_TYPES: &str = "NuViewer file types.lnk";
@@ -18,7 +19,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 static PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.bin"));
 const PAYLOAD_LEN: &str = include_str!(concat!(env!("OUT_DIR"), "/payload.len"));
 
-/// The files packed into this setup (nuviewer.exe first, then nugallery.exe when it was built), unpacked: (name, bytes).
+/// The files packed into this setup (nuviewer.exe first, then nugallery.exe and nueditor.exe when they were built), unpacked: (name, bytes).
 pub fn payload() -> Result<Vec<(String, Vec<u8>)>, String> {
     if PAYLOAD.is_empty() {
         return Err("this setup was built without nuviewer.exe inside it".into());
@@ -112,14 +113,14 @@ pub struct Options {
     pub desktop: bool,
 }
 
-/// Ask a running NuViewer and NuGallery to close (an upgrade can't replace a running exe) and wait briefly.
+/// Ask a running NuViewer, NuGallery and NuEditor to close (an upgrade can't replace a running exe) and wait briefly.
 fn close_running_viewer() {
     use windows::core::w;
     use windows::Win32::Foundation::{LPARAM, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, PostMessageW, WM_CLOSE};
     for _ in 0..30 {
         let mut any = false;
-        for class in [w!("NuViewerWindow"), w!("NuGalleryWindow")] {
+        for class in [w!("NuViewerWindow"), w!("NuGalleryWindow"), w!("NuEditorWindow")] {
             if let Ok(h) = unsafe { FindWindowW(class, None) } {
                 if !h.is_invalid() {
                     any = true;
@@ -227,6 +228,7 @@ pub fn uninstall(env: &Env, dir: &Path) -> Result<(), String> {
         std::fs::remove_file(&exe).map_err(|e| format!("couldn't remove {} ({e}). Is NuViewer still running?", exe.display()))?;
     }
     let _ = std::fs::remove_file(dir.join(GALLERY_EXE));
+    let _ = std::fs::remove_file(dir.join(EDITOR_EXE));
     if let Some(data) = &env.data_dir {
         let _ = std::fs::remove_dir_all(data);
     }
@@ -266,10 +268,11 @@ mod tests {
         let dir = root.join("app");
         let opts = Options { dir: dir.clone(), exts: vec![".jpg".into(), ".png".into()], start_menu: true, desktop: true };
 
-        let files = vec![(APP_EXE.to_string(), b"fake exe".to_vec()), (GALLERY_EXE.to_string(), b"fake gallery".to_vec())];
+        let files = vec![(APP_EXE.to_string(), b"fake exe".to_vec()), (GALLERY_EXE.to_string(), b"fake gallery".to_vec()), (EDITOR_EXE.to_string(), b"fake editor".to_vec())];
         let exe = install(&env, &opts, &files, &fake_self).unwrap();
         assert_eq!(std::fs::read(&exe).unwrap(), b"fake exe");
         assert_eq!(std::fs::read(dir.join(GALLERY_EXE)).unwrap(), b"fake gallery");
+        assert_eq!(std::fs::read(dir.join(EDITOR_EXE)).unwrap(), b"fake editor");
         assert!(env.start_menu.join(SHORTCUT_GALLERY).is_file());
         assert!(dir.join(UNINSTALLER).is_file());
         assert!(env.start_menu.join(SHORTCUT).is_file() && env.start_menu.join(SHORTCUT_TYPES).is_file() && env.desktop.join(SHORTCUT).is_file());
@@ -289,7 +292,7 @@ mod tests {
         assert_eq!(std::fs::read(&exe).unwrap(), b"fake exe 2");
 
         uninstall(&env, &dir).unwrap();
-        assert!(!exe.exists() && !dir.join(GALLERY_EXE).exists());
+        assert!(!exe.exists() && !dir.join(GALLERY_EXE).exists() && !dir.join(EDITOR_EXE).exists());
         assert!(!registry::is_registered(&layout));
         assert!(registry::registered_exts(&layout).is_empty());
         assert!(registry::read_string(&env.uninstall_key(), Some("DisplayName")).is_none());

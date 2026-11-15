@@ -74,6 +74,7 @@ fn colour_settings(s: &Settings, hwnd: Option<WindowHandle>) -> Result<ColourSet
 /// Make the settings' colour choices the active ones. On a problem the previous (or default) behaviour stays and the
 /// message says what is wrong.
 pub fn apply(s: &Settings, hwnd: Option<WindowHandle>) -> Result<(), String> {
+    nv_core::pair::set_show(s.editor_show_pair);
     nv_codecs::set_raw_mode(s.raw_mode);
     nv_codecs::set_raw_thumbs_develop(s.raw_thumbs);
     nv_codecs::configure_colour(colour_settings(s, hwnd)?)

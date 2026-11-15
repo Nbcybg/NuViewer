@@ -112,6 +112,69 @@ fn rotate_any(src: &Pixels, degrees: f32) -> Pixels {
     Pixels { w: ow, h: oh, rgba: out }
 }
 
+/// Keystone and zoom, on a canvas of the same size: the picture is a flat sheet seen from a camera; `pitch` tips the sheet
+/// about the horizontal axis (top away / towards you), `yaw` about the vertical one, each -100..100 (100 = 40 degrees), and
+/// `zoom` (percent, 100 = none) enlarges the middle. The corners the tilt leaves empty are transparent.
+pub fn perspective(src: &Pixels, pitch: f32, yaw: f32, zoom: f32) -> Pixels {
+    let (w, h) = (src.w as usize, src.h as usize);
+    if w == 0 || h == 0 || (pitch == 0.0 && yaw == 0.0 && zoom == 100.0) {
+        return src.clone();
+    }
+    let (t, p) = ((pitch / 100.0 * 40.0).to_radians(), (yaw / 100.0 * 40.0).to_radians());
+    let (st, ct, sp, cp) = (t.sin(), t.cos(), p.sin(), p.cos());
+    // R = Ry(yaw) * Rx(pitch); its columns are the sheet's two axes and its normal.
+    let r1 = [cp, 0.0, -sp];
+    let r2 = [sp * st, ct, cp * st];
+    let r3 = [sp * ct, -st, cp * ct];
+    let f = 0.9 * w.max(h) as f32;
+    let k = 100.0 / zoom.clamp(100.0, 400.0);
+    let (cx, cy) = (w as f32 / 2.0, h as f32 / 2.0);
+    let texel = |x: i32, y: i32| -> [f32; 4] {
+        if x < 0 || y < 0 || x >= w as i32 || y >= h as i32 {
+            return [0.0; 4];
+        }
+        let o = (y as usize * w + x as usize) * 4;
+        let a = src.rgba[o + 3] as f32;
+        [src.rgba[o] as f32 * a, src.rgba[o + 1] as f32 * a, src.rgba[o + 2] as f32 * a, a]
+    };
+    let mut out = vec![0u8; w * h * 4];
+    parallel_rows(&mut out, w * 4, |y, row| {
+        for x in 0..w {
+            let (u, v) = ((x as f32 + 0.5 - cx) * k, (y as f32 + 0.5 - cy) * k);
+            let d = [u, v, f];
+            let denom = d[0] * r3[0] + d[1] * r3[1] + d[2] * r3[2];
+            if denom < 1e-3 * f {
+                continue; // the ray never meets the tipped sheet
+            }
+            let lambda = f * r3[2] / denom;
+            let xc = [d[0] * lambda, d[1] * lambda, d[2] * lambda - f];
+            let a = xc[0] * r1[0] + xc[1] * r1[1] + xc[2] * r1[2];
+            let b = xc[0] * r2[0] + xc[1] * r2[1] + xc[2] * r2[2];
+            let (sx, sy) = (cx + a - 0.5, cy + b - 0.5);
+            let (x0, y0) = (sx.floor(), sy.floor());
+            let (fx, fy) = (sx - x0, sy - y0);
+            let (x0, y0) = (x0 as i32, y0 as i32);
+            let mut acc = [0.0f32; 4];
+            for (dxi, dyi, wgt) in [(0, 0, (1.0 - fx) * (1.0 - fy)), (1, 0, fx * (1.0 - fy)), (0, 1, (1.0 - fx) * fy), (1, 1, fx * fy)] {
+                if wgt > 0.0 {
+                    let tx = texel(x0 + dxi, y0 + dyi);
+                    for c in 0..4 {
+                        acc[c] += tx[c] * wgt;
+                    }
+                }
+            }
+            let o = x * 4;
+            if acc[3] > 0.0 {
+                row[o] = (acc[0] / acc[3]).round().clamp(0.0, 255.0) as u8;
+                row[o + 1] = (acc[1] / acc[3]).round().clamp(0.0, 255.0) as u8;
+                row[o + 2] = (acc[2] / acc[3]).round().clamp(0.0, 255.0) as u8;
+                row[o + 3] = acc[3].round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    });
+    Pixels { w: src.w, h: src.h, rgba: out }
+}
+
 pub fn flip_horizontal(src: &Pixels) -> Pixels {
     let w = src.w as usize;
     let mut out = vec![0u8; src.rgba.len()];

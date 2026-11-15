@@ -96,6 +96,29 @@ opens; it remembers the last folder, view and pinned panels. It starts fullscree
 - The viewer follows the gallery's order (sort is shared; shuffle is passed along), and closing it returns to the gallery with
   the last picture seen selected.
 
+## NuEditor (the editor)
+
+`nueditor.exe` is the third program: **E** in the viewer or **F4** in the gallery opens it on the picture, **Esc** puts you back where you
+were. It works on a window-sized copy of the picture, so every slider is instant whatever the picture's size, and renders on its own
+thread so the window never waits. Details, speed numbers and status: `docs/nueditor.md`.
+
+* **Panel** (right, Tab hides it): White balance (temperature, tint, four-axis shift, `W` picker), Light, Colour, Detail (sharpen,
+  clarity, vignette, bloom), Composition (rotate, Pitch / Yaw / Zoom, `,` `.` turn 45, `H` `V` flip, `R` crop and straighten with
+  Ctrl+drag), Heal, Film (LUT, noise reduction, grain, film blur), Curves, Hue wheel, Presets, Export copy. Drag or wheel a slider,
+  right-click or double-click puts it back, right-click a header resets the group, `0` resets all, `C` shows the original, `S` splits
+  original | edited.
+* **Heal tools**: `K` clone and `J` heal (Ctrl+click the place to copy from, then paint), `M` remove, `P` patch (outline the flaw,
+  drag it onto a good place), `E` red-eye, `[` `]` brush size.
+* **Look at it**: wheel / `1` `2` `4` / `F` zoom and pan (also on turned or cropped pictures), `Y` histogram -> RGB parade -> vector
+  scope with the skin line, `X` false colour.
+* **Keeping the edits**: Esc asks (pair file / new file / burn in / discard); Settings > NuEditor chooses the default and the format,
+  JPEG quality, name suffix and EXIF of copies. The pair file `IMG.jpg.nuedit` is plain text next to the picture; the viewer and the
+  gallery show the picture with it applied. `Ctrl+S` saves the default way, `Ctrl+Shift+S` saves a copy with the *Export copy* options
+  (resize with a chosen algorithm, format, colours, file size, watermark, plain-background removal). `Ctrl+Z` / `Ctrl+Y` undo and
+  redo (200 steps); `Ctrl+Alt+Z` brings back the original of a burned-in picture (the viewer's `Ctrl+Z` does too).
+* **Presets**: *Save this look as a preset* in the Presets section; a click applies one. NuGallery's *Convert* can apply a preset or the
+  edits in the pair files to many pictures at once.
+
 ## Keys and mouse (the viewer)
 
 Press **F1** (or **H**) in the app for this list; these are the defaults and **Settings** changes them.
@@ -114,7 +137,7 @@ Press **F1** (or **H**) in the app for this list; these are the defaults and **S
 | `]` `[` · `Shift+]` `Shift+[` | rotate +45° / −45° · +90° / −90° |
 | `Ctrl+S` | save the rotation (JPEG / PNG are rewritten in place, other formats get a PNG copy; the original is backed up and `Ctrl+Z` restores it) |
 | Pointer on the left edge · `V` | viewer controls: a vertical bar (next, previous, fit, 100%, fullscreen, NuEditor, ±45°, slideshow, image sequences, gallery, settings, help, close). It closes when the pointer leaves it; `V` keeps it open |
-| `E` | NuEditor (mock-up: palette and inspector; only Rotate works yet) |
+| `E` | NuEditor (the picture editor, see below; Esc there brings you back to this picture) |
 | 3D: drag · `Shift`+drag · wheel | turn the model · slide it (pan) · zoom; `F` resets all three |
 | 3D: `T` `N` `W` `Shift+S` | texture · normal map · wireframe · shadow on/off |
 | 3D: `Shift+T` `O` `X` `Y` `Z` | next shading · perspective / orthographic · turn the model 90° about X / Y / Z (Shift = back) |

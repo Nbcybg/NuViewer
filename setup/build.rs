@@ -1,7 +1,7 @@
-// Compresses the release nuviewer.exe and nugallery.exe into OUT_DIR/payload.bin so the installer is one self-contained
-// file. They come from $NUVIEWER_EXE / $NUGALLERY_EXE, else <target>/release/. If nuviewer.exe isn't there yet the payload is
+// Compresses the release nuviewer.exe, nugallery.exe and nueditor.exe into OUT_DIR/payload.bin so the installer is one self-contained
+// file. They come from $NUVIEWER_EXE / $NUGALLERY_EXE / $NUEDITOR_EXE, else <target>/release/. If nuviewer.exe isn't there yet the payload is
 // empty (the crate still builds and its tests run; tools/package.ps1 builds both first, so a real setup always has them).
-// A missing nugallery.exe is only a warning: the setup then installs the viewer alone.
+// A missing nugallery.exe or nueditor.exe is only a warning: the setup then installs what it has.
 use std::path::PathBuf;
 
 fn find(var: &str, name: &str, out: &std::path::Path) -> Option<(String, Vec<u8>)> {
@@ -17,15 +17,19 @@ fn main() {
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let viewer = find("NUVIEWER_EXE", "nuviewer.exe", &out);
     let gallery = find("NUGALLERY_EXE", "nugallery.exe", &out);
+    let editor = find("NUEDITOR_EXE", "nueditor.exe", &out);
     if viewer.is_none() {
         println!("cargo:warning=nuviewer.exe not found: building the setup WITHOUT a payload (build nuviewer first, or set NUVIEWER_EXE)");
-    } else if gallery.is_none() {
+    } else if editor.is_none() {
+        println!("cargo:warning=nueditor.exe not found: the setup will install without NuEditor (build nueditor first, or set NUEDITOR_EXE)");
+    }
+    if viewer.is_some() && gallery.is_none() {
         println!("cargo:warning=nugallery.exe not found: the setup will install NuViewer without NuGallery (build nugallery first, or set NUGALLERY_EXE)");
     }
     // Layout of the blob: for every file: name length (u8), name, data length (u64 LE), data.
     let mut blob = Vec::new();
     if let Some(v) = viewer {
-        for (name, data) in std::iter::once(v).chain(gallery) {
+        for (name, data) in std::iter::once(v).chain(gallery).chain(editor) {
             blob.push(name.len() as u8);
             blob.extend(name.as_bytes());
             blob.extend((data.len() as u64).to_le_bytes());

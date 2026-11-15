@@ -12,6 +12,9 @@ use nv_win::shell::{self, Answer};
 
 /// Where originals are kept while their rewritten version exists (pruned after a week).
 pub fn backup_dir() -> PathBuf {
+    if let Some(d) = std::env::var_os("NUEDITOR_BACKUP_DIR") {
+        return PathBuf::from(d); // the tests (and NuEditor, which keeps the same folder)
+    }
     let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     base.join("NuViewer").join("undo")
 }

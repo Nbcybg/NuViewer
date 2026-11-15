@@ -72,6 +72,7 @@ pub enum Cmd {
     Open,
     Slideshow,
     Quick(QuickOp),
+    NuEditor,
     EditWith(usize),
     ChooseProgram,
     SetUpPrograms,
@@ -156,6 +157,7 @@ impl App {
         menu.push(b.item(Cmd::Open, "Open\tSpace").enabled(has));
         menu.push(b.item(Cmd::Slideshow, "Slideshow\tF8").enabled(any_pic));
         let quick: Vec<Item> = [QuickOp::RotateLeft, QuickOp::RotateRight, QuickOp::FlipH, QuickOp::FlipV].iter().map(|&q| b.item(Cmd::Quick(q), q.label())).collect();
+        menu.push(b.item(Cmd::NuEditor, "Edit in NuEditor	F4").enabled(any_pic && !many));
         menu.push(Item::Submenu { text: "Quick edit".into(), items: quick, enabled: all_rewritable });
         let mut with: Vec<Item> = externals.iter().enumerate().map(|(i, name)| b.item(Cmd::EditWith(i), name.clone())).collect();
         if !with.is_empty() {
@@ -276,6 +278,7 @@ impl App {
             Cmd::Open => self.open_selected(false),
             Cmd::Slideshow => self.open_selected(true),
             Cmd::Quick(op) => self.quick_edit(op),
+            Cmd::NuEditor => self.launch_editor(),
             Cmd::EditWith(i) => self.edit_with(Some(i)),
             Cmd::ChooseProgram => self.edit_with(None),
             Cmd::SetUpPrograms => self.launch_viewer_settings(),

@@ -79,10 +79,48 @@ impl App {
                 self.toast("NuEditor works on pictures, not 3D models");
                 return;
             }
+            // NuEditor next to us: hand the picture over (this window closes, the editor brings it back).
+            if self.launch_nueditor() {
+                return;
+            }
             self.editor.open = true;
             self.sidebar.hover = false;
         }
         invalidate(self.hwnd);
+    }
+
+    /// Start `nueditor.exe` on the picture on screen and close this window; Esc in the editor opens the viewer again on the same
+    /// picture (`--from viewer`). A turn that is pending here is not saved or asked about: it goes along as the editor's starting
+    /// angle, so nothing is lost and nothing is written twice. False if there is no NuEditor next to this program.
+    fn launch_nueditor(&mut self) -> bool {
+        let Some(exe) = std::env::current_exe().ok().map(|e| e.with_file_name("nueditor.exe")).filter(|p| p.is_file()) else { return false };
+        let Some(path) = self.folder.files.get(self.folder.index).cloned() else { return false };
+        let turn = self.rotation();
+        let mut cmd = std::process::Command::new(exe);
+        cmd.arg(&path).arg("--from").arg("viewer");
+        if crate::FROM_GALLERY.load(Ordering::Relaxed) {
+            cmd.arg("--via-gallery");
+        }
+        if turn != 0.0 {
+            let t = nv_editor::raster::normalize_degrees(turn);
+            cmd.arg("--angle").arg(format!("{}", if t > 180.0 { t - 360.0 } else { t }));
+        }
+        nv_win::remember_window(self.hwnd); // the editor opens as a window / fullscreen like this one, in the same place
+        match cmd.spawn() {
+            Ok(child) => {
+                nv_win::instance::allow_foreground(child.id());
+                self.edits.clear();
+                self.edits_for = None;
+                // The editor takes over the way back (to this program, or through it to the gallery).
+                crate::FROM_GALLERY.store(false, Ordering::Relaxed);
+                quit();
+                true
+            }
+            Err(e) => {
+                self.toast(format!("Couldn't start NuEditor: {e}"));
+                false
+            }
+        }
     }
 
     fn hit_editor(&self, x: i32, y: i32) -> Option<Hit> {

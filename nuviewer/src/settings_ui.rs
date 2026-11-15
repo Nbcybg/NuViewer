@@ -5,7 +5,7 @@ use super::*;
 use nv_core::keys::{self, ACTIONS};
 use nv_codecs::model::{LightMode, Shading, UpAxis};
 use nv_codecs::{Intent, RawMode};
-use nv_core::settings::{CmykChoice, External, HoldZoom, ProfileChoice, RotateSave, Settings, WheelAction};
+use nv_core::settings::{CmykChoice, EditorFormat, EditorSave, External, HoldZoom, ProfileChoice, RotateSave, Settings, WheelAction};
 use nv_win::ui::{Form, ID_CANCEL, ID_OK, SELECTION_CHANGED};
 
 // Page tabs.
@@ -16,6 +16,16 @@ const TAB_INPUT: u16 = 13;
 const TAB_3D: u16 = 14;
 const TAB_COLOUR: u16 = 15;
 const TAB_PRINT: u16 = 16;
+const TAB_EDITOR: u16 = 17;
+// NuEditor page.
+const ED_SAVE: u16 = 901;
+const ED_ASK: u16 = 902;
+const ED_FORMAT: u16 = 903;
+const ED_QUALITY: u16 = 904;
+const ED_SUFFIX: u16 = 905;
+const ED_EXIF: u16 = 906;
+const ED_SHOW_PAIR: u16 = 907;
+const ED_WATERMARK: u16 = 908;
 // Viewer page.
 const V_CANVAS: u16 = 101;
 const V_PICK: u16 = 102;
@@ -108,6 +118,10 @@ const RAW_VALUES: [RawMode; 3] = [RawMode::Full, RawMode::Half, RawMode::Preview
 const WHEEL_ITEMS: [&str; 3] = ["Previous / next picture (Ctrl+wheel zooms)", "Zoom (Ctrl+wheel: previous / next)", "Nothing"];
 const WHEEL_VALUES: [WheelAction; 3] = [WheelAction::Pages, WheelAction::Zoom, WheelAction::Off];
 const ROTATE_ITEMS: [&str; 2] = ["Ask me every time (Save / Discard / Stay)", "Save automatically"];
+const EDITOR_ITEMS: [&str; 3] = ["Pair file next to the picture, picture untouched (the factory choice)", "New file next to the picture (name_edit.jpg)", "Burn in: replace the picture (the original is backed up for 7 days)"];
+const EDITOR_VALUES: [EditorSave; 3] = [EditorSave::Pair, EditorSave::NewFile, EditorSave::Burn];
+const FORMAT_ITEMS: [&str; 4] = ["Same as the picture (JPEG stays JPEG, everything else becomes PNG)", "JPEG", "PNG", "WebP (lossless)"];
+const FORMAT_VALUES: [EditorFormat; 4] = [EditorFormat::Same, EditorFormat::Jpeg, EditorFormat::Png, EditorFormat::Webp];
 const ROTATE_VALUES: [RotateSave; 2] = [RotateSave::Ask, RotateSave::Auto];
 const LIGHT_ITEMS: [&str; 2] = ["From the viewer (a headlight that follows the camera)", "Fixed in the scene (the model turns under it)"];
 const LIGHT_VALUES: [LightMode; 2] = [LightMode::Viewer, LightMode::World];
@@ -179,13 +193,13 @@ fn parse_percent(text: &str, lo: u32, hi: u32, fallback: u32) -> u32 {
 
 /// Show the window. Returns the new settings if the user pressed OK.
 pub fn edit(current: &Settings) -> Option<Settings> {
-    let form = Form::new(&format!("NuViewer {} — Settings", env!("CARGO_PKG_VERSION")), 720, 704).ok()?;
+    let form = Form::new(&format!("NuViewer {} — Settings", env!("CARGO_PKG_VERSION")), 760, 704).ok()?;
     let c = current;
 
     // Tabs (always visible).
     form.begin_page(0);
     let mut tab_x = 12;
-    for (i, (id, name, width)) in [(TAB_VIEWER, "Viewer", 70), (TAB_COLOUR, "Colour", 70), (TAB_PRINT, "CMYK && RAW", 104), (TAB_3D, "3D", 44), (TAB_TYPES, "File types", 90), (TAB_EXTERNAL, "External programs", 140), (TAB_INPUT, "Mouse && keyboard", 150)].iter().enumerate() {
+    for (i, (id, name, width)) in [(TAB_VIEWER, "Viewer", 64), (TAB_COLOUR, "Colour", 64), (TAB_PRINT, "CMYK && RAW", 100), (TAB_3D, "3D", 40), (TAB_TYPES, "File types", 80), (TAB_EXTERNAL, "External programs", 128), (TAB_INPUT, "Mouse && keyboard", 138), (TAB_EDITOR, "NuEditor", 76)].iter().enumerate() {
         form.tab(*id, tab_x, 10, *width, 30, name, i == 0, i == 0);
         tab_x += *width + 4;
     }
@@ -238,6 +252,26 @@ pub fn edit(current: &Settings) -> Option<Settings> {
     form.label_id(C_UNT_STATUS, 28, 436, 660, 36, "");
     form.label(28, 474, 660, 28, "A picture with its own profile always uses it. SVG and other renders are always sRGB. CMYK pictures and rendering intent: see the CMYK && RAW tab.");
     form.label(14, 516, 690, 70, "Rotated pictures that are saved, and the clipboard, stay sRGB. Thumbnails and the picture on screen follow the output profile. A changed profile reloads the open pictures when you press OK.");
+
+    // ---- page 8: NuEditor ----
+    form.begin_page(8);
+    form.group(12, 52, 696, 190, "Keeping edits when I leave NuEditor");
+    form.label(28, 82, 660, 20, "Keep my edits as:");
+    form.combo(ED_SAVE, 28, 106, 600, 110, &EDITOR_ITEMS, EDITOR_VALUES.iter().position(|v| *v == c.editor_save).unwrap_or(0));
+    form.check(ED_ASK, 28, 144, 660, 22, "Ask me every time I leave with edits (this choice is then the button Enter presses); off = use it without asking", c.editor_ask);
+    form.label(28, 180, 660, 56, "A pair file (IMG.jpg.nuedit) holds the edits as plain text next to the picture: the picture is never touched, the edits can be changed or removed later, and NuEditor applies them when the picture is opened again. Ctrl+S inside NuEditor follows the same choice.");
+    form.group(12, 252, 696, 252, "New files, and pictures that are rewritten");
+    form.label(28, 280, 200, 20, "A new file is saved as:");
+    form.combo(ED_FORMAT, 28, 304, 600, 110, &FORMAT_ITEMS, FORMAT_VALUES.iter().position(|v| *v == c.editor_format).unwrap_or(0));
+    form.label(28, 342, 150, 20, "JPEG quality (1-100):");
+    form.edit(ED_QUALITY, 180, 340, 60, 24, &c.editor_quality.to_string());
+    form.label(268, 342, 200, 20, "Name of a copy: picture +");
+    form.edit(ED_SUFFIX, 450, 340, 110, 24, &c.editor_suffix);
+    form.check(ED_EXIF, 28, 376, 660, 22, "Keep the camera information (EXIF) in JPEGs that NuEditor writes", c.editor_exif);
+    form.label(28, 410, 150, 20, "Watermark text:");
+    form.edit(ED_WATERMARK, 180, 408, 380, 24, &c.editor_watermark);
+    form.label(28, 440, 660, 56, "Quality, EXIF and the format apply to a new file and to a picture that is burned in (a burned-in JPEG stays a JPEG, a PNG stays a PNG). \"Export copy\" in the NuEditor panel starts from these and can also resize, reduce colours, aim at a file size, stamp the watermark text and remove a plain background.");
+    form.check(ED_SHOW_PAIR, 12, 516, 696, 22, "NuViewer and NuGallery show a picture with its pair file (.nuedit) applied", c.editor_show_pair);
 
     // ---- page 7: CMYK & RAW ----
     form.begin_page(7);
@@ -344,8 +378,8 @@ pub fn edit(current: &Settings) -> Option<Settings> {
 
     // Buttons (always visible).
     form.begin_page(0);
-    form.button(ID_OK, 536, 666, 84, 28, "OK", true);
-    form.button(ID_CANCEL, 628, 666, 80, 28, "Cancel", false);
+    form.button(ID_OK, 576, 666, 84, 28, "OK", true);
+    form.button(ID_CANCEL, 668, 666, 80, 28, "Cancel", false);
     form.show_page(1);
 
     let mut cur = c.clone();
@@ -404,6 +438,7 @@ pub fn edit(current: &Settings) -> Option<Settings> {
             TAB_TYPES => form.show_page(2),
             TAB_EXTERNAL => form.show_page(3),
             TAB_INPUT => form.show_page(4),
+            TAB_EDITOR => form.show_page(8),
             V_PICK => {
                 let now = u32::from_str_radix(form.text(V_CANVAS).trim().trim_start_matches('#'), 16).unwrap_or(cur.canvas);
                 if let Some(c) = nv_win::shell::pick_color(form.hwnd, now) {
@@ -527,6 +562,14 @@ pub fn edit(current: &Settings) -> Option<Settings> {
                 s.documents = form.is_checked(V_DOCS);
                 s.wheel = WHEEL_VALUES[form.combo_index(M_WHEEL).min(WHEEL_VALUES.len() - 1)];
                 s.sidebar = form.is_checked(V_SIDEBAR);
+                s.editor_save = EDITOR_VALUES[form.combo_index(ED_SAVE).min(EDITOR_VALUES.len() - 1)];
+                s.editor_ask = form.is_checked(ED_ASK);
+                s.editor_format = FORMAT_VALUES[form.combo_index(ED_FORMAT).min(FORMAT_VALUES.len() - 1)];
+                s.editor_quality = parse_percent(&form.text(ED_QUALITY), 1, 100, cur.editor_quality as u32) as u8;
+                s.editor_suffix = form.text(ED_SUFFIX).chars().filter(|c| !r#"\/:*?"<>|"#.contains(*c)).take(32).collect();
+                s.editor_exif = form.is_checked(ED_EXIF);
+                s.editor_show_pair = form.is_checked(ED_SHOW_PAIR);
+                s.editor_watermark = form.text(ED_WATERMARK).chars().take(120).collect();
                 s.rotate_save = ROTATE_VALUES[form.combo_index(V_ROTATE_SAVE).min(ROTATE_VALUES.len() - 1)];
                 s.model.shading = Shading::ALL[form.combo_index(D_SHADING).min(Shading::ALL.len() - 1)];
                 s.model.texture = form.is_checked(D_TEXTURE);
@@ -571,7 +614,7 @@ impl App {
         let sequences_changed = s.sequences != self.settings.sequences || s.sequence_min != self.settings.sequence_min;
         self.keymap = Keymap::new(&s.keys);
         CANVAS.store(s.canvas, Ordering::Relaxed);
-        let colour_key = |s: &Settings| (s.icc, s.icc_output, s.icc_output_file.clone(), s.icc_untagged, s.icc_untagged_file.clone(), s.cmyk, s.cmyk_file.clone(), s.intent, s.bpc, s.raw_mode, s.raw_thumbs);
+        let colour_key = |s: &Settings| (s.icc, s.icc_output, s.icc_output_file.clone(), s.icc_untagged, s.icc_untagged_file.clone(), s.cmyk, s.cmyk_file.clone(), s.intent, s.bpc, s.raw_mode, s.raw_thumbs, s.editor_show_pair);
         let colour_changed = colour_key(&s) != colour_key(&self.settings);
         let colour_error = crate::colour::apply(&s, Some(self.hwnd)).err();
         let textures_changed = s.model_textures != self.settings.model_textures;

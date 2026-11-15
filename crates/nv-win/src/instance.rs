@@ -19,11 +19,12 @@ const FLAG_FROM_GALLERY: usize = 4;
 /// How long a second launch keeps trying to reach a first instance that is still starting up or briefly busy.
 const REACH_TIMEOUT_MS: u64 = 3000;
 
-/// The two programs that each keep to one window.
+/// The programs that each keep to one window.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Program {
     Viewer,
     Gallery,
+    Editor,
 }
 
 impl Program {
@@ -31,6 +32,7 @@ impl Program {
         match self {
             Program::Viewer => w!("Local\\NuViewer.SingleInstance.v1"),
             Program::Gallery => w!("Local\\NuGallery.SingleInstance.v1"),
+            Program::Editor => w!("Local\\NuEditor.SingleInstance.v1"),
         }
     }
 
@@ -38,6 +40,7 @@ impl Program {
         match self {
             Program::Viewer => w!("NuViewerWindow"),
             Program::Gallery => w!("NuGalleryWindow"),
+            Program::Editor => w!("NuEditorWindow"),
         }
     }
 
@@ -46,6 +49,7 @@ impl Program {
         match self {
             Program::Viewer => "NuViewerWindow",
             Program::Gallery => "NuGalleryWindow",
+            Program::Editor => "NuEditorWindow",
         }
     }
 }

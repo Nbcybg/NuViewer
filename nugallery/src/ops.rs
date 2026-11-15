@@ -6,7 +6,13 @@ use crate::app::{same_dir, Active, App, Focus, Job, JobResult, Msg};
 use crate::input::TextInput;
 use crate::menus::{Preset, QuickOp};
 use nv_core::fileops;
-use nv_editor::{convert::Out, raster, save, Pixels};
+use nv_editor::export::{self, Export, Mark, SizeMode};
+use nv_editor::preset;
+use nv_editor::recipe::Recipe;
+use nv_editor::resample::Algo;
+use nv_editor::sidecar::{self, Source};
+use nv_editor::watermark::Place;
+use nv_editor::{convert::Out, engine, raster, save, Pixels};
 use nv_win::files::{self, Op};
 use nv_win::shell;
 use std::path::{Path, PathBuf};
@@ -40,6 +46,24 @@ pub struct ConvertSpec {
     pub suffix: String,
     /// Send the originals to the Recycle Bin once their copy exists.
     pub delete_originals: bool,
+    /// Apply each picture's pair file (the edits made in NuEditor) to its copy.
+    pub apply_edits: bool,
+    /// A NuEditor preset (.nupreset) whose look every copy gets.
+    pub preset: Option<PathBuf>,
+    /// How the picture is resampled when it changes size.
+    pub algo: Algo,
+    pub colours: Option<u32>,
+    pub target_kb: Option<u32>,
+    pub remove_bg: Option<f32>,
+    /// Text stamped in the bottom right corner.
+    pub watermark: Option<String>,
+}
+
+impl ConvertSpec {
+    /// A plain conversion: format, longest side, folder, name suffix; nothing else.
+    pub fn simple(out: Out, max_edge: Option<u32>, dest: Option<PathBuf>, suffix: String, delete_originals: bool) -> ConvertSpec {
+        ConvertSpec { out, max_edge, dest, suffix, delete_originals, apply_edits: false, preset: None, algo: Algo::Lanczos, colours: None, target_kb: None, remove_bg: None, watermark: None }
+    }
 }
 
 /// Convert one picture; returns the new file.
@@ -50,18 +74,42 @@ pub fn convert_one(src: &Path, spec: &ConvertSpec) -> Result<PathBuf, String> {
         return Err("3D models can't be converted to a picture".into());
     }
     let img = img.finish_for_cpu();
-    let img = match spec.max_edge {
-        Some(m) if img.width.max(img.height) > m => nv_codecs::downscale(&img, m),
-        _ => img,
-    };
-    let pixels = Pixels::new(img.width, img.height, img.rgba);
+    let mut pixels = Pixels::new(img.width, img.height, img.rgba);
+    // The edits made in NuEditor: the picture's pair file, then the chosen preset's look over it.
+    if spec.apply_edits || spec.preset.is_some() {
+        let mut recipe = Recipe::default();
+        if spec.apply_edits {
+            if let Ok(Some((r, info))) = sidecar::load(src) {
+                if info.matches(&Source { width: pixels.w, height: pixels.h, ..Default::default() }) {
+                    recipe = r;
+                }
+            }
+        }
+        if let Some(look) = spec.preset.as_ref().and_then(|p| preset::load(p).ok()) {
+            recipe = preset::apply(&recipe, &look);
+        }
+        if !recipe.is_identity() {
+            pixels = engine::render(&pixels, &recipe);
+        }
+    }
     // A JPEG made from a JPEG keeps its EXIF (camera, date, ...), with the orientation set to upright.
-    let exif = if matches!(spec.out, Out::Jpeg(_)) && matches!(ext.as_str(), "jpg" | "jpeg" | "jpe" | "jfif") {
-        std::fs::read(src).ok().and_then(|b| save::exif_of_jpeg(&b, (pixels.w, pixels.h)))
-    } else {
-        None
+    let exif_source = if matches!(spec.out, Out::Jpeg(_)) && matches!(ext.as_str(), "jpg" | "jpeg" | "jpe" | "jfif") { std::fs::read(src).ok() } else { None };
+    let mut e = Export::new(spec.out);
+    e.background = [255, 255, 255];
+    e.size = match spec.max_edge {
+        Some(m) if pixels.w.max(pixels.h) > m => SizeMode::LongEdge(m),
+        _ => SizeMode::Original,
     };
-    let bytes = convert_encode(&pixels, spec.out, exif.as_deref())?;
+    e.algo = spec.algo;
+    e.colours = spec.colours;
+    e.target_kb = spec.target_kb;
+    e.remove_bg = spec.remove_bg;
+    if let Some(text) = &spec.watermark {
+        if let Some((w, h, rgba)) = nv_win::text::watermark_bitmap(text) {
+            e.mark = Some(Mark { image: Pixels::new(w, h, rgba), place: Place::BottomRight, width_frac: 0.25, opacity: 0.7 });
+        }
+    }
+    let bytes = export::run(pixels, &e, exif_source.as_deref())?.bytes;
     let dir = spec.dest.clone().or_else(|| src.parent().map(Path::to_path_buf)).ok_or("no folder")?;
     let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "picture".into());
     let name = format!("{stem}{}.{}", spec.suffix, spec.out.ext());
@@ -72,10 +120,6 @@ pub fn convert_one(src: &Path, spec: &ConvertSpec) -> Result<PathBuf, String> {
         let _ = nv_core::batch::set_file_times(&dst, modified, nv_core::batch::WhichTimes { created: false, modified: true, accessed: false });
     }
     Ok(dst)
-}
-
-fn convert_encode(p: &Pixels, out: Out, exif: Option<&[u8]>) -> Result<Vec<u8>, String> {
-    nv_editor::convert::encode(p, out, [255, 255, 255], exif)
 }
 
 /// Turn / flip a JPEG or PNG in place (the original goes to the backup folder first). The file's date is kept.
@@ -161,6 +205,24 @@ impl App {
                 nv_win::instance::allow_foreground(child.id());
             }
             Err(e) => self.toast(format!("Couldn't start NuViewer: {e}")),
+        }
+    }
+
+    /// F4 / "Edit in NuEditor": open the selected picture in the editor. The gallery stays behind; when the editor closes it
+    /// comes back to this window on that picture (`--from gallery`).
+    pub fn launch_editor(&mut self) {
+        let Some(path) = self.sel.entries(&self.listing).first().filter(|e| !e.is_dir() && e.viewable()).map(|e| e.path.clone()) else { return };
+        let Some(exe) = std::env::current_exe().ok().map(|e| e.with_file_name("nueditor.exe")).filter(|p| p.is_file()) else {
+            self.toast("NuEditor isn't installed next to NuGallery");
+            return;
+        };
+        nv_win::remember_window(self.hwnd); // the editor opens as a window / fullscreen like this one, in the same place
+        match std::process::Command::new(exe).arg(&path).arg("--from").arg("gallery").spawn() {
+            Ok(child) => {
+                self.editor_started = true;
+                nv_win::instance::allow_foreground(child.id());
+            }
+            Err(e) => self.toast(format!("Couldn't start NuEditor: {e}")),
         }
     }
 
@@ -543,7 +605,7 @@ impl App {
             Preset::Resize(n) => format!("_{n}px"),
             _ => String::new(),
         };
-        let spec = ConvertSpec { out: p.target(), max_edge: p.max_edge(), dest: None, suffix, delete_originals: false };
+        let spec = ConvertSpec::simple(p.target(), p.max_edge(), None, suffix, false);
         self.convert_selected(spec);
     }
 
@@ -642,7 +704,7 @@ mod tests {
         let d = temp_dir("conv");
         let src = d.join("pic.png");
         write_png(&src, 40, 20);
-        let spec = ConvertSpec { out: Out::Jpeg(90), max_edge: Some(20), dest: None, suffix: "_small".into(), delete_originals: false };
+        let spec = ConvertSpec::simple(Out::Jpeg(90), Some(20), None, "_small".into(), false);
         let dst = convert_one(&src, &spec).unwrap();
         assert_eq!(dst.file_name().unwrap().to_string_lossy(), "pic_small.jpg");
         assert!(src.exists());
@@ -655,7 +717,7 @@ mod tests {
         // Into another folder, as PNG -> WebP.
         let other = d.join("out");
         fs::create_dir_all(&other).unwrap();
-        let w = convert_one(&src, &ConvertSpec { out: Out::Webp, max_edge: None, dest: Some(other.clone()), suffix: String::new(), delete_originals: false }).unwrap();
+        let w = convert_one(&src, &ConvertSpec::simple(Out::Webp, None, Some(other.clone()), String::new(), false)).unwrap();
         assert_eq!(w, other.join("pic.webp"));
         let _ = fs::remove_dir_all(&d);
     }

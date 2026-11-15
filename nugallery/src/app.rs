@@ -188,6 +188,8 @@ pub struct App {
     pub cpu: Option<crate::cpu::Canvas>,
     /// NuViewer was started from here: closing the gallery closes it too.
     pub viewer_started: bool,
+    /// NuEditor was started from here: closing the gallery closes it too (it asks about unsaved edits first).
+    pub editor_started: bool,
     /// Type-ahead: the letters typed so far and when the last one came.
     pub typeahead: String,
     pub typeahead_at: Option<Instant>,
@@ -281,6 +283,7 @@ impl App {
             cursor_hint: None,
             cpu: None,
             viewer_started: false,
+            editor_started: false,
             typeahead: String::new(),
             typeahead_at: None,
             sb_drag: None,
@@ -849,7 +852,18 @@ impl App {
                 }
                 nv_win::instance::bring_to_front(self.hwnd);
                 if let Some(p) = path {
-                    self.show_path(Path::new(&p));
+                    // A picture may have been rewritten or a copy added meanwhile (NuEditor): read the folder again, on that picture.
+                    let p = Path::new(&p);
+                    if p.parent().map(|d| same_dir(&self.listing.dir, d)).unwrap_or(false) {
+                        // Its thumbnail may be out of date (burned in, or its pair file changed): make it again.
+                        let id = model::path_id(p);
+                        if let Some(r) = &mut self.renderer {
+                            r.retain_thumbs(|t| t != id && t != info::preview_key(id));
+                        }
+                        self.refresh(vec![p.to_path_buf()]);
+                    } else {
+                        self.show_path(p);
+                    }
                 }
             }
             Event::Drop { paths, x, y } => self.on_drop(paths, x, y),
@@ -858,6 +872,9 @@ impl App {
                 // Closing the gallery closes the program: a viewer it opened goes with it.
                 if self.viewer_started {
                     nv_win::instance::close_window(nv_win::instance::Program::Viewer);
+                }
+                if self.editor_started {
+                    nv_win::instance::close_window(nv_win::instance::Program::Editor);
                 }
                 if self.job.is_some() {
                     if let Some(j) = &self.job {
@@ -1425,6 +1442,7 @@ impl App {
             0x24 => self.move_cursor_to(0),
             0x23 => self.move_cursor_to(usize::MAX),
             0x20 => self.open_selected(false),  // Space: view
+            0x73 => self.launch_editor(),       // F4: edit in NuEditor
             0x0D if alt => crate::draw::toggle_fullscreen(self),
             0x0D => self.move_cursor(1),        // Enter: next file
             0x08 => self.go_up(),               // Backspace: up one folder
@@ -1509,6 +1527,9 @@ impl App {
         self.save_state();
         if self.viewer_started {
             nv_win::instance::close_window(nv_win::instance::Program::Viewer);
+        }
+        if self.editor_started {
+            nv_win::instance::close_window(nv_win::instance::Program::Editor);
         }
         nv_win::quit();
     }

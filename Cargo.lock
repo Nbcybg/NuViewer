@@ -1140,6 +1140,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nueditor"
+version = "0.1.0"
+dependencies = [
+ "nv-codecs",
+ "nv-core",
+ "nv-editor",
+ "nv-render",
+ "nv-win",
+]
+
+[[package]]
 name = "nugallery"
 version = "0.1.0"
 dependencies = [
@@ -1298,6 +1309,7 @@ version = "0.1.0"
 dependencies = [
  "flate2",
  "nv-codecs",
+ "nv-editor",
 ]
 
 [[package]]

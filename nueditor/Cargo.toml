@@ -1,0 +1,17 @@
+[package]
+name = "nueditor"
+version.workspace = true
+edition.workspace = true
+
+# NuEditor: the picture editor. Its own program (own window, own process) like NuGallery, so the viewer and the gallery stay small
+# and fast; the three hand work to each other through `nv_win::instance` (see docs/nueditor.md).
+[[bin]]
+name = "nueditor"
+path = "src/main.rs"
+
+[dependencies]
+nv-core = { path = "../crates/nv-core" }
+nv-codecs = { path = "../crates/nv-codecs" }
+nv-render = { path = "../crates/nv-render" }
+nv-win = { path = "../crates/nv-win" }
+nv-editor = { path = "../crates/nv-editor" }

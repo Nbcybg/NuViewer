@@ -17,6 +17,67 @@ pub enum RotateSave {
     Auto,
 }
 
+/// How NuEditor keeps the edits of a picture when it is left (and what the leave question offers first).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum EditorSave {
+    /// A pair file next to the picture (`IMG.jpg.nuedit`); the picture is untouched. The factory choice.
+    Pair,
+    /// A new file next to the picture (`IMG_edit.jpg`).
+    NewFile,
+    /// The picture itself is replaced (the original is backed up).
+    Burn,
+}
+
+impl EditorSave {
+    pub fn id(self) -> &'static str {
+        match self {
+            EditorSave::Pair => "pair",
+            EditorSave::NewFile => "new",
+            EditorSave::Burn => "burn",
+        }
+    }
+
+    pub fn from_id(s: &str) -> Option<EditorSave> {
+        match s.to_ascii_lowercase().as_str() {
+            "pair" => Some(EditorSave::Pair),
+            "new" => Some(EditorSave::NewFile),
+            "burn" => Some(EditorSave::Burn),
+            _ => None,
+        }
+    }
+}
+
+/// The file format of a copy NuEditor saves ("new file" and "save a copy as").
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum EditorFormat {
+    /// The picture's own format when it can be written (JPEG, PNG), else PNG.
+    Same,
+    Jpeg,
+    Png,
+    Webp,
+}
+
+impl EditorFormat {
+    pub fn id(self) -> &'static str {
+        match self {
+            EditorFormat::Same => "same",
+            EditorFormat::Jpeg => "jpeg",
+            EditorFormat::Png => "png",
+            EditorFormat::Webp => "webp",
+        }
+    }
+
+    pub fn from_id(s: &str) -> Option<EditorFormat> {
+        match s.to_ascii_lowercase().as_str() {
+            "same" => Some(EditorFormat::Same),
+            "jpeg" | "jpg" => Some(EditorFormat::Jpeg),
+            "png" => Some(EditorFormat::Png),
+            "webp" => Some(EditorFormat::Webp),
+            _ => None,
+        }
+    }
+}
+
 /// Where a colour profile comes from.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ProfileChoice {
@@ -159,6 +220,18 @@ pub struct Settings {
     pub model_textures: bool,
     /// Rotating a picture: save it when moving on, or ask first.
     pub rotate_save: RotateSave,
+    /// NuEditor: the way edits are kept by default, and whether leaving asks (otherwise the default is used without asking).
+    pub editor_save: EditorSave,
+    pub editor_ask: bool,
+    /// NuEditor copies: format, JPEG quality (1..=100), the text added to the file name, and whether EXIF is carried over.
+    pub editor_format: EditorFormat,
+    pub editor_quality: u8,
+    pub editor_suffix: String,
+    pub editor_exif: bool,
+    /// The viewer and the gallery show a picture with its pair file (`.nuedit`) applied.
+    pub editor_show_pair: bool,
+    /// Text of the watermark NuEditor can stamp on a copy.
+    pub editor_watermark: String,
     /// How the pictures of a folder are ordered (next / previous, gallery, film strip), and whether that is reversed.
     pub sort: SortKey,
     pub sort_desc: bool,
@@ -206,6 +279,14 @@ impl Default for Settings {
             disk_monitor: false,
             model_textures: true,
             rotate_save: RotateSave::Ask,
+            editor_save: EditorSave::Pair,
+            editor_ask: true,
+            editor_format: EditorFormat::Same,
+            editor_quality: 95,
+            editor_suffix: "_edit".to_string(),
+            editor_exif: true,
+            editor_show_pair: true,
+            editor_watermark: String::new(),
             sort: SortKey::Name,
             sort_desc: false,
             film_strip: true,
@@ -312,6 +393,14 @@ impl Settings {
                         _ => s.rotate_save,
                     }
                 }
+                "editor_save" => s.editor_save = EditorSave::from_id(v).unwrap_or(s.editor_save),
+                "editor_ask" => s.editor_ask = parse_bool(v).unwrap_or(s.editor_ask),
+                "editor_format" => s.editor_format = EditorFormat::from_id(v).unwrap_or(s.editor_format),
+                "editor_quality" => s.editor_quality = v.parse().ok().filter(|q| (1..=100).contains(q)).unwrap_or(s.editor_quality),
+                "editor_suffix" => s.editor_suffix = v.chars().filter(|c| !"\\/:*?\"<>|".contains(*c)).take(32).collect(),
+                "editor_exif" => s.editor_exif = parse_bool(v).unwrap_or(s.editor_exif),
+                "editor_show_pair" => s.editor_show_pair = parse_bool(v).unwrap_or(s.editor_show_pair),
+                "editor_watermark" => s.editor_watermark = v.chars().take(120).collect(),
                 "sort" => s.sort = SortKey::from_id(v).unwrap_or(s.sort),
                 "sort_desc" => s.sort_desc = parse_bool(v).unwrap_or(s.sort_desc),
                 "film_strip" => s.film_strip = parse_bool(v).unwrap_or(s.film_strip),
@@ -404,6 +493,16 @@ impl Settings {
                 RotateSave::Auto => "auto",
             }
         );
+        out += &format!("editor_save = {}\neditor_ask = {}\n", self.editor_save.id(), b(self.editor_ask));
+        out += &format!(
+            "editor_format = {}\neditor_quality = {}\neditor_suffix = {}\neditor_exif = {}\neditor_show_pair = {}\neditor_watermark = {}\n",
+            self.editor_format.id(),
+            self.editor_quality,
+            self.editor_suffix,
+            b(self.editor_exif),
+            b(self.editor_show_pair),
+            self.editor_watermark.replace(['\r', '\n'], " ")
+        );
         out += &format!("sort = {}\nsort_desc = {}\nfilm_strip = {}\nread_rtl = {}\nread_start = {}\n", self.sort.id(), b(self.sort_desc), b(self.film_strip), b(self.read_rtl), self.read_start);
         let m = &self.model;
         out += &format!(
@@ -490,6 +589,12 @@ mod tests {
         s.wheel = WheelAction::Zoom;
         s.sidebar = false;
         s.rotate_save = RotateSave::Auto;
+        s.editor_format = EditorFormat::Webp;
+        s.editor_quality = 82;
+        s.editor_suffix = "-web".into();
+        s.editor_exif = false;
+        s.editor_show_pair = false;
+        s.editor_watermark = "(c) Me = 2026".into();
         s.sort = SortKey::Modified;
         s.sort_desc = true;
         s.film_strip = false;
