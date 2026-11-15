@@ -168,17 +168,34 @@ Start-Sleep -Milliseconds 500
 $after = Bar-Rows
 Check 'clicking the track scrolls' (($after | Measure-Object -Minimum).Minimum -gt (($before | Measure-Object -Minimum).Minimum + 100)) "before=$(($before|Measure-Object -Minimum).Minimum) after=$(($after|Measure-Object -Minimum).Minimum)"
 
-# --- Alt+Enter: fullscreen and back to a window in the middle of the screen
+# --- Alt+Enter, as Windows sends it for a real key press (WM_SYSKEYDOWN): fullscreen = exactly the monitor, no caption;
+# a window = captioned and in the middle of the screen. Three trips, because the second one used to come back wrong.
 $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-Inject 0x0D 4 900
-[void][In]::GetWindowRect($script:win, [ref]$r)
 $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-Check 'Alt+Enter goes fullscreen' (($r.R - $r.L) -eq $bounds.Width -and ($r.B - $r.T) -eq $bounds.Height) "$($r.R-$r.L)x$($r.B-$r.T)"
-Inject 0x0D 4 900
-[void][In]::GetWindowRect($script:win, [ref]$r)
-$cx = ($r.L + $r.R) / 2; $cy = ($r.T + $r.B) / 2
-Check 'Alt+Enter again: a window, centred' ((($r.R - $r.L) -lt $bounds.Width) -and ([math]::Abs($cx - ($wa.Left + $wa.Width / 2)) -lt 6) -and ([math]::Abs($cy - ($wa.Top + $wa.Height / 2)) -lt 6)) "rect $($r.L),$($r.T) $($r.R-$r.L)x$($r.B-$r.T)"
+function Alt-Enter { [void][In]::PostMessage($script:win, 0x0104, [IntPtr]0x0D, [IntPtr]0x201C0001); Start-Sleep -Milliseconds 1000 }
+function Is-Full { [void][In]::GetWindowRect($script:win, [ref]$r); (($r.R - $r.L) -eq $bounds.Width) -and (($r.B - $r.T) -eq $bounds.Height) -and (([In]::GetWindowLong($script:win, -16) -band 0x00C00000) -eq 0) }
+function Is-Window { [void][In]::GetWindowRect($script:win, [ref]$r); $cx = ($r.L + $r.R) / 2; $cy = ($r.T + $r.B) / 2
+    (($r.R - $r.L) -lt $bounds.Width) -and (([In]::GetWindowLong($script:win, -16) -band 0x00C00000) -ne 0) -and ([math]::Abs($cx - ($wa.Left + $wa.Width / 2)) -lt 6) -and ([math]::Abs($cy - ($wa.Top + $wa.Height / 2)) -lt 6) }
+function Rect-Text { [void][In]::GetWindowRect($script:win, [ref]$r); "rect $($r.L),$($r.T) $($r.R-$r.L)x$($r.B-$r.T) style 0x{0:X}" -f [In]::GetWindowLong($script:win, -16) }
+Alt-Enter; Check 'Alt+Enter 1: fullscreen' (Is-Full) (Rect-Text)
+Alt-Enter; Check 'Alt+Enter 2: a captioned window in the middle' (Is-Window) (Rect-Text)
+Alt-Enter; Check 'Alt+Enter 3: fullscreen again' (Is-Full) (Rect-Text)
+Alt-Enter; Check 'Alt+Enter 4: the window again, still in the middle' (Is-Window) (Rect-Text)
 $gp.Kill(); Start-Sleep -Milliseconds 400
+# NuViewer started on its own opens the gallery in the folder of last time; without one (first run / folder gone) in Pictures.
+$leaf = Split-Path $root -Leaf
+Set-Content $env:NUGALLERY_STATE "dir = $root`r`nview = thumbs`r`n" -Encoding ASCII
+$vp0 = Start-Process (Join-Path $Dir 'nuviewer.exe') -ArgumentList @('--windowed') -PassThru
+$g0 = Wait-Until { Get-Process nugallery -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -ge (Get-Date).AddSeconds(-8) -and $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like '*NuGallery*' } | Select-Object -First 1 } 10000
+Check 'nuviewer.exe alone opens the last folder' ($g0 -and $g0.MainWindowTitle -like "*$leaf*") ($g0.MainWindowTitle)
+if ($g0) { $g0.Kill(); Start-Sleep -Milliseconds 400 }
+$pics = Split-Path ([Environment]::GetFolderPath('MyPictures')) -Leaf
+Set-Content $env:NUGALLERY_STATE "dir = Z:\no\such\folder`r`n" -Encoding ASCII
+$vp0 = Start-Process (Join-Path $Dir 'nuviewer.exe') -ArgumentList @('--windowed') -PassThru
+$g0 = Wait-Until { Get-Process nugallery -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -ge (Get-Date).AddSeconds(-8) -and $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like '*NuGallery*' } | Select-Object -First 1 } 10000
+Check 'a missing last folder falls back to Pictures' ($g0 -and $g0.MainWindowTitle -like "*$pics*") ($g0.MainWindowTitle)
+if ($g0) { $g0.Kill(); Start-Sleep -Milliseconds 400 }
+Remove-Item $env:NUGALLERY_STATE -ErrorAction SilentlyContinue
 # NuViewer started on its own (no picture) opens NuGallery instead and exits.
 $v = Join-Path $Dir 'nuviewer.exe'
 $t1 = Get-Date

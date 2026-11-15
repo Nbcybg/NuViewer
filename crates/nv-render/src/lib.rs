@@ -189,6 +189,10 @@ impl Renderer {
             let swapchain = factory
                 .CreateSwapChainForHwnd(&device, hwnd, &desc, None, None)
                 .map_err(err("CreateSwapChainForHwnd"))?;
+            // DXGI watches Alt+Enter on the window by itself and switches the swap chain to exclusive fullscreen, fighting
+            // the program's own borderless fullscreen toggle (the window jumped, came back as a captioned window the size of
+            // the screen, ...). Tell it to leave the key alone.
+            let _ = factory.MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
 
             let mut vs = None;
             device.CreateVertexShader(VS_BYTES, None, Some(&mut vs)).map_err(err("CreateVertexShader"))?;

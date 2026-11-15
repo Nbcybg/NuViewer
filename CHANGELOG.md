@@ -54,6 +54,7 @@ Notable changes to NuViewer, newest first. Details and measurements for each rou
   Viewer-controls bar gained film strip and read mode buttons; the file-type chooser lists the new formats.
 
 ### Fixed
+- **Alt+Enter:** DXGI was also handling the key and fought the program's own fullscreen toggle (the window jumped, or came back as a captioned window the size of the screen); it is told to leave the key alone. Leaving fullscreen also lost the window's visible style bit on the first trip. Covered by `tools	est\e2e-gallery.ps1` with real `WM_SYSKEYDOWN` messages, four trips.
 - **Alt+Tab looked like a hang.** Settings and every other dialog were separate top-level windows, so switching back landed
   on the main window while it waited for the dialog. Dialogs are now owned by the viewer window (one Alt+Tab entry, the
   waiting dialog comes forward, the viewer is disabled meanwhile) and a message box raised from Settings belongs to Settings.

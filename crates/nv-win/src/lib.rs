@@ -116,7 +116,7 @@ pub fn utc_offset_minutes() -> i32 {
 }
 
 thread_local! {
-    static FULLSCREEN_SAVED: std::cell::RefCell<Option<(isize, WINDOWPLACEMENT)>> = const { std::cell::RefCell::new(None) };
+    static FULLSCREEN_SAVED: std::cell::RefCell<Option<(isize, windows::Win32::Foundation::RECT, bool)>> = const { std::cell::RefCell::new(None) };
 }
 
 pub fn is_fullscreen() -> bool {
@@ -214,25 +214,40 @@ pub fn toggle_fullscreen(hwnd: HWND) -> bool {
     unsafe {
         FULLSCREEN_SAVED.with(|saved| {
             let mut saved = saved.borrow_mut();
-            if let Some((style, placement)) = saved.take() {
-                SetWindowLongPtrW(hwnd, GWL_STYLE, style);
-                let _ = SetWindowPlacement(hwnd, &placement);
-                let _ = SetWindowPos(hwnd, None, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+            if let Some((style, rect, maximized)) = saved.take() {
+                // Back to the window it was: its style, and the rectangle it had (a plain rectangle: GetWindowPlacement /
+                // SetWindowPlacement lost the size on the second trip and left a captioned window as big as the screen).
+                // The saved style may be from before the window was first shown (started fullscreen): it must be visible now.
+                SetWindowLongPtrW(hwnd, GWL_STYLE, style | WS_VISIBLE.0 as isize);
+                let _ = SetWindowPos(hwnd, Some(HWND_NOTOPMOST), rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                if maximized {
+                    let _ = ShowWindow(hwnd, SW_MAXIMIZE);
+                }
                 set_taskbar_hidden(hwnd, false);
                 false
             } else {
                 let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+                let maximized = IsZoomed(hwnd).as_bool();
+                // The rectangle to come back to: where the window is now (its restored rectangle when it is maximized).
                 let mut placement = WINDOWPLACEMENT { length: std::mem::size_of::<WINDOWPLACEMENT>() as u32, ..Default::default() };
                 let _ = GetWindowPlacement(hwnd, &mut placement);
+                let mut rect = windows::Win32::Foundation::RECT::default();
+                let _ = GetWindowRect(hwnd, &mut rect);
+                if maximized {
+                    rect = placement.rcNormalPosition;
+                }
                 let mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
                 let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
                 if !GetMonitorInfoW(mon, &mut mi).as_bool() {
                     return false;
                 }
+                if maximized {
+                    let _ = ShowWindow(hwnd, SW_RESTORE);
+                }
                 SetWindowLongPtrW(hwnd, GWL_STYLE, style & !(WS_OVERLAPPEDWINDOW.0 as isize));
                 let r = mi.rcMonitor;
                 let _ = SetWindowPos(hwnd, Some(HWND_TOP), r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-                *saved = Some((style, placement));
+                *saved = Some((style, rect, maximized));
                 set_taskbar_hidden(hwnd, true);
                 true
             }

@@ -458,6 +458,7 @@ impl App {
         self.clamp_scroll();
         self.thumb_failed.clear();
         self.persist.dir = Some(dir.clone());
+        self.persist.save(); // the next start (also from nuviewer.exe alone) opens this folder, even if we are killed
         if !(keep_view && same) {
             self.folder_size = FolderSize { gen: self.folder_size.gen + 1, ..Default::default() };
             self.start_folder_size(dir.clone());
