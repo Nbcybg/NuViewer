@@ -183,6 +183,22 @@ pub fn monitor_rect(hwnd: HWND) -> (i32, i32, i32, i32) {
     }
 }
 
+/// The program's own icon (resource 1 of the exe, embedded by `tools/winicon.rs`) at the system's large and small icon sizes: (large, small).
+/// Both are null when the exe has no icon resource.
+pub fn app_icons() -> (HICON, HICON) {
+    use windows::Win32::UI::WindowsAndMessaging::{LoadImageW, IMAGE_ICON, LR_DEFAULTCOLOR};
+    unsafe {
+        let Ok(hinst) = GetModuleHandleW(None) else { return (HICON::default(), HICON::default()) };
+        let load = |w: i32, h: i32| LoadImageW(Some(hinst.into()), PCWSTR(1usize as *const u16), IMAGE_ICON, w, h, LR_DEFAULTCOLOR).map(|h| HICON(h.0)).unwrap_or_default();
+        (load(GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON)), load(GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON)))
+    }
+}
+
+/// The size of the primary screen in pixels.
+pub fn primary_screen_size() -> (u32, u32) {
+    unsafe { (GetSystemMetrics(SM_CXSCREEN).max(1) as u32, GetSystemMetrics(SM_CYSCREEN).max(1) as u32) }
+}
+
 /// Resolution of the monitor the window is on.
 pub fn monitor_size(hwnd: HWND) -> (u32, u32) {
     let (l, t, r, b) = monitor_rect(hwnd);
@@ -526,8 +542,11 @@ where
         let _ = windows::Win32::System::Com::CoInitializeEx(None, windows::Win32::System::Com::COINIT_APARTMENTTHREADED);
         let hinst = GetModuleHandleW(None).map_err(|e| e.to_string())?;
         let class = program.class();
+        let (icon, icon_small) = app_icons();
         let wc = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+            hIcon: icon,
+            hIconSm: icon_small,
             style: CS_DBLCLKS,
             lpfnWndProc: Some(wndproc),
             hInstance: hinst.into(),

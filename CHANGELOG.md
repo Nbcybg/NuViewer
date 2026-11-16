@@ -2,7 +2,24 @@
 
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
-## Unreleased - 2026-11-16 (after 0.2.0)
+## 0.3.0 - 2026-11-17
+
+Details, measurements and what was not verified: `docs/session17.md`.
+
+### Fixed
+- **PSD:** a fourth channel is transparency only when the layer count is negative (Photoshop's rule). A 4th channel that is a saved selection made the
+  background transparent (the castle behind the figure in a 293 MB file). The merged picture is read without the layers (4-5x faster) and the `psd` crate is only a fallback.
+- **First open:** the first picture is made on the CPU exactly the way the GPU makes it and is kept until the view changes, so the GPU taking over (for a
+  30-megapixel JPEG that took ~1.7 s) changes nothing on screen: damaged 30 MP JPEG 2081 -> ~220 ms, 6-18 MP JPEG ~320 -> ~200 ms, PSD / TGA / PNG ~100-180 ms.
+  JPEGs of 24 MP or more are painted from a DCT-scaled decode. A card line that was empty crashed the card renderer.
+- **Rapid next / back:** pictures already seen stay on the GPU, the prefetch window is wider: rapid back x5 149 -> 41 ms.
+
+### Added
+- **Logo and icons** for every program (`assets/`, embedded by `tools/winicon.rs`; window, taskbar, tray, shortcuts, file types).
+- **Formats:** PaintTool SAI (canvas from the raster layers), Clip Studio Paint `.clip` (canvas preview), openCanvas `.oci` (card), Daz `.duf` (thumbnail or card),
+  3ds Max `.max` (stored preview), slicer `.3mf` (meshes in other model files), MIDI `.mid .midi .rmi .kar` (piano roll, plays through a built-in synthesizer), `.lip` (picture inside, else a card).
+
+### Also in 0.3.0 (work of 2026-11-16, `docs/session16.md`)
 
 Details, what was tested and what was not: `docs/session16.md`.
 

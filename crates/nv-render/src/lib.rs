@@ -794,6 +794,14 @@ impl Renderer {
         Ok(true)
     }
 
+    /// `draw_thumb` for a texture that is already the size of `dst` and lands on whole pixels: point sampling, so what
+    /// was uploaded reaches the screen unchanged.
+    pub fn draw_thumb_exact(&mut self, id: u64, dst: [f32; 4]) -> Result<bool, String> {
+        let Some((srv, tw, th)) = self.thumbs.get(&id).map(|t| (t.srv().clone(), t.width, t.height)) else { return Ok(false) };
+        self.draw_quad(&srv, dst, [tw as f32, th as f32, 0.0, 1.0], [1.0; 4], [0.0; 4])?;
+        Ok(true)
+    }
+
     /// Solid rectangle; `color` is linear RGBA (alpha blended).
     pub fn fill_rect(&mut self, dst: [f32; 4], color: [f32; 4]) -> Result<(), String> {
         let white = self.white.clone();

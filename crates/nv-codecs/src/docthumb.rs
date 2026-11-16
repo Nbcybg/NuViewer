@@ -382,6 +382,10 @@ pub(crate) fn render_card(c: &Card, scale: i32) -> Image {
                 let old = SelectObject(dc, f.into());
                 SetTextColor(dc, bgr(rgb));
                 let mut wide: Vec<u16> = t.encode_utf16().collect();
+                if wide.is_empty() {
+                    SelectObject(dc, old);
+                    return; // an empty line: nothing to draw (and DrawTextW must not get an empty buffer)
+                }
                 DrawTextW(dc, &mut wide, &mut r, flags | DT_NOPREFIX);
                 SelectObject(dc, old);
             };

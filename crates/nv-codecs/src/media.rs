@@ -10,7 +10,7 @@ pub const VIDEO_EXTS: &[&str] = &[
     "mp4", "m4v", "mov", "mkv", "avi", "wmv", "webm", "mpg", "mpeg", "mpe", "ts", "mts", "m2ts", "m2t", "3gp", "3g2", "flv", "f4v", "ogv", "ogm", "vob", "asf", "dv", "rm", "rmvb", "divx", "m2v", "mod", "tod", "wtv",
 ];
 pub const AUDIO_EXTS: &[&str] = &[
-    "wav", "mp3", "flac", "aac", "m4a", "m4b", "ogg", "oga", "opus", "wma", "aif", "aiff", "aifc", "au", "snd", "pcm", "alac", "ape", "dsf", "dff", "dsd", "wv", "tta", "mka", "mpc", "mp2", "amr", "ac3", "dts", "caf", "weba",
+    "wav", "mp3", "flac", "aac", "m4a", "m4b", "ogg", "oga", "opus", "wma", "aif", "aiff", "aifc", "au", "snd", "pcm", "alac", "ape", "dsf", "dff", "dsd", "wv", "tta", "mka", "mpc", "mp2", "amr", "ac3", "dts", "caf", "weba", "mid", "midi", "rmi", "kar",
 ];
 
 /// Formats Windows has no player for: these go straight to the ffmpeg helper (a playable copy, kept in a cache) instead of
@@ -101,6 +101,9 @@ pub fn proxy_for(path: &Path) -> Option<PathBuf> {
 /// The picture for a media file (`first_only` is accepted for symmetry: a poster is one picture anyway).
 pub fn decode(path: &Path, _first_only: bool) -> Result<Image, String> {
     let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).unwrap_or_default();
+    if crate::midi::is_ext(&ext) {
+        return crate::midi::decode(path, _first_only);
+    }
     if ext == "wav" {
         match crate::wave::waveform(path) {
             Ok(img) => return Ok(img),

@@ -13,7 +13,11 @@ fn find(var: &str, name: &str, out: &std::path::Path) -> Option<(String, Vec<u8>
     Some((name.to_string(), bytes))
 }
 
+#[path = "../tools/winicon.rs"]
+mod winicon;
+
 fn main() {
+    winicon::embed(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/icons/nuviewer.ico"));
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let viewer = find("NUVIEWER_EXE", "nuviewer.exe", &out);
     let gallery = find("NUGALLERY_EXE", "nugallery.exe", &out);

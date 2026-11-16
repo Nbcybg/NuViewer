@@ -242,6 +242,18 @@ a slideshow, an animated GIF/APNG/WebP (play/pause, frame stepping, seek, speed)
 seek, frames per second). It is built so video and music can use the same bar later (play/pause, seek, time, speed,
 volume); there is no video or audio decoder yet.
 
+## New in 0.3.0
+
+Details: `docs/session16.md`, `docs/session17.md`, `CHANGELOG.md`.
+
+- **A logo and icons:** every program has its own icon now (the same glyph, one colour each: NuViewer blue, NuGallery teal, NuEditor orange, NuQuick violet, NuImporter green), in
+  the exe, the window, the taskbar, shortcuts and the tray. Sources in `assets/` (`tools/winicon.rs` embeds them without rc.exe).
+- **Faster first picture:** the first picture is painted on the CPU exactly as the GPU would draw it and stays until you zoom or move on, so nothing flickers when the GPU takes over.
+  A damaged 30 MP JPEG opens in ~0.2 s (was 2 s); PSD, PNG, TGA, JPEG open in 0.1-0.2 s. Rapid next / back is 2-3x faster (pictures you have seen stay ready).
+- **Formats:** PaintTool SAI, Clip Studio `.clip`, openCanvas `.oci` (size card), Daz `.duf`, 3ds Max `.max` (stored preview), slicer `.3mf`, MIDI (piano roll, plays through a built-in
+  synthesizer), HTML pages, Flash `.swf` / `.fla`, damaged JPEGs. PSD / PSB transparency follows Photoshop's rule (fixes lost backgrounds).
+- **Also:** ping-pong play, the RAW look toggle (Shift+R), paged documents stop at their last page.
+
 ## New in 0.2.0
 
 The details, limits and what was not verified are in `docs/formats-0.2.md`, `docs/importer.md` and `docs/localization.md`.

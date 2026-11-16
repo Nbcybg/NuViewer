@@ -385,7 +385,10 @@ fn open_settings() {
 
 fn tray_data(hwnd: HWND) -> NOTIFYICONDATAW {
     let mut nid = NOTIFYICONDATAW { cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32, hWnd: hwnd, uID: 1, uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP, uCallbackMessage: WM_TRAY, ..Default::default() };
-    nid.hIcon = unsafe { LoadIconW(None, IDI_APPLICATION).unwrap_or_default() };
+    nid.hIcon = {
+        let small = nv_win::app_icons().1;
+        if small.is_invalid() { unsafe { LoadIconW(None, IDI_APPLICATION).unwrap_or_default() } } else { small }
+    };
     for (i, c) in "NuQuick: Space previews the picture selected in Explorer".encode_utf16().take(127).enumerate() {
         nid.szTip[i] = c;
     }

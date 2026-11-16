@@ -402,6 +402,9 @@ struct App {
     uploading: Option<Uploading>,
     /// GPU bytes of every picture decoded so far, so a neighbour that wouldn't fit isn't decoded again and again.
     sizes: HashMap<u64, usize>,
+    /// Ids of the pictures shown so far, most recent last: they stay on the GPU (within a share of the budget) after they
+    /// are no longer neighbours, so going back to a picture seen a moment ago is instant.
+    seen: Vec<u64>,
     gpu_budget: usize,
     /// A decode was cancelled while it was still wanted: ask for it again.
     retry: bool,
@@ -473,7 +476,7 @@ impl App {
         if let (true, Some(next)) = (self.slide.on, self.slide.next) {
             push(next as isize, &mut out); // the slideshow knows exactly where it goes next
         }
-        for off in [d, -d, 2 * d, 3 * d, -2 * d] {
+        for off in [d, -d, 2 * d, 3 * d, -2 * d, 4 * d, -3 * d, 5 * d] {
             push(cur + off, &mut out);
         }
         out
@@ -523,7 +526,19 @@ impl App {
     /// Drop GPU textures (and their metadata) that are no longer wanted. The displayed texture is
     /// kept by the renderer even if unwanted, so call this again once a new image has been shown.
     fn evict(&mut self) {
-        let want_ids = self.wanted_ids();
+        let mut want_ids = self.wanted_ids();
+        // Recently shown pictures stay too, newest first, while together they take less than half of the GPU budget.
+        let mut history = 0usize;
+        for &id in self.seen.iter().rev() {
+            if want_ids.contains(&id) {
+                continue;
+            }
+            let Some(sz) = self.renderer.texture_size(id) else { continue };
+            if history + sz <= self.gpu_budget / 2 {
+                history += sz;
+                want_ids.insert(id);
+            }
+        }
         self.renderer.retain(|id| id == display::BG_ID || want_ids.contains(&id));
         let r = &self.renderer;
         self.meta.retain(|id, _| r.has(*id));
@@ -602,6 +617,12 @@ impl App {
             }
         }
         self.renderer.show(cur_id);
+        self.drop_proxy_unless(cur_id);
+        self.seen.retain(|&i| i != cur_id);
+        self.seen.push(cur_id);
+        if self.seen.len() > 256 {
+            self.seen.remove(0);
+        }
         self.evict();
 
         // Neighbours are only worth loading while they fit in the GPU budget next to the picture on screen: a
@@ -902,7 +923,19 @@ impl App {
                 self.refresh();
             }
         }
-        // Stay within the GPU budget by dropping the lowest-priority cached neighbours.
+        // Stay within the GPU budget: first the oldest of the pictures kept only because they were seen, then the
+        // lowest-priority neighbours.
+        if self.renderer.texture_bytes() > self.gpu_budget {
+            let keep = self.wanted_ids();
+            for id in self.seen.clone() {
+                if self.renderer.texture_bytes() <= self.gpu_budget {
+                    break;
+                }
+                if !keep.contains(&id) && self.renderer.current() != Some(id) {
+                    self.renderer.remove(id);
+                }
+            }
+        }
         if self.renderer.texture_bytes() > self.gpu_budget {
             let want = self.wanted();
             for &i in want.iter().skip(1).rev() {
@@ -948,6 +981,8 @@ impl App {
         let placeholder = if dst.is_none() { self.placeholder(win) } else { None };
         let model_id = if self.is_model() { Some(self.id_at(self.folder.index)) } else { None };
         let spread = if model_id.is_none() { self.spread_view() } else { None };
+        let proxy = if model_id.is_none() && spread.is_none() && !self.pano_active() { self.proxy_rect(dst, win, turn) } else { None };
+        self.disp.proxy_drawn = proxy.is_some();
         self.poll_background();
         self.maybe_hint_pano();
         if self.renderer.begin(clear_color()) {
@@ -960,6 +995,8 @@ impl App {
                 // already drawn above
             } else if let Some(mid) = model_id {
                 let _ = self.renderer.draw_mesh(mid, &self.cam, &self.settings.model);
+            } else if let Some(r) = proxy {
+                let _ = self.renderer.draw_thumb_exact(display::PROXY_ID, r);
             } else if let (Some(sv), Some(d)) = (&spread, dst) {
                 self.draw_spread(sv, d, nearest);
             } else if let Some(d) = dst {
@@ -1275,6 +1312,7 @@ impl App {
             staged: VecDeque::new(),
             uploading: None,
             sizes: HashMap::new(),
+            seen: Vec::new(),
             gpu_budget: GPU_BUDGET_MIN,
             retry: false,
             loading_since: None,
@@ -1323,11 +1361,11 @@ fn make_preview(img: &nv_codecs::Image, win: (u32, u32)) -> Preview {
     // Same fit rule as the GPU path: shrink to fit (using the displayed, i.e. rotated, size), never enlarge.
     let (dw, dh) = img.display_size();
     let s = (win.0 as f32 / dw as f32).min(win.1 as f32 / dh as f32).min(1.0);
-    let edge = ((img.width.max(img.height) as f32) * s).round().max(1.0) as u32;
-    // Rotate after shrinking: the CPU only ever turns the small preview, the GPU turns the real thing.
+    // Shrunk the way the GPU shrinks (mip chain, then Catmull-Rom), turned while sampling, so that the GPU frame that follows, and every
+    // later visit to this picture, looks the same as this first frame.
     let scaled;
     let src = if s < 1.0 {
-        scaled = nv_codecs::downscale(img, edge).oriented();
+        scaled = nv_codecs::fit_like_gpu(img, s);
         &scaled
     } else {
         scaled = img.to_oriented();
@@ -1363,6 +1401,10 @@ struct Boot {
     arg_name: String,
     gpu_rx: mpsc::Receiver<Result<GpuDevice, String>>,
     gpu: Option<GpuDevice>,
+    /// A big JPEG's quick, DCT-scaled decode (see `nv_codecs::decode_jpeg_for_window`): the first picture is painted from it long
+    /// before the full decode is done, and stays the picture on screen until the view changes.
+    scaled_rx: mpsc::Receiver<Option<nv_codecs::Image>>,
+    scaled: Option<nv_codecs::Image>,
     first: Option<Loaded>,
     preview: Option<Preview>,
     first_paint_ms: Option<f64>,
@@ -1384,8 +1426,15 @@ enum Step {
 
 impl Boot {
     fn rebuild_preview(&mut self) {
+        // The scaled decode serves as long as the window does not need it enlarged (then the full picture is used).
+        let scaled = self.scaled.as_ref().filter(|s| {
+            let (dw, dh) = s.display_size();
+            (self.size.0 as f32 / dw as f32).min(self.size.1 as f32 / dh as f32) <= 1.0
+        });
         self.preview = if self.actual_size {
             None
+        } else if let Some(s) = scaled {
+            Some(make_preview(s, self.size))
         } else {
             self.first.as_ref().and_then(|l| l.result.as_ref().ok()).map(|img| make_preview(img, self.size))
         };
@@ -1449,6 +1498,15 @@ impl Boot {
                 while let Some(l) = self.loader.try_recv() {
                     self.first = Some(l);
                 }
+                if self.scaled.is_none() {
+                    if let Ok(Some(img)) = self.scaled_rx.try_recv() {
+                        self.scaled = Some(img);
+                        if self.preview.is_none() {
+                            self.rebuild_preview();
+                            self.paint();
+                        }
+                    }
+                }
                 if self.preview.is_none() && self.first.is_some() {
                     self.rebuild_preview();
                     self.paint();
@@ -1481,6 +1539,9 @@ impl Boot {
                                 self.start_gallery,
                                 self.actual_size,
                             );
+                            if let Some(p) = self.preview.take() {
+                                app.install_proxy(p);
+                            }
                             if let Some((path, gallery)) = self.pending_open.take() {
                                 app.open_request(path, gallery);
                             }
@@ -1709,6 +1770,16 @@ fn main() {
             wake();
         });
     }
+    // 2b. A big JPEG: a scaled-down decode for the first paint, in parallel with the full decode.
+    let (scaled_tx, scaled_rx) = mpsc::channel();
+    if let (true, Some(p), false) = (is_file, arg.clone(), actual_size) {
+        let wake = wake.clone();
+        std::thread::spawn(move || {
+            let r = nv_codecs::decode_jpeg_for_window(&p, nv_win::primary_screen_size());
+            let _ = scaled_tx.send(r);
+            wake();
+        });
+    }
     let arg_name = arg.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
 
     let result = nv_win::run("NuViewer", 1280, 800, start_fullscreen, move |hwnd, w, h| {
@@ -1724,6 +1795,8 @@ fn main() {
             arg_name,
             gpu_rx,
             gpu: None,
+            scaled_rx,
+            scaled: None,
             first: None,
             preview: None,
             first_paint_ms: None,

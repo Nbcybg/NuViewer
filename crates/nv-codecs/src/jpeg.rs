@@ -151,6 +151,34 @@ pub fn decode_scaled(bytes: &[u8], want: u32, fallback_orientation: Option<u32>)
     Some(img)
 }
 
+/// The first picture of a viewer window: decoded with the DCT scaled down just as far as still gives the fitted size for a window of
+/// `win` pixels (several times quicker than a full decode for a big photo). `None` when the picture is too small to gain from it,
+/// is not a plain JPEG, or the scaled decoder refuses the file; the caller then decodes it in full.
+pub fn decode_scaled_for_window(bytes: &[u8], win: (u32, u32)) -> Option<Image> {
+    // A file that stops without its end-of-image marker (a cut-off copy, a phone's trailer written after the picture) is given one.
+    let ends = bytes.windows(2).rev().take(8192).any(|w| w == [0xFF, 0xD9]);
+    if ends {
+        return scaled_for_window(bytes, win);
+    }
+    let mut fixed = bytes.to_vec();
+    fixed.extend_from_slice(&[0xFF, 0xD9]);
+    scaled_for_window(&fixed, win)
+}
+
+fn scaled_for_window(bytes: &[u8], win: (u32, u32)) -> Option<Image> {
+    use jpeg_decoder::PixelFormat;
+    let mut dec = jpeg_decoder::Decoder::new(std::io::Cursor::new(bytes));
+    dec.read_info().ok()?;
+    let info = dec.info()?;
+    if !matches!(info.pixel_format, PixelFormat::RGB24 | PixelFormat::L8) {
+        return None;
+    }
+    let (w, h) = (info.width as f64, info.height as f64);
+    let fit = (win.0 as f64 / w).min(win.1 as f64 / h).min(1.0);
+    let edge = ((w.max(h) * fit).ceil() as u32).max(1);
+    decode_scaled(bytes, edge, None)
+}
+
 /// The transform byte of the Adobe APP14 marker (0 = CMYK, 1 = YCbCr, 2 = YCCK), if the file has the marker. Its presence
 /// is what tells that the four-channel samples are stored the Adobe way: **inverted**, 255 = no ink (Photoshop, and
 /// everything that writes CMYK JPEGs for it). Without the marker the samples are plain ink amounts.

@@ -18,7 +18,22 @@ pub struct Pano {
     pub fov: f32,
 }
 
+/// Texture id of the first picture's CPU-made copy (path ids are hashes, this is outside their way).
+pub const PROXY_ID: u64 = 0xB6B6_B6B6_0000_0002;
+
+/// The first picture, as painted on the CPU at start-up: the same pixels are drawn by the GPU until something changes the view, so the
+/// GPU taking over (and the full-size texture arriving, which for a huge picture takes seconds) changes nothing on screen.
+pub struct Proxy {
+    pub id: u64,
+    pub win: (u32, u32),
+    pub rect: [f32; 4],
+}
+
 pub struct Display {
+    pub proxy: Option<Proxy>,
+    /// The CPU-made copy was what the last frame drew for the picture (the disk readout stays away then: it would be the only thing
+    /// that changes on a picture that already looks finished).
+    pub proxy_drawn: bool,
     pub dim: bool,
     pub pano: Option<Pano>,
     pub pano_last: Option<(i32, i32)>,
@@ -32,11 +47,47 @@ pub struct Display {
 
 impl Display {
     pub fn new() -> Display {
-        Display { dim: false, pano: None, pano_last: None, hinted: None, bg_loaded: String::new(), bg_loading: String::new(), bg_rx: None }
+        Display { proxy: None, proxy_drawn: false, dim: false, pano: None, pano_last: None, hinted: None, bg_loaded: String::new(), bg_loading: String::new(), bg_rx: None }
     }
 }
 
 impl App {
+    // ---- the first picture ----------------------------------------------------------------------
+
+    /// Hand the first picture's CPU preview to the GPU (see `Proxy`). Only with the plain canvas colour, which is what the preview
+    /// was flattened over.
+    pub fn install_proxy(&mut self, p: Preview) {
+        if self.background_mode() != CanvasMode::Solid || self.folder.files.is_empty() || p.w <= 0 || p.h <= 0 || std::env::var_os("NUVIEWER_NO_PROXY").is_some() {
+            return;
+        }
+        let rgba: Vec<u8> = p.bgra.chunks_exact(4).flat_map(|b| [b[2], b[1], b[0], 255]).collect();
+        let img = nv_codecs::Image::new(p.w as u32, p.h as u32, rgba);
+        if self.renderer.upload_thumb(PROXY_ID, &img).is_ok() {
+            self.disp.proxy = Some(Proxy { id: self.id_at(self.folder.index), win: self.renderer.size(), rect: [p.x as f32, p.y as f32, (p.x + p.w) as f32, (p.y + p.h) as f32] });
+        }
+    }
+
+    /// Where to draw the CPU-made copy of the current picture instead of the real texture; `None` = draw the real one (it is another
+    /// picture, the window or the view changed, ...). `dst` is where the real texture would go (`None` while it is still uploading).
+    pub fn proxy_rect(&self, dst: Option<[f32; 4]>, win: (u32, u32), turn: f32) -> Option<[f32; 4]> {
+        let p = self.disp.proxy.as_ref()?;
+        if turn != 0.0 || win != p.win || self.folder.files.is_empty() || self.id_at(self.folder.index) != p.id || !self.renderer.has_thumb(PROXY_ID) {
+            return None;
+        }
+        match dst {
+            Some(d) => (0..4).all(|k| (d[k] - p.rect[k]).abs() < 1.1).then_some(p.rect),
+            None => (self.view.fit && self.view.zoom == 1.0 && self.view.pan == (0.0, 0.0)).then_some(p.rect),
+        }
+    }
+
+    /// Let go of the copy once another picture is on screen.
+    pub fn drop_proxy_unless(&mut self, current: u64) {
+        if self.disp.proxy.as_ref().is_some_and(|p| p.id != current) {
+            self.disp.proxy = None;
+            self.renderer.retain_thumbs(|id| id != PROXY_ID);
+        }
+    }
+
     // ---- dim ----------------------------------------------------------------------------------
 
     pub fn toggle_dim(&mut self) {

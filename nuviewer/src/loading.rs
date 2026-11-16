@@ -262,7 +262,7 @@ impl App {
 
     /// Bottom-right readout of the drive's read / write speed (the setting / `D`). Called from `draw_hud`.
     pub fn draw_disk_badge(&mut self) {
-        if !self.settings.disk_monitor || self.mode != Mode::Viewer {
+        if !self.settings.disk_monitor || self.mode != Mode::Viewer || self.disp.proxy_drawn {
             return;
         }
         let Some(ds) = nv_win::diskstat::stats() else { return };

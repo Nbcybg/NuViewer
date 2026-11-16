@@ -51,6 +51,8 @@ impl App {
         let p = self.folder.files.get(self.folder.index)?;
         match media_kind_of(p)? {
             FileKind::Pro => proxy_for(p),
+            // MIDI: played from a WAV that the built-in synthesizer renders once (kept in the cache folder).
+            _ if p.extension().and_then(|e| e.to_str()).is_some_and(nv_codecs::midi::is_ext) => nv_codecs::midi::playable_wav(p).ok(),
             _ => Some(p.clone()),
         }
     }

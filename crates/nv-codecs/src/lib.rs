@@ -6,6 +6,7 @@
 
 use std::path::Path;
 
+mod artfmt;
 mod blend;
 mod codepage;
 mod cmyk;
@@ -17,6 +18,7 @@ mod docthumb;
 mod eps;
 pub mod errors;
 mod flifdec;
+mod gpufit;
 mod gifdec;
 pub mod icc;
 mod icon;
@@ -29,6 +31,8 @@ pub mod model;
 #[cfg(windows)]
 mod metafile;
 pub mod metadata;
+pub mod midi;
+mod ole;
 pub mod media;
 pub mod metastrip;
 mod orient;
@@ -41,6 +45,8 @@ mod psdraw;
 pub mod progress;
 mod raw;
 pub mod resize;
+mod sai;
+mod sai_keys;
 pub mod wave;
 pub mod stats;
 mod svgdec;
@@ -64,6 +70,7 @@ pub fn zip_pictures(path: &Path, limit: usize) -> Result<Vec<(String, Vec<u8>)>,
     docthumb::pictures_in_zip(path, limit)
 }
 pub use docthumb::is_document_ext;
+pub use gpufit::fit_like_gpu;
 pub use resize::downscale;
 
 pub use develop::{camera_data, raw_mode, set_raw_mode, set_raw_thumbs_develop, CameraData, RawMode};
@@ -329,7 +336,7 @@ const BLEND_EXTS: &[&str] = &["blend", "blend1"];
 
 /// Every extension we can open (lowercase, no dot): what the file-association registration lists.
 pub fn supported_extensions() -> Vec<&'static str> {
-    let mut v: Vec<&'static str> = NATIVE_EXTS.iter().chain(RAW_EXTS.iter()).chain(MORE_EXTS.iter()).chain(model::EXTS.iter()).chain(imgfmt::EXTS.iter()).chain(BLEND_EXTS.iter()).copied().collect();
+    let mut v: Vec<&'static str> = NATIVE_EXTS.iter().chain(RAW_EXTS.iter()).chain(MORE_EXTS.iter()).chain(model::EXTS.iter()).chain(imgfmt::EXTS.iter()).chain(BLEND_EXTS.iter()).chain(artfmt::EXTS.iter()).copied().collect();
     if cfg!(windows) {
         v.extend(WIC_EXTS);
         v.extend(DOC_EXTS);
@@ -348,7 +355,7 @@ pub fn supported_extensions() -> Vec<&'static str> {
 /// Extensions of still pictures that can be converted to PNG / JPEG: everything we open except video, sound, 3D models,
 /// documents and Blender files.
 pub fn convertible_extensions() -> Vec<&'static str> {
-    let skip = |e: &str| media::media_kind(e).is_some() || model::EXTS.contains(&e) || DOC_EXTS.contains(&e) || BLEND_EXTS.contains(&e) || EPS_EXTS.contains(&e) || TRY_EXTS.contains(&e) || FLASH_EXTS.contains(&e) || webpage::is_ext(e);
+    let skip = |e: &str| media::media_kind(e).is_some() || e == "duf" || e == "lip" || e == "oci" || model::EXTS.contains(&e) || DOC_EXTS.contains(&e) || BLEND_EXTS.contains(&e) || EPS_EXTS.contains(&e) || TRY_EXTS.contains(&e) || FLASH_EXTS.contains(&e) || webpage::is_ext(e);
     supported_extensions().into_iter().filter(|e| !skip(e)).collect()
 }
 
@@ -360,7 +367,7 @@ pub fn is_raw_ext(ext: &str) -> bool {
 pub fn is_supported_ext(ext: &str) -> bool {
     let e = ext.to_ascii_lowercase();
     let e = e.as_str();
-    NATIVE_EXTS.contains(&e) || RAW_EXTS.contains(&e) || MORE_EXTS.contains(&e) || TRY_EXTS.contains(&e) || FLASH_EXTS.contains(&e) || webpage::is_ext(e) || model::EXTS.contains(&e) || imgfmt::is_ext(e) || (cfg!(windows) && (WIC_EXTS.contains(&e) || DOC_EXTS.contains(&e) || META_EXTS.contains(&e) || EPS_EXTS.contains(&e))) || SVG_EXTS.contains(&e) || BLEND_EXTS.contains(&e) || media::media_kind(e).is_some()
+    NATIVE_EXTS.contains(&e) || RAW_EXTS.contains(&e) || MORE_EXTS.contains(&e) || TRY_EXTS.contains(&e) || FLASH_EXTS.contains(&e) || webpage::is_ext(e) || model::EXTS.contains(&e) || imgfmt::is_ext(e) || artfmt::is_ext(e) || (cfg!(windows) && (WIC_EXTS.contains(&e) || DOC_EXTS.contains(&e) || META_EXTS.contains(&e) || EPS_EXTS.contains(&e))) || SVG_EXTS.contains(&e) || BLEND_EXTS.contains(&e) || media::media_kind(e).is_some()
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -418,6 +425,28 @@ fn looks_like_pdf(path: &Path) -> bool {
     let mut head = [0u8; 1024];
     let n = std::fs::File::open(path).and_then(|mut f| f.read(&mut head)).unwrap_or(0);
     head[..n].windows(5).any(|w| w == b"%PDF-")
+}
+
+/// A quick first picture for a big JPEG: only as big as a window of `win` pixels needs it (colour-converted, orientation carried), or
+/// `None` when the file is not a JPEG of 24 megapixels or more, or can't be decoded that way. The full decode follows separately.
+pub fn decode_jpeg_for_window(path: &Path, win: (u32, u32)) -> Option<Image> {
+    let ext = path.extension().and_then(|e| e.to_str())?.to_ascii_lowercase();
+    if !matches!(ext.as_str(), "jpg" | "jpeg" | "jpe" | "jfif") {
+        return None;
+    }
+    // Only pictures big enough to gain: below about 24 megapixels the full decode is as quick (measured: 6 MP 78 ms against 99 ms
+    // scaled, 18 MP 103 against 127, 30 MP 293 against 136).
+    let (w, h) = peek_size(path)?;
+    if (w as u64) * (h as u64) < 24_000_000 {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    if !bytes.starts_with(&[0xFF, 0xD8]) {
+        return None;
+    }
+    let mut img = std::panic::catch_unwind(|| jpeg::decode_scaled_for_window(&bytes, win)).ok()??;
+    img.apply_display_colour();
+    check_buffers(img).ok()
 }
 
 /// Decode `path` in full (all animation frames), shrunk if needed to fit what the GPU can show.
@@ -557,6 +586,15 @@ fn decode_file_opts(path: &Path, first_only: bool, thumb: bool) -> Result<Image,
     if TRY_EXTS.contains(&ext.as_str()) {
         // Nothing we can ship decodes these: Windows might have a codec installed for them, otherwise say what to do.
         return decode_wic(path).map_err(|e| format!("unsupported format: .{ext} needs a codec from its maker ({e}). Convert it first, for example with GDAL: gdal_translate in.{ext} out.jp2"));
+    }
+    // Photoshop: only the header sections and the merged picture are read, never the layers.
+    if ext == "psd" || ext == "psb" {
+        if let Ok(img) = psddec::decode_file(path) {
+            return Ok(img);
+        }
+    }
+    if let Some(r) = artfmt::decode(path, &ext, first_only) {
+        return r;
     }
     if MORE_EXTS.contains(&ext.as_str()) {
         let bytes = progress::read_file(path)?;

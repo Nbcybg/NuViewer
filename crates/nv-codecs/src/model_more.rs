@@ -162,42 +162,74 @@ fn xml_opts() -> roxmltree::ParsingOptions {
 }
 
 /// 3MF: a zip with `3D/3dmodel.model`. Objects with meshes, and the build items (with their transforms) that place them.
+/// Slicer files (Bambu Studio, Orca, PrusaSlicer) use the production extension: the objects of the root model are lists of
+/// components whose meshes live in other model files (`p:path="/3D/Objects/object_3.model"`).
 pub fn parse_3mf(path: &Path) -> Result<Mesh, String> {
     let mut zip = crate::docthumb::Zip::open(path)?;
-    let entry = zip.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(".model") && e.name.to_ascii_lowercase().contains("3d/")).cloned().ok_or("no 3D model inside this 3MF")?;
-    let text = xml(&zip.read(&entry, 512 << 20)?)?;
-    let doc = roxmltree::Document::parse_with_options(&text, xml_opts()).map_err(|e| format!("3MF: {e}"))?;
-    let objects: Vec<roxmltree::Node> = doc.descendants().filter(|n| n.has_tag_name("object")).collect();
+    let norm = |n: &str| n.trim_start_matches('/').to_ascii_lowercase();
+    let root_entry = zip.entries.iter().find(|e| norm(&e.name) == "3d/3dmodel.model").or_else(|| zip.entries.iter().find(|e| norm(&e.name).ends_with(".model"))).cloned().ok_or("no 3D model inside this 3MF")?;
     struct Obj {
         id: String,
         pos: Vec<[f32; 3]>,
         tri: Vec<[u32; 3]>,
-        comps: Vec<(String, [f32; 12])>,
+        /// (file of the component's object, "" = same file; object id; transform)
+        comps: Vec<(String, String, [f32; 12])>,
     }
     let ident = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
     let tf = |s: Option<&str>| -> [f32; 12] {
         let v = s.map(floats).unwrap_or_default();
         if v.len() == 12 { std::array::from_fn(|i| v[i]) } else { ident }
     };
-    let parsed: Vec<Obj> = objects
-        .iter()
-        .map(|o| {
-            let mesh = o.children().find(|c| c.has_tag_name("mesh"));
-            let pos = mesh.map(|m| m.descendants().filter(|n| n.has_tag_name("vertex")).map(|v| [attr_f(&v, "x"), attr_f(&v, "y"), attr_f(&v, "z")]).collect()).unwrap_or_default();
-            let tri = mesh.map(|m| m.descendants().filter(|n| n.has_tag_name("triangle")).map(|t| [attr_f(&t, "v1") as u32, attr_f(&t, "v2") as u32, attr_f(&t, "v3") as u32]).collect()).unwrap_or_default();
-            let comps = o.descendants().filter(|n| n.has_tag_name("component")).map(|c| (c.attribute("objectid").unwrap_or("").to_string(), tf(c.attribute("transform")))).collect();
-            Obj { id: o.attribute("id").unwrap_or("").to_string(), pos, tri, comps }
-        })
-        .collect();
+    let load = |zip: &mut crate::docthumb::Zip, entry: &crate::docthumb::Entry| -> Result<(Vec<Obj>, Vec<(String, [f32; 12])>), String> {
+        let text = xml(&zip.read(entry, 512 << 20)?)?;
+        let doc = roxmltree::Document::parse_with_options(&text, xml_opts()).map_err(|e| format!("3MF: {e}"))?;
+        let objs = doc
+            .descendants()
+            .filter(|n| n.has_tag_name("object"))
+            .map(|o| {
+                let mesh = o.children().find(|c| c.has_tag_name("mesh"));
+                let pos = mesh.map(|m| m.descendants().filter(|n| n.has_tag_name("vertex")).map(|v| [attr_f(&v, "x"), attr_f(&v, "y"), attr_f(&v, "z")]).collect()).unwrap_or_default();
+                let tri = mesh.map(|m| m.descendants().filter(|n| n.has_tag_name("triangle")).map(|t| [attr_f(&t, "v1") as u32, attr_f(&t, "v2") as u32, attr_f(&t, "v3") as u32]).collect()).unwrap_or_default();
+                let comps = o
+                    .descendants()
+                    .filter(|n| n.has_tag_name("component"))
+                    .map(|c| {
+                        // The production extension's path attribute, whatever prefix it was bound to.
+                        let file = c.attributes().find(|a| a.name() == "path").map(|a| a.value().to_string()).unwrap_or_default();
+                        (file, c.attribute("objectid").unwrap_or("").to_string(), tf(c.attribute("transform")))
+                    })
+                    .collect();
+                Obj { id: o.attribute("id").unwrap_or("").to_string(), pos, tri, comps }
+            })
+            .collect();
+        let items = doc.descendants().filter(|n| n.has_tag_name("item")).map(|i| (i.attribute("objectid").unwrap_or("").to_string(), tf(i.attribute("transform")))).collect();
+        Ok((objs, items))
+    };
+    let (root_objs, items) = load(&mut zip, &root_entry)?;
+    // Model files named by components, loaded once each.
+    let mut files: std::collections::HashMap<String, Vec<Obj>> = std::collections::HashMap::new();
+    files.insert(String::new(), root_objs);
+    let wanted: Vec<String> = files[""].iter().flat_map(|o| o.comps.iter().map(|c| c.0.clone())).filter(|f| !f.is_empty()).collect();
+    for f in wanted {
+        let key = norm(&f);
+        if files.contains_key(&key) {
+            continue;
+        }
+        if let Some(e) = zip.entries.iter().find(|e| norm(&e.name) == key).cloned() {
+            if let Ok((objs, _)) = load(&mut zip, &e) {
+                files.insert(key, objs);
+            }
+        }
+    }
     fn apply(t: &[f32; 12], p: [f32; 3]) -> [f32; 3] {
         // 3MF matrices are row-vector: [x y z 1] * M, rows m00 m01 m02 / m10 .. / m20 .. / m30 m31 m32
         [p[0] * t[0] + p[1] * t[3] + p[2] * t[6] + t[9], p[0] * t[1] + p[1] * t[4] + p[2] * t[7] + t[10], p[0] * t[2] + p[1] * t[5] + p[2] * t[8] + t[11]]
     }
-    fn emit(objs: &[Obj], id: &str, t: &[f32; 12], soup: &mut Soup, depth: usize) {
+    fn emit(files: &std::collections::HashMap<String, Vec<Obj>>, file: &str, id: &str, t: &[f32; 12], soup: &mut Soup, depth: usize) {
         if depth > 8 {
             return;
         }
-        let Some(o) = objs.iter().find(|o| o.id == id) else { return };
+        let Some(o) = files.get(file).and_then(|objs| objs.iter().find(|o| o.id == id)) else { return };
         let base = soup.base();
         soup.pos.extend(o.pos.iter().map(|p| apply(t, *p)));
         for tr in &o.tri {
@@ -205,7 +237,7 @@ pub fn parse_3mf(path: &Path) -> Result<Mesh, String> {
                 soup.idx.extend([base + tr[0], base + tr[1], base + tr[2]]);
             }
         }
-        for (cid, ct) in &o.comps {
+        for (cfile, cid, ct) in &o.comps {
             // child transform first, then ours (row-vector convention)
             let mut m = [0.0f32; 12];
             let (a, b) = (ct, t);
@@ -218,23 +250,39 @@ pub fn parse_3mf(path: &Path) -> Result<Mesh, String> {
             for c in 0..3 {
                 m[9 + c] = a[9] * b[c] + a[10] * b[3 + c] + a[11] * b[6 + c] + b[9 + c];
             }
-            emit(objs, cid, &m, soup, depth + 1);
+            let key = if cfile.is_empty() { String::new() } else { cfile.trim_start_matches('/').to_ascii_lowercase() };
+            emit(files, &key, cid, &m, soup, depth + 1);
         }
     }
     let mut soup = Soup::default();
-    let items: Vec<(String, [f32; 12])> = doc.descendants().filter(|n| n.has_tag_name("item")).map(|i| (i.attribute("objectid").unwrap_or("").to_string(), tf(i.attribute("transform")))).collect();
     if items.is_empty() {
-        for o in &parsed {
-            if !o.tri.is_empty() {
-                emit(&parsed, &o.id, &ident, &mut soup, 0);
-            }
+        for o in &files[""] {
+            emit(&files, "", &o.id, &ident, &mut soup, 0);
         }
     } else {
         for (id, t) in items {
-            emit(&parsed, &id, &t, &mut soup, 0);
+            emit(&files, "", &id, &t, &mut soup, 0);
         }
     }
     soup.finish(false)
+}
+
+/// The picture a 3MF project carries (slicers store the plate render as a thumbnail): used when the model itself can't be drawn.
+pub fn parse_3mf_picture(path: &Path) -> Option<crate::Image> {
+    let mut zip = crate::docthumb::Zip::open(path).ok()?;
+    let best = zip
+        .entries
+        .iter()
+        .filter(|e| crate::docthumb::is_image_name(&e.name) && !e.name.to_ascii_lowercase().contains("profile"))
+        .max_by_key(|e| {
+            let n = e.name.to_ascii_lowercase();
+            (n.contains("thumbnail") || n.contains("plate") || n.contains("preview"), e.size)
+        })
+        .cloned()?;
+    let bytes = zip.read(&best, 64 << 20).ok()?;
+    let mut img = crate::decode_image_bytes(&bytes, &crate::docthumb::ext_of(&best.name)).ok()?;
+    img.colour_note = Some(format!("the picture stored in this 3MF project ({})", best.name));
+    Some(img)
 }
 
 /// AMF: XML, often zipped.
@@ -1098,6 +1146,11 @@ pub fn decode(path: &Path, ext: &str, thumb: bool) -> Result<crate::Image, Strin
     }
     if let Some(app) = closed_app(ext) {
         let bytes = crate::progress::read_file(path)?;
+        // 3ds Max keeps a small preview in the OLE summary information; other scene formats a PNG / JPEG somewhere inside.
+        if let Some(mut img) = crate::ole::summary_preview(&bytes) {
+            img.colour_note = Some(format!("the small preview stored in this {app} file (the 3D scene itself is {app}'s closed format)"));
+            return Ok(img);
+        }
         if let Some(mut img) = embedded_picture(&bytes) {
             img.colour_note = Some(format!("the preview picture stored in this {app} file (the 3D scene itself is {app}'s closed format)"));
             return Ok(img);
@@ -1115,7 +1168,11 @@ pub fn decode(path: &Path, ext: &str, thumb: bool) -> Result<crate::Image, Strin
     let bytes = crate::progress::read_file(path)?;
     let mesh = match ext {
         "3ds" => parse_3ds(&bytes)?,
-        "3mf" => parse_3mf(path)?,
+        "3mf" => match parse_3mf(path) {
+            Ok(m) => m,
+            // A slicer project whose models can't be drawn still carries the picture of its plate.
+            Err(e) => return parse_3mf_picture(path).ok_or(e),
+        },
         "amf" => parse_amf(path, &bytes)?,
         "dae" => parse_dae(&bytes)?,
         "las" => parse_las(&bytes)?,

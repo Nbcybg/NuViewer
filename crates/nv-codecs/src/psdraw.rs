@@ -57,30 +57,98 @@ fn parse_header(b: &[u8]) -> Result<Header, String> {
     Ok(Header { psb: version == 2, channels, height, width, depth, mode })
 }
 
+/// What a file says before its merged picture starts.
+pub(crate) struct Sections {
+    h: Header,
+    cm_data: Vec<u8>,
+    resources: Vec<u8>,
+    /// The layer section's layer count is negative: the first channel after the colour ones is the transparency of the
+    /// merged picture. (Otherwise it is an ordinary alpha channel, a saved selection, and Photoshop does not show it.)
+    transparent: bool,
+}
+
+/// `Some(true)` when the layer information starts with a negative layer count. `info` starts at the layer section.
+fn negative_layer_count(info: &[u8], psb: bool) -> bool {
+    let at = if psb { 8 } else { 4 };
+    // Layer info length (0 = no layers at all), then the signed layer count.
+    let len = if psb { info.get(..8).map(|s| u64::from_be_bytes(s.try_into().unwrap())).unwrap_or(0) } else { info.get(..4).map(|s| u32::from_be_bytes(s.try_into().unwrap()) as u64).unwrap_or(0) };
+    len >= 2 && info.get(at..at + 2).map(|s| i16::from_be_bytes([s[0], s[1]]) < 0).unwrap_or(false)
+}
+
 pub fn decode(bytes: &[u8]) -> Result<Image, String> {
     let h = parse_header(bytes)?;
+    check_depth(&h)?;
+    // Colour mode data.
+    let mut at = 26;
+    let cm_len = be32(bytes, at)? as usize;
+    let cm_data = bytes.get(at + 4..at + 4 + cm_len).ok_or_else(truncated)?.to_vec();
+    at += 4 + cm_len;
+    // Image resources, then layers and masks: skipped.
+    let res_len = be32(bytes, at)? as usize;
+    let resources = bytes.get(at + 4..(at + 4).saturating_add(res_len).min(bytes.len())).unwrap_or(&[]).to_vec();
+    at += 4 + res_len;
+    let layer_len = if h.psb { be64(bytes, at)? as usize } else { be32(bytes, at)? as usize };
+    at += if h.psb { 8 } else { 4 };
+    let transparent = negative_layer_count(bytes.get(at..(at + 12).min(bytes.len())).unwrap_or(&[]), h.psb);
+    at = at.checked_add(layer_len).ok_or_else(truncated)?;
+    let data = bytes.get(at..).ok_or_else(truncated)?;
+    finish(Sections { h, cm_data, resources, transparent }, data)
+}
+
+/// The merged picture of the file at `path`, reading only the header sections and the image data (the layers, which are
+/// most of a big file, are skipped by seeking past them).
+pub fn decode_path(path: &std::path::Path) -> Result<Image, String> {
+    use std::io::{Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).map_err(|e| format!("read: {e}"))?;
+    let file_len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let mut head = [0u8; 30];
+    f.read_exact(&mut head[..26]).map_err(|_| truncated())?;
+    let h = parse_header(&head[..26])?;
+    check_depth(&h)?;
+    let word = |f: &mut std::fs::File, n: usize| -> Result<u64, String> {
+        let mut b = [0u8; 8];
+        f.read_exact(&mut b[8 - n..]).map_err(|_| truncated())?;
+        Ok(u64::from_be_bytes(b))
+    };
+    let cm_len = word(&mut f, 4)?;
+    if cm_len > file_len {
+        return Err(truncated());
+    }
+    let mut cm_data = vec![0u8; cm_len as usize];
+    f.read_exact(&mut cm_data).map_err(|_| truncated())?;
+    let res_len = word(&mut f, 4)?;
+    if res_len > file_len {
+        return Err(truncated());
+    }
+    let mut resources = vec![0u8; res_len as usize];
+    f.read_exact(&mut resources).map_err(|_| truncated())?;
+    let layer_len = word(&mut f, if h.psb { 8 } else { 4 })?;
+    let layers_at = f.stream_position().map_err(|e| e.to_string())?;
+    let mut info = [0u8; 12];
+    let n = f.read(&mut info).unwrap_or(0).min(layer_len as usize);
+    let transparent = negative_layer_count(&info[..n], h.psb);
+    let data_at = layers_at.checked_add(layer_len).filter(|a| *a < file_len).ok_or_else(truncated)?;
+    f.seek(SeekFrom::Start(data_at)).map_err(|e| e.to_string())?;
+    let mut data = Vec::with_capacity((file_len - data_at) as usize);
+    f.read_to_end(&mut data).map_err(|e| format!("read: {e}"))?;
+    finish(Sections { h, cm_data, resources, transparent }, &data)
+}
+
+fn check_depth(h: &Header) -> Result<(), String> {
     if !matches!(h.depth, 1 | 8 | 16) {
         return Err(format!("psd: unsupported bit depth {} (8 and 16 bits per channel are supported)", h.depth));
     }
     if h.depth == 1 && h.mode != 0 {
         return Err("psd: unsupported bit depth 1 outside bitmap mode".into());
     }
-    // Colour mode data.
-    let mut at = 26;
-    let cm_len = be32(bytes, at)? as usize;
-    let cm_data = bytes.get(at + 4..at + 4 + cm_len).ok_or_else(truncated)?;
-    at += 4 + cm_len;
-    // Image resources, then layers and masks: skipped.
-    let res_len = be32(bytes, at)? as usize;
-    let resources = bytes.get(at + 4..(at + 4).saturating_add(res_len).min(bytes.len())).unwrap_or(&[]);
-    at += 4 + res_len;
-    let layer_len = if h.psb { be64(bytes, at)? as usize } else { be32(bytes, at)? as usize };
-    at += if h.psb { 8 } else { 4 };
-    at = at.checked_add(layer_len).ok_or_else(truncated)?;
-    let compression = be16(bytes, at)?;
-    at += 2;
-    let data = bytes.get(at..).ok_or_else(truncated)?;
+    Ok(())
+}
 
+/// The image-data section (`data` starts at its compression field) turned into a picture.
+fn finish(s: Sections, data: &[u8]) -> Result<Image, String> {
+    let Sections { h, cm_data, resources, transparent } = s;
+    let compression = be16(data, 0)?;
+    let data = &data[2..];
     let (w, hgt, ch) = (h.width, h.height, h.channels);
     let row_bytes = if h.depth == 1 { w.div_ceil(8) } else { w * h.depth / 8 };
     let plane = row_bytes * hgt;
@@ -102,9 +170,9 @@ pub fn decode(bytes: &[u8]) -> Result<Image, String> {
         }
         c => return Err(format!("psd: unsupported compression {c}")),
     };
-    let mut img = to_rgba(&h, &planes, plane, row_bytes, cm_data)?;
+    let mut img = to_rgba(&h, &planes, plane, row_bytes, &cm_data, transparent)?;
     if matches!(h.mode, 3 | 4) {
-        img.icc = icc_from_resources(resources);
+        img.icc = icc_from_resources(&resources);
     }
     Ok(img)
 }
@@ -140,37 +208,59 @@ fn icc_from_resources(res: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// PackBits rows: all the byte counts first (u16 each in PSD, u32 in PSB), then the data of every scanline of every channel.
+/// The rows are independent, so they are unpacked by all cores.
 fn unpack_rle(data: &[u8], h: &Header, row_bytes: usize) -> Result<Vec<u8>, String> {
     let rows = h.height * h.channels;
     let count_size = if h.psb { 4 } else { 2 };
+    // Where every row's packed bytes start.
+    let mut starts = Vec::with_capacity(rows + 1);
     let mut pos = rows * count_size;
-    let mut out = vec![0u8; row_bytes * rows];
     for r in 0..rows {
         let len = if h.psb { be32(data, r * 4)? as usize } else { be16(data, r * 2)? as usize };
-        let src = data.get(pos..pos + len).ok_or_else(truncated)?;
+        starts.push((pos, len));
         pos += len;
-        let dst = &mut out[r * row_bytes..(r + 1) * row_bytes];
-        let (mut i, mut o) = (0, 0);
-        while i < src.len() && o < row_bytes {
-            let n = src[i] as i8;
+    }
+    if pos > data.len() {
+        return Err(truncated());
+    }
+    let mut out = vec![0u8; row_bytes * rows];
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(1, 16);
+    let per = rows.div_ceil(threads).max(1);
+    std::thread::scope(|s| {
+        for (ci, chunk) in out.chunks_mut(per * row_bytes).enumerate() {
+            let starts = &starts;
+            s.spawn(move || {
+                for (k, dst) in chunk.chunks_mut(row_bytes).enumerate() {
+                    let (at, len) = starts[ci * per + k];
+                    unpack_row(&data[at..at + len], dst);
+                }
+            });
+        }
+    });
+    Ok(out)
+}
+
+fn unpack_row(src: &[u8], dst: &mut [u8]) {
+    let row_bytes = dst.len();
+    let (mut i, mut o) = (0, 0);
+    while i < src.len() && o < row_bytes {
+        let n = src[i] as i8;
+        i += 1;
+        if n >= 0 {
+            let run = n as usize + 1;
+            let take = run.min(src.len() - i).min(row_bytes - o);
+            dst[o..o + take].copy_from_slice(&src[i..i + take]);
+            i += run;
+            o += take;
+        } else if n != -128 {
+            let run = 1 - n as isize;
+            let Some(&v) = src.get(i) else { break };
             i += 1;
-            if n >= 0 {
-                let run = n as usize + 1;
-                let take = run.min(src.len() - i).min(row_bytes - o);
-                dst[o..o + take].copy_from_slice(&src[i..i + take]);
-                i += run;
-                o += take;
-            } else if n != -128 {
-                let run = 1 - n as isize;
-                let Some(&v) = src.get(i) else { break };
-                i += 1;
-                let take = (run as usize).min(row_bytes - o);
-                dst[o..o + take].fill(v);
-                o += take;
-            }
+            let take = (run as usize).min(row_bytes - o);
+            dst[o..o + take].fill(v);
+            o += take;
         }
     }
-    Ok(out)
 }
 
 /// ZIP-with-prediction stores each row as differences from the previous sample (bytes, or 16-bit words).
@@ -215,7 +305,7 @@ impl Planes<'_> {
     }
 }
 
-fn to_rgba(h: &Header, data: &[u8], plane: usize, row_bytes: usize, color_data: &[u8]) -> Result<Image, String> {
+fn to_rgba(h: &Header, data: &[u8], plane: usize, row_bytes: usize, color_data: &[u8], transparent: bool) -> Result<Image, String> {
     let (w, hgt) = (h.width, h.height);
     let p = Planes { data, plane, row_bytes, depth: h.depth, width: w };
     let _ = p.width;
@@ -232,8 +322,37 @@ fn to_rgba(h: &Header, data: &[u8], plane: usize, row_bytes: usize, color_data: 
         return Err(format!("psd: mode {} needs {needs} channels, the file has {ch}", h.mode));
     }
     // (CMYK keeps all four bytes of a pixel for the inks: a fifth channel, an alpha or spot colour, is dropped.)
-    let has_alpha = ch > colours && matches!(h.mode, 1 | 3) && h.depth != 1;
+    let has_alpha = transparent && ch > colours && matches!(h.mode, 1 | 3) && h.depth != 1;
     let cmyk = h.mode == 4;
+    // The common case, 8 or 16 bit RGB: whole rows at a time on every core.
+    if h.mode == 3 && matches!(h.depth, 8 | 16) {
+        let step = h.depth / 8;
+        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(1, 16);
+        let per = hgt.div_ceil(threads).max(1);
+        std::thread::scope(|s| {
+            for (ci, chunk) in rgba.chunks_mut(per * w * 4).enumerate() {
+                s.spawn(move || {
+                    for (k, row) in chunk.chunks_mut(w * 4).enumerate() {
+                        let y = ci * per + k;
+                        let base = |c: usize| c * plane + y * row_bytes;
+                        let (r, g, b) = (&data[base(0)..], &data[base(1)..], &data[base(2)..]);
+                        let a = has_alpha.then(|| &data[base(3)..]);
+                        for (x, px) in row.chunks_exact_mut(4).enumerate() {
+                            px[0] = r[x * step];
+                            px[1] = g[x * step];
+                            px[2] = b[x * step];
+                            if let Some(a) = a {
+                                px[3] = a[x * step];
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        let mut img = Image::new(w as u32, hgt as u32, rgba);
+        img.profile_assumable = true;
+        return Ok(img);
+    }
     for y in 0..hgt {
         for x in 0..w {
             let o = (y * w + x) * 4;
@@ -405,9 +524,21 @@ mod tests {
     }
 
     #[test]
-    fn a_fourth_channel_is_transparency() {
-        let img = decode(&make(2, 1, 1, 4, 3, 8, 0, &[1, 2, 3, 128])).unwrap();
+    fn a_fourth_channel_is_transparency_only_when_the_layer_count_says_so() {
+        // PSB with a layer section holding "length 2, count -1": the merged picture has transparency.
+        let mut with = make(2, 1, 1, 4, 3, 8, 0, &[1, 2, 3, 128]);
+        let at = 26 + 4 + 4; // after the colour mode data and the image resources (both empty)
+        let tail = with.split_off(at + 8);
+        with.truncate(at);
+        with.extend(10u64.to_be_bytes()); // layer and mask section length
+        with.extend(2u64.to_be_bytes()); // layer info length
+        with.extend((-1i16).to_be_bytes());
+        with.extend(tail);
+        let img = decode(&with).unwrap();
         assert_eq!(&img.rgba[..4], &[1, 2, 3, 128]);
+        // No layers at all: the fourth channel is a saved selection, the picture is opaque.
+        let img = decode(&make(2, 1, 1, 4, 3, 8, 0, &[1, 2, 3, 128])).unwrap();
+        assert_eq!(&img.rgba[..4], &[1, 2, 3, 255]);
     }
 
     #[test]

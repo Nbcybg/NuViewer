@@ -69,8 +69,11 @@ impl Form {
             let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); // fails harmlessly if already set
             let hinst = GetModuleHandleW(None).map_err(|e| e.to_string())?;
             let class = w!("NuViewerForm");
+            let (icon, icon_small) = crate::app_icons();
             let wc = WNDCLASSEXW {
                 cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+                hIcon: icon,
+                hIconSm: icon_small,
                 lpfnWndProc: Some(form_proc),
                 hInstance: hinst.into(),
                 hCursor: LoadCursorW(None, IDC_ARROW).map_err(|e| e.to_string())?,

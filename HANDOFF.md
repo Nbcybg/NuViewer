@@ -696,3 +696,11 @@ develop), so RAW comparisons are not like for like. FastStone's own numbers drif
   (record-then-analyse open timing, cold and warm, `-ExtraArgs '--fullscreen --actual-size'`), `race4.ps1` (unused
   windowed-then-fullscreen variant), `tiffdump.py` (TIFF/DNG/CR2 structure dump) and `rafhdr.py` (RAF header). They
   lived under `%LOCALAPPDATA%\Temp\claude\<session>\...\scratchpad` and may be cleaned up.
+
+## Session 17 (2026-11-17) - the four points from the five-viewer benchmark
+
+Full write-up: `docs/session17.md`. Short version: new formats (SAI, CLIP, OCI card, DUF, MAX preview, 3MF slicer files, MIDI with a built-in synthesizer, LIP
+generic); PSD transparency rule + layer-free read; the first picture is now a CPU bitmap made exactly like the GPU's (`gpufit.rs`) that the GPU draws 1:1 until
+the view changes (`display.rs` `Proxy`), so nothing changes when the GPU takes over; big JPEGs (>= 24 MP) paint from a DCT-scaled decode; seen pictures stay on the
+GPU. Benchmark gotchas: set `fullscreen = 1` in `%APPDATA%\NuViewer\window.ini` (restore after), `NV_EXE` picks the build, the first run of a new exe is slow (Defender),
+the disk badge used to be the only late change. Open: `.lip` is a guess, `.oci` picture data unreadable, installed build still old.
