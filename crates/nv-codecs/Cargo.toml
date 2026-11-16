@@ -26,6 +26,7 @@ flif = "0.4"
 icns = "0.5"
 flate2 = "1"
 ruzstd = "0.8"
+roxmltree = "0.20"
 
 [target.'cfg(windows)'.dependencies.windows]
 workspace = true

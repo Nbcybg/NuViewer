@@ -5,9 +5,11 @@ edition.workspace = true
 
 [dependencies]
 nv-codecs = { path = "../nv-codecs" }
+nv-text = { path = "../nv-text" }
 nv-editor = { path = "../nv-editor" }
 nv-media = { path = "../nv-media" }
 flate2 = "1"
+png = { workspace = true }
 
 [dev-dependencies]
 png = { workspace = true }

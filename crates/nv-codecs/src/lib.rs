@@ -7,6 +7,7 @@
 use std::path::Path;
 
 mod blend;
+mod codepage;
 mod cmyk;
 mod develop;
 mod dicom;
@@ -49,6 +50,18 @@ mod wic;
 mod webpdec;
 
 pub use dims::peek_size;
+pub use codepage::is_code_ext;
+pub use svgdec::render_icon;
+
+/// Decode a picture held in memory; `ext` (no dot) says what it is when the bytes alone don't.
+pub fn decode_bytes_hint(bytes: &[u8], ext: &str) -> Result<Image, String> {
+    decode_image_bytes(bytes, ext)
+}
+
+/// Every picture inside a zip-based file (PowerPoint, Word, OpenDocument, zip, cbz, epub ...): (name, bytes).
+pub fn zip_pictures(path: &Path, limit: usize) -> Result<Vec<(String, Vec<u8>)>, String> {
+    docthumb::pictures_in_zip(path, limit)
+}
 pub use docthumb::is_document_ext;
 pub use resize::downscale;
 
@@ -325,6 +338,13 @@ pub fn supported_extensions() -> Vec<&'static str> {
     v.extend(media::AUDIO_EXTS);
     v.extend(media::PRO_EXTS);
     v
+}
+
+/// Extensions of still pictures that can be converted to PNG / JPEG: everything we open except video, sound, 3D models,
+/// documents and Blender files.
+pub fn convertible_extensions() -> Vec<&'static str> {
+    let skip = |e: &str| media::media_kind(e).is_some() || model::EXTS.contains(&e) || DOC_EXTS.contains(&e) || BLEND_EXTS.contains(&e) || EPS_EXTS.contains(&e) || TRY_EXTS.contains(&e);
+    supported_extensions().into_iter().filter(|e| !skip(e)).collect()
 }
 
 /// Is this a camera RAW format (listed separately from ordinary pictures in the gallery's filters)?

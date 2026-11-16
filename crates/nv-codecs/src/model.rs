@@ -659,10 +659,35 @@ fn shrink_for_preview(t: &ModelTexture, limit: u32) -> (u32, u32, Vec<u8>) {
 
 /// Extensions handled here.
 /// `vrm` (VRoid / VRM avatars) is a glTF binary with extra data: it opens as a GLB.
-pub const EXTS: &[&str] = &["stl", "obj", "ply", "glb", "gltf", "vrm", "fbx"];
+pub const EXTS: &[&str] = &[
+    // the core formats (this file)
+    "stl", "obj", "ply", "glb", "gltf", "vrm", "fbx",
+    // read natively (model_more.rs)
+    "3ds", "3mf", "amf", "dae", "las", "dxf", "lwo", "lwo2", "usda", "usdz", "ma", "unitypackage",
+    // through an installed converter (assimp / Blender / FreeCAD / ODA), else a message saying which
+    "step", "stp", "iges", "igs", "abc", "usd", "usdc", "dwg",
+    // closed scene formats: the picture stored inside, else a message
+    "max", "c4d", "lxo", "ztl", "zpr", "spp", "ms", "hrc", "uasset", "mb", "f3d",
+];
+
+#[path = "model_more.rs"]
+pub mod more;
+
+/// The software-rendered picture of a mesh (also carries the mesh for the GPU view).
+pub fn preview_image(mesh: Mesh, thumb: bool) -> Image {
+    let long = if thumb { 320 } else { 1200 };
+    let (w, h) = (long, long * 3 / 4);
+    let rgba = render_preview(&mesh, &Orbit::default(), w, h);
+    let mut img = Image::new(w, h, rgba);
+    img.mesh = Some(Arc::new(mesh));
+    img
+}
 
 pub fn decode(path: &Path, thumb: bool) -> Result<Image, String> {
     let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).unwrap_or_default();
+    if !matches!(ext.as_str(), "stl" | "obj" | "ply" | "glb" | "gltf" | "vrm" | "fbx") {
+        return more::decode(path, &ext, thumb);
+    }
     let bytes = crate::progress::read_file(path)?;
     let mesh = match ext.as_str() {
         "stl" => parse_stl(&bytes)?,

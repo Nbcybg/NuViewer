@@ -51,8 +51,11 @@ pub const FORMATS: &[Format] = &[
     f("glTF / VRM", &["glb", "gltf", "vrm"], false),
     f("FBX", &["fbx"], false),
     f("Blender", &["blend", "blend1"], false),
-    f("Video", &["mp4", "m4v", "mov", "mkv", "avi", "wmv", "webm", "mpg", "mpeg", "mpe", "ts", "mts", "m2ts", "3gp", "flv", "ogv"], false),
-    f("Sound (waveform)", &["wav", "mp3", "flac", "aac", "m4a", "ogg", "oga", "opus", "wma", "aif", "aiff"], false),
+    f("3DS / 3MF / AMF / DAE / DXF / LWO / LAS / USD", &["3ds", "3mf", "amf", "dae", "dxf", "lwo", "lwo2", "las", "usda", "usdz", "ma", "unitypackage"], false),
+    f("CAD and interchange (STEP, IGES, Alembic, USD, DWG)", &["step", "stp", "iges", "igs", "abc", "usd", "usdc", "dwg"], false),
+    f("3D scenes of other programs (max, c4d, lxo, ztl, spp ...)", &["max", "c4d", "lxo", "ztl", "zpr", "spp", "ms", "hrc", "uasset", "mb", "f3d"], false),
+    f("Video", &["mp4", "m4v", "mov", "mkv", "avi", "wmv", "webm", "mpg", "mpeg", "mpe", "ts", "mts", "m2ts", "3gp", "flv", "ogv", "m2t", "3g2", "f4v", "ogm", "vob", "asf", "dv", "rm", "rmvb", "divx", "m2v", "mod", "tod", "wtv"], false),
+    f("Sound (waveform)", &["wav", "mp3", "flac", "aac", "m4a", "ogg", "oga", "opus", "wma", "aif", "aiff", "aifc", "au", "snd", "pcm", "alac", "ape", "dsf", "dff", "dsd", "wv", "tta", "mka", "mpc", "mp2", "amr", "ac3", "dts", "caf", "weba", "m4b"], false),
     f("RED / MXF / BRAW", &["r3d", "mxf", "braw"], false),
     f("Canon RAW", &["cr2", "cr3", "crw"], true),
     f("Nikon RAW", &["nef", "nrw"], true),
@@ -70,9 +73,9 @@ pub const FORMATS: &[Format] = &[
 pub const GROUPS: &[(&str, std::ops::Range<usize>)] = &[
     ("Pictures", 0..21),
     ("Documents and vector art", 21..25),
-    ("3D models", 25..31),
-    ("Video and sound", 31..34),
-    ("Camera RAW", 34..44),
+    ("3D models", 25..34),
+    ("Video and sound", 34..37),
+    ("Camera RAW", 37..47),
 ];
 
 const ROW_HEIGHT: i32 = 20;
@@ -238,7 +241,7 @@ mod tests {
         assert_eq!(GROUPS.last().map(|g| g.1.end), Some(FORMATS.len()), "the groups cover every format");
         assert!(GROUPS.windows(2).all(|w| w[0].1.end == w[1].1.start));
         assert_eq!(FORMATS[GROUPS[1].1.start].name, "PDF / Illustrator");
-        assert_eq!(FORMATS[GROUPS[3].1.start].name, "Canon RAW");
+        assert_eq!(FORMATS[GROUPS[4].1.start].name, "Canon RAW");
     }
 
     #[test]
@@ -252,6 +255,6 @@ mod tests {
         assert!(picked_for(&[]).iter().all(|b| !b));
         // Off by default: TIFF, Icon, JPEG XR, Photoshop, the four game / render formats (TGA, DDS, PNM, HDR/EXR/QOI), the six
         // specialist ones (JPEG XL, JPEG 2000, FLIF, Apple icon, PCX, DICOM) and every document / vector / 3D format (other programs own those).
-        assert_eq!(default_picks().iter().filter(|b| !**b).count(), 4 + 4 + 6 + 9);
+        assert_eq!(default_picks().iter().filter(|b| !**b).count(), FORMATS.iter().filter(|f| !f.default_on).count());
     }
 }

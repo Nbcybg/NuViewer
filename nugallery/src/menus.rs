@@ -69,6 +69,8 @@ impl Preset {
 
 #[derive(Clone, Debug)]
 pub enum Cmd {
+    QuickPng,
+    QuickJpeg,
     Open,
     Slideshow,
     Quick(QuickOp),
@@ -214,6 +216,9 @@ impl App {
             .map(|&p| b.item(Cmd::Convert(p), p.label()))
             .collect();
         menu.push(Item::Submenu { text: "Quick convert".into(), items: convert, enabled: any_pic });
+        // One click, no questions: next to each file, same name, nothing lost (PNG is lossless, JPEG is quality 100 at full colour resolution).
+        menu.push(b.item(Cmd::QuickPng, nv_core::i18n::t("menu.convert_png")).enabled(any_pic));
+        menu.push(b.item(Cmd::QuickJpeg, nv_core::i18n::t("menu.convert_jpeg")).enabled(any_pic));
         if many {
             menu.push(Item::Separator);
             let batch = vec![
@@ -237,6 +242,23 @@ impl App {
     pub fn menubar_press(&mut self, x: i32, y: i32) -> bool {
         let bar_h = self.menubar.height(self.dpi);
         if self.menubar.visible() && (y as f32) < bar_h {
+            if let Some(n) = self.menubar.nav_hit(x as f32, y as f32, self.dpi) {
+                self.menubar.close();
+                match n {
+                    // "<": the program before this one is the viewer: the picked picture opens there; a folder goes up one level.
+                    nv_win::menubar::Nav::Back => {
+                        let picked_picture = self.sel.entries(&self.listing).first().is_some_and(|e| !e.is_dir() && e.viewable());
+                        if picked_picture {
+                            self.open_selected(false);
+                        } else {
+                            self.go_up();
+                        }
+                    }
+                    nv_win::menubar::Nav::Close => self.exit(),
+                }
+                nv_win::invalidate(self.hwnd);
+                return true;
+            }
             match self.menubar.hit(x as f32, y as f32) {
                 Some(i) => self.open_menubar_menu(i),
                 None => {
@@ -553,6 +575,8 @@ impl App {
             Cmd::ToggleSequences => self.toggle_sequences(),
             Cmd::Importer => self.launch_importer(),
             Cmd::Exit => self.exit(),
+            Cmd::QuickPng => self.quick_to(nv_core::quick::Target::Png),
+            Cmd::QuickJpeg => self.quick_to(nv_core::quick::Target::Jpeg),
         }
     }
 }

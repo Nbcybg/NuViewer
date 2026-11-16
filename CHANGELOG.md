@@ -2,6 +2,42 @@
 
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
+## 0.2.0 - 2026-11-16
+
+Everything in this version is described, with what was and was not verified, in `docs/formats-0.2.md`, `docs/importer.md` and
+`docs/localization.md`.
+
+### Added
+- **Video:** one frame forward / back (`.` and `,` and two new buttons on the playback bar; exact, also stepping back; GIF / APNG / WebP step too).
+  **Save this frame** (Ctrl+Shift+S, right-click): Settings > Video snapshot picks format (PNG 8 / 16 bit, JPEG, WebP, TIFF, BMP), folder and name, and how colours
+  are treated: SDR as shown / Rec.709 (BT.1886) / QuickTime Rec.709-A / 2.2; **HDR10 and HLG** (10 / 12 bit) tone-mapped to sRGB (Reinhard or Hable) or **kept as a
+  16-bit PNG tagged BT.2020 + PQ**. The frame is decoded by ffmpeg at 16 bits with the clip's own matrix and range.
+- **Formats:** video mp4 m4v mov mkv avi wmv webm mpg mpeg ts mts m2ts 3gp flv f4v ogv vob asf dv rm rmvb ... (anything Windows can't play is converted by ffmpeg, HDR
+  tone-mapped, colours tagged BT.709); sound mp3 ogg opus flac alac aac m4a wma aiff aifc au pcm ape dsf dff wv tta mka ...; 3D **3DS 3MF AMF DAE LWO DXF LAS USDA/USDZ Maya ASCII
+  Unity packages**, STEP / IGES / Alembic / binary USD / DWG through FreeCAD, Blender, assimp or the ODA converter when installed, and the picture stored inside closed scene
+  files (max, c4d, lxo, ztl, spp, ms, hrc, uasset, ...); **JSON, XML, YAML, TOML, INI, TSV ...** as a coloured page (JSON is re-indented and validated).
+- **Quick convert, one click, no questions:** "Convert to PNG / JPEG" next to the file (PNG lossless; JPEG quality 100, 4:4:4, EXIF kept) in the right-click menus of NuViewer,
+  NuGallery (many files) and NuEditor (with the edits), keys Ctrl+Alt+P / Ctrl+Alt+J, and **in Explorer's own right-click menu** (Settings > Language & Explorer).
+- **NuImporter is real:** scanner (Windows' scan window), screenshot (region or whole screen; NuQuick's Ctrl+Print Screen / Ctrl+Alt+Print Screen start it from anywhere), clipboard,
+  camera (take a picture over a cable, or watch the folder a wired / Wi-Fi camera writes into), the pictures inside a PowerPoint / Word / zip / epub / ISO, a folder. After import:
+  save at once, open in NuEditor first (save or drop when it is closed), or put on the clipboard; PNG, JPEG, WebP, BMP, TIFF, QOI, TGA or "as it was".
+- **NuEditor:** zooms out below the fit (down to 5%); click the value of any slider (and of the export numbers) and **type a number**, beyond the slider's range
+  (up to +-1 000 000; every slider survives that: tested); save formats BMP, TIFF, TGA, QOI added; Ctrl+C copies the edited picture.
+- **Back (<) and close (x)** at the ends of the menu bar of NuViewer, NuGallery and NuEditor (`<` goes to the previous program / the gallery, `x` closes everything).
+- **Settings** is a sidebar with four categories and two-tone icons (Keyline Icons, MIT, `docs/third-party`) instead of one crowded row of tabs; new pages: Video snapshot, Import,
+  Language & Explorer.
+- **Credits** (F1): centred, made by Noobcyborg studio, website and support links you can click.
+- **Languages:** the text of the programs is in `crates/nv-text/lang/en.txt` (keys + 700 phrases found in the code); a translation is a file `lang/<code>.txt`
+  (`th.txt` Thai starter included); Settings > Language & Explorer. See `docs/localization.md`.
+
+### Changed
+- Version 0.2.0. The NuImporter mock-up (nothing was copied) is gone: its card / folder window became the real importer.
+- Data files (JSON ...) are always listed in folders.
+- The file-type chooser (`--associate`, installer) lists the new video, sound and 3D formats (all off by default; JSON and other data files are never registered).
+- Tests: `assoc` group ranges and the editor's clamping tests follow the new behaviour (typed values beyond a slider are kept, also in pair files).
+
+## 0.1.0 and what was added before 0.2.0 (sessions 10-14)
+
 ### Added
 - **Viewer:** Western / Japanese reading is one switch (Ctrl+B, View menu, right-click menu); in Japanese the Left arrow turns forward. Double click opens
   the gallery. **Dim** (Shift+D, how much in Settings). **Canvas:** plain colour (presets, grey slider, hex), the picture itself blurred, or a picture file.

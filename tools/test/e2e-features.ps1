@@ -204,7 +204,7 @@ try {
         $hm = [In]::SendMessage($menu, 0x01E1, [IntPtr]::Zero, [IntPtr]::Zero)
         $n = [In]::GetMenuItemCount($hm)
         $texts = @(0..($n - 1) | ForEach-Object { [In]::MenuText($hm, $_) })
-        Check "menu has 32 entries  [$n]" ($n -eq 32)
+        Check "menu has 38 entries  [$n]" ($n -eq 38)
         Check 'Settings… and Fold image sequences are in the menu' ((@($texts | Where-Object { $_ -like 'Settings*' }).Count -eq 1) -and (@($texts | Where-Object { $_ -like 'Fold image sequences*' }).Count -eq 1))
         $ow = [array]::IndexOf(@($texts | ForEach-Object { $_ -like 'Edit with*' }), $true)
         $sub = [In]::GetSubMenu($hm, $ow)
@@ -222,13 +222,13 @@ try {
     Check 'Settings window opens' ($null -ne $sw)
     if ($sw) {
         $kids = [In]::Children($sw)
-        Check 'four pages: Viewer, File types, External programs, Mouse & keyboard' ((@($kids | Where-Object { $_.Text -in 'Viewer', 'File types', 'External programs', 'Mouse && keyboard' }).Count) -eq 4)
-        $tab4 = $kids | Where-Object { $_.Text -eq 'Mouse && keyboard' }
+        Check 'four pages: Viewer, File types, External programs, Mouse & keyboard' ((@($kids | Where-Object { $_.Text -in 'Viewer', 'File types', 'External programs', 'Mouse & keyboard' }).Count) -eq 4)
+        $tab4 = $kids | Where-Object { $_.Text -eq 'Mouse & keyboard' }
         [void][In]::SendMessage($tab4.H, 0xF5, [IntPtr]::Zero, [IntPtr]::Zero)   # BM_CLICK
         Start-Sleep -Milliseconds 300
         $list = ([In]::Children($sw) | Where-Object { $_.Id -eq 410 }).H
         $cnt = [In]::SendMessage($list, 0x018B, [IntPtr]::Zero, [IntPtr]::Zero)
-        Check "keyboard list holds all 67 actions  [$cnt]" ($cnt -eq 67)
+        Check "keyboard list holds all 77 actions  [$cnt]" ($cnt -eq 77)
         [void][In]::SendMessage($list, 0x0186, [IntPtr]0, [IntPtr]::Zero)   # LB_SETCURSEL 0
         [void][In]::SendMessage($sw, 0x0111, [IntPtr](410 -bor (1 -shl 16)), $list)   # WM_COMMAND, LBN_SELCHANGE
         $edit = ([In]::Children($sw) | Where-Object { $_.Id -eq 411 }).H

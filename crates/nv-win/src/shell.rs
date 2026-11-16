@@ -118,6 +118,14 @@ pub fn pick_folder(hwnd: HWND, title: &str, initial: Option<&Path>) -> Option<Pa
     }
 }
 
+/// Open a web address in the default browser.
+pub fn open_url(url: &str) {
+    if url.starts_with("https://") || url.starts_with("http://") {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("explorer.exe").raw_arg(format!("\"{url}\"")).spawn();
+    }
+}
+
 /// Open Explorer with `path` selected.
 pub fn reveal_in_explorer(path: &Path) {
     use std::os::windows::process::CommandExt;

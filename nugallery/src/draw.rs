@@ -469,17 +469,31 @@ impl App {
             self.text.draw(r, &t, small, x + 12.0 * d, y + 6.0 * d, rgb(pal::TEXT, 1.0));
         }
         if help {
-            let mut lines = help_lines();
-            lines.extend(nv_core::about::credit_lines());
+            let help: Vec<String> = help_lines().into_iter().map(|l| nv_text::tr(&l).into_owned()).collect();
+            let credits = nv_core::about::credit_lines();
             let font = px(14.0, d);
             let lh = line_h(font);
-            let tw = lines.iter().map(|l| self.text.width(l, font)).max().unwrap_or(0) as f32 + 40.0 * d;
-            let th = lines.len() as f32 * lh + 30.0 * d;
+            let n = help.len() + credits.len();
+            let tw = help.iter().chain(credits.iter()).map(|l| self.text.width(l, font)).max().unwrap_or(0) as f32 + 40.0 * d;
+            let th = n as f32 * lh + 30.0 * d;
             let (x, y) = (((w - tw) / 2.0).max(0.0), ((h - th) / 2.0).max(0.0));
             let _ = r.fill_rect([x, y, x + tw, y + th], rgb(0x0E0E0E, 0.95));
-            for (i, l) in lines.iter().enumerate() {
+            for (i, l) in help.iter().enumerate() {
                 let c = if i == 0 { rgb(pal::TEXT, 1.0) } else { rgb(0xD0D4DA, 1.0) };
                 self.text.draw(r, l, font, x + 20.0 * d, y + 15.0 * d + i as f32 * lh, c);
+            }
+            // The credits are centred; the website and the support address are links.
+            self.help_links.clear();
+            for (j, l) in credits.iter().enumerate() {
+                let ly = y + 15.0 * d + (help.len() + j) as f32 * lh;
+                let lw = self.text.width(l, font) as f32;
+                let cx = x + (tw - lw) / 2.0;
+                let link = nv_core::about::link_of(l);
+                self.text.draw(r, l, font, cx, ly, if link.is_some() { rgb(0x7DB4FF, 1.0) } else { rgb(0xA5ABB3, 1.0) });
+                if let Some(u) = link {
+                    let _ = r.fill_rect([cx, ly + lh - 3.0 * d, cx + lw, ly + lh - 2.0 * d], rgb(0x7DB4FF, 0.8));
+                    self.help_links.push(([cx, ly, cx + lw, ly + lh], u));
+                }
             }
         }
     }

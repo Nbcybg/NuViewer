@@ -181,6 +181,8 @@ pub struct App {
     pub active: Option<Active>,
     pub toast: Option<(String, Instant)>,
     pub help: bool,
+    /// The links among the credit lines on screen (rectangle, address).
+    pub help_links: Vec<([f32; 4], String)>,
     pub rubber: Option<Rubber>,
     pub last_mouse: (i32, i32),
     pub job: Option<Job>,
@@ -294,6 +296,7 @@ impl App {
             active: None,
             toast: None,
             help: false,
+            help_links: Vec::new(),
             rubber: None,
             last_mouse: (i32::MIN, i32::MIN),
             job: None,
@@ -926,6 +929,12 @@ impl App {
             Event::Char(c) => self.on_char(c),
             Event::Wheel { delta, x, y, ctrl } => self.on_wheel(delta, x, y, ctrl),
             Event::MouseDown { x, y, ctrl } => {
+                if self.help {
+                    if let Some((_, url)) = self.help_links.iter().find(|(r, _)| (x as f32) >= r[0] && (x as f32) < r[2] && (y as f32) >= r[1] && (y as f32) < r[3]) {
+                        nv_win::shell::open_url(url);
+                        return;
+                    }
+                }
                 if !self.menubar_press(x, y) {
                     self.on_mouse_down(x, y, ctrl, false)
                 }

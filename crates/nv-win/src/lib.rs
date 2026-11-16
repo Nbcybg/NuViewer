@@ -1,13 +1,16 @@
 //! Thin Win32 layer: DPI-aware window + message loop delivering `Event`s.
 
 pub mod assoc;
+pub mod capture;
 pub mod crash;
 pub mod diskstat;
+pub mod explorer_menu;
 pub mod files;
 pub mod instance;
 pub mod menu;
 pub mod menubar;
 pub mod props;
+pub mod regionpick;
 pub mod quick;
 pub mod registry;
 pub mod shell;
@@ -864,5 +867,31 @@ mod display_profile_tests {
             assert!(p.is_file(), "{} should exist", p.display());
             println!("display profile: {}", p.display());
         }
+    }
+}
+
+/// The Windows display language as a tag ("en-US", "th-TH"): what `language = auto` follows.
+pub fn ui_language() -> String {
+    use windows::Win32::Globalization::GetUserDefaultLocaleName;
+    let mut buf = [0u16; 85];
+    let n = unsafe { GetUserDefaultLocaleName(&mut buf) };
+    if n > 1 { String::from_utf16_lossy(&buf[..n as usize - 1]) } else { "en".to_string() }
+}
+
+/// Show or hide a window without destroying it (NuImporter hides itself while it takes a screenshot).
+pub fn set_visible(hwnd: windows::Win32::Foundation::HWND, on: bool) {
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE, SW_SHOW};
+    unsafe {
+        let _ = ShowWindow(hwnd, if on { SW_SHOW } else { SW_HIDE });
+    }
+}
+
+/// Post a "command" to a form from another thread (a timer tick of a background watcher): the form's handler sees `id`.
+pub fn post_command(hwnd_value: isize, id: u16) -> bool {
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{IsWindow, PostMessageW, WM_COMMAND};
+    unsafe {
+        let h = HWND(hwnd_value as *mut _);
+        IsWindow(Some(h)).as_bool() && PostMessageW(Some(h), WM_COMMAND, WPARAM(id as usize), LPARAM(0)).is_ok()
     }
 }

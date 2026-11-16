@@ -136,6 +136,10 @@ impl CopyOptions {
             EditorFormat::Jpeg => Out::Jpeg(self.quality),
             EditorFormat::Png => Out::Png,
             EditorFormat::Webp => Out::Webp,
+            EditorFormat::Bmp => Out::Bmp,
+            EditorFormat::Tiff => Out::Tiff,
+            EditorFormat::Tga => Out::Tga,
+            EditorFormat::Qoi => Out::Qoi,
             EditorFormat::Same => match save::Format::of_path(original) {
                 Some(save::Format::Jpeg) => Out::Jpeg(self.quality),
                 _ => Out::Png,
@@ -159,6 +163,11 @@ fn unique_copy_name(original: &Path, suffix: &str, ext: &str) -> PathBuf {
 }
 
 /// The recipe at full size, ready for the export pipeline.
+/// The picture with the edits applied, at full size (what a copy would be made from).
+pub fn render_pixels(full: &Full, r: &Recipe) -> Result<Pixels, String> {
+    render_full(full, r)
+}
+
 fn render_full(full: &Full, r: &Recipe) -> Result<Pixels, String> {
     let (w, h) = raster::rotated_size(full.pixels.w, full.pixels.h, r.get(nv_editor::P::Angle));
     if w as u64 * h as u64 > 250_000_000 {

@@ -240,7 +240,8 @@ impl App {
     fn action_entry(&self, action: Action, label: &str) -> Entry {
         let idx = ACTIONS.iter().position(|i| i.action == action).unwrap_or(0);
         let hint = self.keymap.chords_of(action).first().map(|c| c.format()).unwrap_or_default();
-        Entry::item(ACTION_BASE + idx as u32, if hint.is_empty() { label.to_string() } else { format!("{label}\t{hint}") })
+        let label = nv_text::tr(label);
+        Entry::item(ACTION_BASE + idx as u32, if hint.is_empty() { label.into_owned() } else { format!("{label}\t{hint}") })
     }
 
     /// "Undo delete" / "Undo move" ...: what Ctrl+Z would take back, named.
@@ -282,6 +283,10 @@ impl App {
                 self.action_entry(Action::CopyTo, "Copy to…").enabled(has),
                 self.action_entry(Action::MoveTo, "Move to…").enabled(has),
                 self.action_entry(Action::Reveal, "Show in Explorer").enabled(has),
+                Entry::Separator,
+                self.action_entry(Action::ConvertPng, nv_core::i18n::t("menu.convert_png")).enabled(has && viewer),
+                self.action_entry(Action::ConvertJpeg, nv_core::i18n::t("menu.convert_jpeg")).enabled(has && viewer),
+                self.action_entry(Action::Snapshot, nv_core::i18n::t("menu.snapshot")).enabled(viewer && (self.media_current() || self.controller().is_some())),
                 Entry::Separator,
                 self.action_entry(Action::Delete, "Delete (Recycle Bin)").enabled(has),
                 self.action_entry(Action::DeletePermanently, "Delete permanently…").enabled(has),
@@ -407,6 +412,9 @@ impl App {
             self.action_entry(Action::CopyImage, "Copy picture").enabled(has_file),
             self.action_entry(Action::CopyPath, "Copy file path").enabled(has_file),
             self.action_entry(Action::Reveal, "Show in Explorer").enabled(has_file),
+            self.action_entry(Action::ConvertPng, nv_core::i18n::t("menu.convert_png")).enabled(has_file && viewer),
+            self.action_entry(Action::ConvertJpeg, nv_core::i18n::t("menu.convert_jpeg")).enabled(has_file && viewer),
+            self.action_entry(Action::Snapshot, nv_core::i18n::t("menu.snapshot")).enabled(viewer && (self.media_current() || self.controller().is_some())),
             self.action_entry(Action::Delete, "Delete (Recycle Bin)").enabled(has_file),
             self.action_entry(Action::Undo, &self.undo_label()).enabled(!self.undo.is_empty()),
             Entry::Separator,

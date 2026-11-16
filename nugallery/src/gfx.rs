@@ -149,6 +149,15 @@ pub fn draw_menubar(r: &mut Renderer, text: &mut Text, bar: &mut nv_win::menubar
     let _ = r.fill_rect(strip, rgb(0x15171A, 0.97));
     let _ = r.fill_rect([0.0, strip[3] - 1.0, w, strip[3]], rgb(pal::PANEL_EDGE, 1.0));
     let ty = (strip[3] - line_h(px)) / 2.0;
+    // The two end buttons: back (to the previous program) and close.
+    let (back_n, back_r, close_n, close_r) = bar.nav_rects(w, d);
+    for (n, rr, glyph, size) in [(back_n, back_r, "\u{2039}", 22.0f32), (close_n, close_r, "\u{2715}", 14.0f32)] {
+        if bar.nav_hot() == Some(n) {
+            let _ = r.fill_rect([rr[0], rr[1] + 2.0 * d, rr[2], rr[3] - 1.0], rgb(if n == nv_win::menubar::Nav::Close { 0xC0392B } else { pal::TILE_HOVER }, 1.0));
+        }
+        let gp = (size * d).round() as i32;
+        text.draw_centered(r, glyph, gp, (rr[0] + rr[2]) / 2.0, (strip[3] - line_h(gp)) / 2.0, rgb(pal::TEXT, 1.0));
+    }
     let labels = bar.labels();
     for (i, (rect, label)) in bar.rects().iter().zip(labels.iter()).enumerate() {
         if bar.hot() == Some(i) {

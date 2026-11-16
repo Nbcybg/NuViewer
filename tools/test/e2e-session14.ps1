@@ -170,7 +170,7 @@ try {
         $dpi = Dpi
         $barW = [math]::Min([math]::Max($W * 0.78, 520 * $dpi), 1100 * $dpi); $barW = [math]::Min($barW, $W - 24 * $dpi)
         $x0 = ($W - $barW) / 2; $y0 = $H - 48 * $dpi - 30 * $dpi
-        $seekL = $x0 + 8 * $dpi + 3 * (34 * $dpi + 4 * $dpi) + 6 * $dpi
+        $seekL = $x0 + 8 * $dpi + 5 * (34 * $dpi + 4 * $dpi) + 6 * $dpi
         $mid = [int]($y0 + 24 * $dpi)
         $played = Pixel ([int]($seekL + 3)) $mid
         Check 'the video is playing: the first pixels of the track are filled' ($played.B -gt 180 -and $played.R -lt 110) "got $($played.R),$($played.G),$($played.B)"

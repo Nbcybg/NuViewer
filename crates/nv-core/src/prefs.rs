@@ -68,6 +68,8 @@ impl PdfPage {
     }
 }
 
+use crate::videocolour::{SdrAssume, ToneMap};
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct Prefs {
     /// How much the Dim toggle darkens the screen, percent of black laid over everything.
@@ -96,6 +98,32 @@ pub struct Prefs {
     pub pdf_page: PdfPage,
     /// JPEG quality of pictures that have to be re-encoded for a PDF (JPEG files go in untouched).
     pub pdf_quality: u8,
+    /// Language of the text on screen: "auto" (Windows' own) or a code with a `lang/<code>.txt` file ("th", "ja" ...).
+    pub language: String,
+    /// Video snapshot: file format ("png", "png16", "jpg", "webp", "bmp", "tiff"), JPEG / WebP quality, folder (empty = next to
+    /// the video), and the name pattern ({name} {time} {n}).
+    pub snapshot_format: String,
+    pub snapshot_quality: u8,
+    pub snapshot_dir: String,
+    pub snapshot_name: String,
+    /// How SDR video numbers become light, how HDR is brought into SDR, the HDR master's peak, or keep HDR as 16-bit PQ.
+    pub snapshot_sdr: SdrAssume,
+    pub snapshot_tonemap: ToneMap,
+    pub snapshot_peak: u32,
+    pub snapshot_keep_hdr: bool,
+    /// NuImporter: what happens to a fresh import ("save", "confirm", "clipboard"), where it goes (empty = Pictures\NuViewer),
+    /// the format and quality it is saved in, and the name pattern ({source} {date} {time} {n}).
+    pub import_after: String,
+    pub import_dir: String,
+    pub import_format: String,
+    pub import_quality: u8,
+    pub import_name: String,
+    /// Open NuEditor on every import.
+    pub import_edit: bool,
+    /// Pictures in a folder the camera writes to are imported as they appear (tether by folder).
+    pub tether_dir: String,
+    /// NuQuick listens for Ctrl+Print Screen (a region) and Ctrl+Alt+Print Screen (the whole screen) and starts NuImporter.
+    pub screenshot_keys: bool,
 }
 
 impl Default for Prefs {
@@ -116,6 +144,23 @@ impl Default for Prefs {
             archive_level: 5,
             pdf_page: PdfPage::Fit,
             pdf_quality: 88,
+            language: "auto".into(),
+            snapshot_format: "png".into(),
+            snapshot_quality: 98,
+            snapshot_dir: String::new(),
+            snapshot_name: "{name} {time}".into(),
+            snapshot_sdr: SdrAssume::AsShown,
+            snapshot_tonemap: ToneMap::Reinhard,
+            snapshot_peak: 1000,
+            snapshot_keep_hdr: false,
+            import_after: "confirm".into(),
+            import_dir: String::new(),
+            import_format: "png".into(),
+            import_quality: 95,
+            import_name: "{source} {date} {time}".into(),
+            import_edit: false,
+            tether_dir: String::new(),
+            screenshot_keys: true,
         }
     }
 }
@@ -152,6 +197,43 @@ impl Prefs {
             "archive_level" => self.archive_level = pct(v, 1, 9, self.archive_level),
             "pdf_page" => self.pdf_page = PdfPage::from_id(v).unwrap_or(self.pdf_page),
             "pdf_quality" => self.pdf_quality = pct(v, 30, 100, self.pdf_quality),
+            "language" => self.language = v.trim().to_string(),
+            "snapshot_format" => {
+                if matches!(v.to_ascii_lowercase().as_str(), "png" | "png16" | "jpg" | "webp" | "bmp" | "tiff") {
+                    self.snapshot_format = v.to_ascii_lowercase();
+                }
+            }
+            "snapshot_quality" => self.snapshot_quality = pct(v, 30, 100, self.snapshot_quality),
+            "snapshot_dir" => self.snapshot_dir = v.to_string(),
+            "snapshot_name" => {
+                if !v.trim().is_empty() {
+                    self.snapshot_name = v.trim().to_string();
+                }
+            }
+            "snapshot_sdr" => self.snapshot_sdr = SdrAssume::from_id(v).unwrap_or(self.snapshot_sdr),
+            "snapshot_tonemap" => self.snapshot_tonemap = ToneMap::from_id(v).unwrap_or(self.snapshot_tonemap),
+            "snapshot_peak" => self.snapshot_peak = v.parse::<u32>().ok().filter(|p| (100..=10000).contains(p)).unwrap_or(self.snapshot_peak),
+            "snapshot_keep_hdr" => self.snapshot_keep_hdr = parse_bool(v).unwrap_or(self.snapshot_keep_hdr),
+            "import_after" => {
+                if matches!(v.to_ascii_lowercase().as_str(), "save" | "confirm" | "clipboard") {
+                    self.import_after = v.to_ascii_lowercase();
+                }
+            }
+            "import_dir" => self.import_dir = v.to_string(),
+            "import_format" => {
+                if matches!(v.to_ascii_lowercase().as_str(), "png" | "jpg" | "webp" | "bmp" | "tiff" | "qoi" | "tga") {
+                    self.import_format = v.to_ascii_lowercase();
+                }
+            }
+            "import_quality" => self.import_quality = pct(v, 30, 100, self.import_quality),
+            "import_name" => {
+                if !v.trim().is_empty() {
+                    self.import_name = v.trim().to_string();
+                }
+            }
+            "import_edit" => self.import_edit = parse_bool(v).unwrap_or(self.import_edit),
+            "tether_dir" => self.tether_dir = v.to_string(),
+            "screenshot_keys" => self.screenshot_keys = parse_bool(v).unwrap_or(self.screenshot_keys),
             _ => return false,
         }
         true
@@ -160,7 +242,7 @@ impl Prefs {
     pub fn serialize(&self) -> String {
         let b = |v: bool| if v { "true" } else { "false" };
         format!(
-            "dim_pct = {}\ncanvas_mode = {}\ncanvas_image = {}\ncanvas_shade = {}\nplay_loop = {}\nautoplay = {}\nvolume = {}\nmuted = {}\nscrub_preview = {}\nseven_zip = {}\nffmpeg = {}\narchive_format = {}\narchive_level = {}\npdf_page = {}\npdf_quality = {}\n",
+            "dim_pct = {}\ncanvas_mode = {}\ncanvas_image = {}\ncanvas_shade = {}\nplay_loop = {}\nautoplay = {}\nvolume = {}\nmuted = {}\nscrub_preview = {}\nseven_zip = {}\nffmpeg = {}\narchive_format = {}\narchive_level = {}\npdf_page = {}\npdf_quality = {}\nlanguage = {}\nsnapshot_format = {}\nsnapshot_quality = {}\nsnapshot_dir = {}\nsnapshot_name = {}\nsnapshot_sdr = {}\nsnapshot_tonemap = {}\nsnapshot_peak = {}\nsnapshot_keep_hdr = {}\nimport_after = {}\nimport_dir = {}\nimport_format = {}\nimport_quality = {}\nimport_name = {}\nimport_edit = {}\ntether_dir = {}\nscreenshot_keys = {}\n",
             self.dim_pct,
             self.canvas_mode.id(),
             self.canvas_image,
@@ -175,7 +257,24 @@ impl Prefs {
             self.archive_format,
             self.archive_level,
             self.pdf_page.id(),
-            self.pdf_quality
+            self.pdf_quality,
+            self.language,
+            self.snapshot_format,
+            self.snapshot_quality,
+            self.snapshot_dir,
+            self.snapshot_name,
+            self.snapshot_sdr.id(),
+            self.snapshot_tonemap.id(),
+            self.snapshot_peak,
+            b(self.snapshot_keep_hdr),
+            self.import_after,
+            self.import_dir,
+            self.import_format,
+            self.import_quality,
+            self.import_name,
+            b(self.import_edit),
+            self.tether_dir,
+            b(self.screenshot_keys)
         )
     }
 }

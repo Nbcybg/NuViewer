@@ -90,10 +90,13 @@ pub enum Fmt {
     Png,
     Webp,
     Bmp,
+    Tiff,
+    Tga,
+    Qoi,
 }
 
 impl Fmt {
-    const ALL: [Fmt; 5] = [Fmt::Same, Fmt::Jpeg, Fmt::Png, Fmt::Webp, Fmt::Bmp];
+    const ALL: [Fmt; 8] = [Fmt::Same, Fmt::Jpeg, Fmt::Png, Fmt::Webp, Fmt::Bmp, Fmt::Tiff, Fmt::Tga, Fmt::Qoi];
 
     fn label(self) -> &'static str {
         match self {
@@ -102,6 +105,9 @@ impl Fmt {
             Fmt::Png => "PNG",
             Fmt::Webp => "WebP (lossless)",
             Fmt::Bmp => "BMP",
+            Fmt::Tiff => "TIFF",
+            Fmt::Tga => "TGA",
+            Fmt::Qoi => "QOI (lossless)",
         }
     }
 
@@ -111,6 +117,9 @@ impl Fmt {
             "png" => Some(Fmt::Png),
             "webp" => Some(Fmt::Webp),
             "bmp" => Some(Fmt::Bmp),
+            "tif" | "tiff" => Some(Fmt::Tiff),
+            "tga" => Some(Fmt::Tga),
+            "qoi" => Some(Fmt::Qoi),
             _ => None,
         }
     }
@@ -159,6 +168,10 @@ impl ExportUi {
                 nv_core::settings::EditorFormat::Jpeg => Fmt::Jpeg,
                 nv_core::settings::EditorFormat::Png => Fmt::Png,
                 nv_core::settings::EditorFormat::Webp => Fmt::Webp,
+                nv_core::settings::EditorFormat::Bmp => Fmt::Bmp,
+                nv_core::settings::EditorFormat::Tiff => Fmt::Tiff,
+                nv_core::settings::EditorFormat::Tga => Fmt::Tga,
+                nv_core::settings::EditorFormat::Qoi => Fmt::Qoi,
             },
             quality: s.editor_quality as f32,
             size_kind: SizeKind::Original,
@@ -184,6 +197,9 @@ impl ExportUi {
             Fmt::Png => Out::Png,
             Fmt::Webp => Out::Webp,
             Fmt::Bmp => Out::Bmp,
+            Fmt::Tiff => Out::Tiff,
+            Fmt::Tga => Out::Tga,
+            Fmt::Qoi => Out::Qoi,
             Fmt::Same => match nv_editor::save::Format::of_path(original) {
                 Some(nv_editor::save::Format::Jpeg) => Out::Jpeg(q),
                 _ => Out::Png,
@@ -363,6 +379,35 @@ impl App {
             Num::MarkSize => e.mark_size,
             Num::MarkOpacity => e.mark_opacity,
         }
+    }
+
+    /// A number typed by hand: beyond the slider's range where that makes sense (a brush of 40, a size of 12000 px), kept to what
+    /// the setting can mean (a quality is 1 to 100 whatever is typed).
+    pub(super) fn num_set_free(&mut self, n: Num, v: f32) {
+        let (lo, hi) = match n {
+            Num::Brush => (0.1, 100.0),
+            Num::Quality => (1.0, 100.0),
+            Num::SizeValue => (1.0, if self.export_ui.size_kind == SizeKind::Percent { 10_000.0 } else { 65_535.0 }),
+            Num::Colours => (0.0, 256.0),
+            Num::TargetKb => (0.0, 1_000_000.0),
+            Num::RemoveBg => (0.0, 100.0),
+            Num::MarkSize => (1.0, 100.0),
+            Num::MarkOpacity => (0.0, 100.0),
+        };
+        let v = v.clamp(lo, hi);
+        let e = &mut self.export_ui;
+        match n {
+            Num::Brush => self.tools.brush = v,
+            Num::Quality => e.quality = v,
+            Num::SizeValue => e.size_value = v,
+            Num::Colours => e.colours = if v < 2.0 { 0.0 } else { v },
+            Num::TargetKb => e.target_kb = v,
+            Num::RemoveBg => e.remove_bg = v,
+            Num::MarkSize => e.mark_size = v,
+            Num::MarkOpacity => e.mark_opacity = v,
+        }
+        self.update_title();
+        invalidate(self.hwnd);
     }
 
     pub(super) fn num_set(&mut self, n: Num, v: f32) {
@@ -614,6 +659,68 @@ impl App {
     }
 
     /// "Save copy…": the Export section's options through the export pipeline, to a file the user names.
+    /// Right-click > Convert to PNG / JPEG here: the picture with the edits so far, next to the original, no questions.
+    pub(super) fn quick_convert(&mut self, target: nv_core::quick::Target) {
+        let Some(full) = &self.full else { return };
+        let out = if target == nv_core::quick::Target::Png { Out::Png } else { Out::Jpeg(100) };
+        let mut export = Export::new(out);
+        export.keep_exif = true;
+        let dest = nv_core::quick::output_for(&self.path, target);
+        let f = Full { path: &self.path, pixels: full };
+        match flow::save_copy(&f, &self.recipe, &export, &dest) {
+            Ok(s) => self.say(&s.message),
+            Err(e) => flow::tell(self.hwnd, &format!("Couldn't save the copy: {e}")),
+        }
+    }
+
+    /// Ctrl+C: the picture with the edits so far on the clipboard.
+    pub(super) fn copy_picture(&mut self) {
+        let Some(full) = &self.full else { return };
+        let f = Full { path: &self.path, pixels: full };
+        match flow::render_pixels(&f, &self.recipe) {
+            Ok(p) => {
+                let shot = nv_win::capture::Shot { width: p.w, height: p.h, rgba: p.rgba };
+                match nv_win::capture::clipboard_set_image(self.hwnd, &shot) {
+                    Ok(()) => self.say(nv_core::i18n::t("editor.copied")),
+                    Err(e) => self.say(&e),
+                }
+            }
+            Err(e) => self.say(&e),
+        }
+    }
+
+    /// Closing a picture that was just imported: where does it go? Yes = saved in the import folder (format and name from
+    /// Settings > Import), No = dropped, Cancel = keep editing. Returns true when the window may close.
+    pub(super) fn finish_import(&mut self, source: &str) -> bool {
+        use nv_core::i18n::tf;
+        let prefs = Settings::load().more;
+        let dir = nv_core::importer::folder_for(&prefs, nv_win::files::known_folder("pictures"));
+        let format = if prefs.import_format == "same" { "png".to_string() } else { prefs.import_format.clone() };
+        let out = nv_core::importer::out_for(&format, prefs.import_quality);
+        if self.full.is_some() {
+            let msg = tf("editor.import_ask", &[&source, &dir.display(), &out.label()]);
+            match nv_win::shell::ask3(self.hwnd, &msg) {
+                nv_win::shell::Answer::Cancel => return false,
+                nv_win::shell::Answer::Yes => {
+                    let _ = std::fs::create_dir_all(&dir);
+                    let unix = nv_core::batch::unix_of(std::time::SystemTime::now());
+                    let name = nv_core::importer::file_name(&prefs.import_name, source, unix, nv_win::utc_offset_minutes(), 1, out.ext());
+                    let dest = nv_core::fileops::unique_path(&dir, std::ffi::OsStr::new(&name));
+                    let f = Full { path: &self.path, pixels: self.full.as_ref().unwrap() };
+                    let mut export = Export::new(out);
+                    export.keep_exif = false;
+                    if let Err(e) = flow::save_copy(&f, &self.recipe, &export, &dest) {
+                        flow::tell(self.hwnd, &format!("Couldn't save the import: {e}"));
+                        return false;
+                    }
+                }
+                nv_win::shell::Answer::No => {}
+            }
+        }
+        let _ = std::fs::remove_file(&self.path); // the temporary file NuImporter made
+        true
+    }
+
     pub(super) fn save_copy_dialog(&mut self) {
         let Some(full) = &self.full else { return };
         let export = match self.export_ui.to_export(&self.path, &self.settings.editor_watermark) {
@@ -627,7 +734,7 @@ impl App {
         let suffix = if self.settings.editor_suffix.trim().is_empty() { "_edit" } else { &self.settings.editor_suffix };
         let ext = export.format.ext();
         let default = format!("{stem}{suffix}.{ext}");
-        let filter = "JPEG (*.jpg)\0*.jpg\0PNG (*.png)\0*.png\0WebP lossless (*.webp)\0*.webp\0BMP (*.bmp)\0*.bmp\0\0";
+        let filter = "JPEG (*.jpg)\0*.jpg\0PNG (*.png)\0*.png\0WebP lossless (*.webp)\0*.webp\0TIFF (*.tif)\0*.tif\0BMP (*.bmp)\0*.bmp\0TGA (*.tga)\0*.tga\0QOI (*.qoi)\0*.qoi\0\0";
         let Some(dest) = nv_win::shell::save_dialog(self.hwnd, "Save a copy", filter, &default, self.path.parent(), ext) else { return };
         // The extension the user typed decides the format.
         let mut export = export;
@@ -658,7 +765,7 @@ impl App {
                 What::Num(n) => {
                     let (lo, hi) = self.num_range(n);
                     let (v, def) = (self.num_get(n), self.num_default(n));
-                    DrawKind::Num { label: self.num_label(n), text: self.num_text(n), t: (v - lo) / (hi - lo).max(1e-6), dt: (def - lo) / (hi - lo).max(1e-6), changed: (v - def).abs() > 1e-4, track: it.track }
+                    DrawKind::Num { label: self.num_label(n), text: self.num_text(n), t: ((v - lo) / (hi - lo).max(1e-6)).clamp(0.0, 1.0), dt: (def - lo) / (hi - lo).max(1e-6), changed: (v - def).abs() > 1e-4, track: it.track }
                 }
                 What::Pick(p) => DrawKind::Pick { label: self.pick_label(p), value: self.pick_text(p) },
                 What::Btn(b) => DrawKind::Btn {

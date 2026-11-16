@@ -5,6 +5,10 @@
 use nv_codecs::Image;
 use std::path::Path;
 
+fn peaks_of(path: &Path) -> Option<Vec<Vec<(f32, f32)>>> {
+    nv_media::audio_peaks(path, nv_codecs::wave::WIDTH).ok().or_else(|| crate::ffmpeg::audio_peaks(path, nv_codecs::wave::WIDTH).ok())
+}
+
 fn poster(path: &Path) -> Result<Image, String> {
     let why = match nv_media::poster_frame(path) {
         Ok(f) => {
@@ -25,7 +29,7 @@ fn poster(path: &Path) -> Result<Image, String> {
         // No ffmpeg: the waveform of its sound, unless the file is so big that drawing it means reading it all.
         let big = std::fs::metadata(path).map(|m| m.len() > 256 * 1024 * 1024).unwrap_or(false);
         if !big {
-            if let Ok(peaks) = nv_media::audio_peaks(path, nv_codecs::wave::WIDTH) {
+            if let Some(peaks) = peaks_of(path) {
                 return Ok(nv_codecs::wave::draw(&peaks));
             }
         }
@@ -34,7 +38,8 @@ fn poster(path: &Path) -> Result<Image, String> {
     // No picture in it: it is sound.
     match nv_media::audio_peaks(path, nv_codecs::wave::WIDTH) {
         Ok(peaks) => Ok(nv_codecs::wave::draw(&peaks)),
-        Err(e) => crate::ffmpeg::poster(path).map_err(|_| e), // a sound format Windows can't decode, with cover art or a picture track
+        // A sound format Windows can't decode (ogg, opus, ape, dsd ...): cover art if it has some, else ffmpeg draws the waveform.
+        Err(e) => crate::ffmpeg::poster(path).or_else(|_| crate::ffmpeg::audio_peaks(path, nv_codecs::wave::WIDTH).map(|p| nv_codecs::wave::draw(&p))).map_err(|_| e),
     }
 }
 

@@ -28,7 +28,7 @@ pub const TEXT_EXTS: &[&str] = &["txt", "md", "log", "csv"];
 pub fn is_document_ext(ext: &str) -> bool {
     let e = ext.to_ascii_lowercase();
     let e = e.as_str();
-    ARCHIVE_EXTS.contains(&e) || OTHER_ARCHIVE_EXTS.contains(&e) || OFFICE_EXTS.contains(&e) || OPENDOC_EXTS.contains(&e) || AFFINITY_EXTS.contains(&e) || TEXT_EXTS.contains(&e)
+    ARCHIVE_EXTS.contains(&e) || OTHER_ARCHIVE_EXTS.contains(&e) || OFFICE_EXTS.contains(&e) || OPENDOC_EXTS.contains(&e) || AFFINITY_EXTS.contains(&e) || TEXT_EXTS.contains(&e) || crate::codepage::is_code_ext(e)
 }
 
 // ------------------------------------------------------------------------------------------------ the ZIP reader
@@ -443,6 +443,27 @@ pub(crate) fn render_card(c: &Card, scale: i32) -> Image {
     Image::new(w, h, px.iter().copied().cycle().take((w * h * 4) as usize).collect())
 }
 
+/// Every picture stored in a zip-based file (Office, OpenDocument, zip / cbz / epub ...): name and bytes, in the archive's order.
+pub(crate) fn pictures_in_zip(path: &Path, limit: usize) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut zip = Zip::open(path)?;
+    let entries: Vec<Entry> = zip.entries.clone();
+    let mut out = Vec::new();
+    for e in entries {
+        if out.len() >= limit {
+            break;
+        }
+        let n = e.name.to_ascii_lowercase();
+        let is_pic = !n.contains("__macosx/") && matches!(ext_of(&n).as_str(), "jpg" | "jpeg" | "jpe" | "png" | "gif" | "webp" | "bmp" | "tif" | "tiff" | "jxl" | "avif" | "heic" | "emf" | "wmf" | "svg");
+        if !is_pic || e.size == 0 {
+            continue;
+        }
+        if let Ok(bytes) = zip.read(&e, 100 << 20) {
+            out.push((e.name.rsplit('/').next().unwrap_or(&e.name).to_string(), bytes));
+        }
+    }
+    Ok(out)
+}
+
 // ------------------------------------------------------------------------------------------------ entry point
 
 /// A picture for `path`: what is inside it if that is a picture, else a card. Never fails for a readable file.
@@ -450,6 +471,10 @@ pub(crate) fn render_card(c: &Card, scale: i32) -> Image {
 pub(crate) fn decode(path: &Path, first_only: bool) -> Result<Image, String> {
     let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).unwrap_or_default();
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    // Data and configuration text (JSON, XML, YAML ...): a coloured page of it.
+    if crate::codepage::is_code_ext(&ext) {
+        return crate::codepage::decode(path, first_only);
+    }
     let size = std::fs::metadata(path).map_err(|e| format!("stat: {e}"))?.len();
     let limit: u64 = if first_only { 64 << 20 } else { 256 << 20 };
     let scale = if first_only { 1 } else { 2 };

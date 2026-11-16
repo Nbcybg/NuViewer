@@ -9,6 +9,7 @@ use windows::Win32::Graphics::Gdi::{CreateFontW, DeleteObject, FONT_CHARSET, FON
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForSystem, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 use windows::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, SetFocus};
+use windows::Win32::UI::Controls::DRAWITEMSTRUCT;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 pub const ID_OK: u16 = 1;
@@ -31,6 +32,19 @@ pub struct Form {
     /// Page that controls created from now on belong to (0 = always visible), see `show_page`.
     page: std::cell::Cell<u8>,
     tracked: std::cell::RefCell<Vec<(u8, HWND)>>,
+    /// Added to the position of every control created from now on (a sidebar on the left pushes the pages to the right).
+    origin: std::cell::Cell<(i32, i32)>,
+    /// The sidebar entries (drawn by `draw_side_tab`) and which one is selected.
+    side: std::cell::RefCell<Vec<SideTab>>,
+    side_selected: std::cell::Cell<u16>,
+}
+
+/// One entry of a sidebar: an icon (premultiplied BGRA bitmap) and a text.
+pub struct SideTab {
+    id: u16,
+    text: String,
+    bitmap: Option<(windows::Win32::Graphics::Gdi::HBITMAP, i32)>,
+    hwnd: HWND,
 }
 
 /// A list box or combo box reports a changed selection to the handler as `id | SELECTION_CHANGED`.
@@ -111,7 +125,7 @@ impl Form {
                 0,
                 w!("Segoe UI"),
             );
-            Ok(Form { hwnd, owner, owner_disabled: std::cell::Cell::new(false), previous_top: std::cell::Cell::new(0), top_registered: std::cell::Cell::new(false), font, dpi, page: std::cell::Cell::new(0), tracked: std::cell::RefCell::new(Vec::new()) })
+            Ok(Form { hwnd, owner, owner_disabled: std::cell::Cell::new(false), previous_top: std::cell::Cell::new(0), top_registered: std::cell::Cell::new(false), font, dpi, page: std::cell::Cell::new(0), tracked: std::cell::RefCell::new(Vec::new()), origin: std::cell::Cell::new((0, 0)), side: std::cell::RefCell::new(Vec::new()), side_selected: std::cell::Cell::new(0) })
         }
     }
 
@@ -145,15 +159,17 @@ impl Form {
 
     fn child(&self, class: PCWSTR, text: &str, style: WINDOW_STYLE, ex: WINDOW_EX_STYLE, id: u16, x: i32, y: i32, w: i32, h: i32) -> HWND {
         unsafe {
-            let t = wide(text);
+            // Words on labels, check boxes, buttons and group boxes are translated; an edit box holds the user's own text.
+            let is_text = class.to_string().map(|c| c == "STATIC" || c == "BUTTON").unwrap_or(false);
+            let t = if is_text { wide(&nv_text::tr(text)) } else { wide(text) };
             let hinst = GetModuleHandleW(None).unwrap_or_default();
             let c = CreateWindowExW(
                 ex,
                 class,
                 PCWSTR(t.as_ptr()),
                 WS_CHILD | WS_VISIBLE | style,
-                self.px(x),
-                self.px(y),
+                self.px(x + self.origin.get().0),
+                self.px(y + self.origin.get().1),
                 self.px(w),
                 self.px(h),
                 Some(self.hwnd),
@@ -165,6 +181,42 @@ impl Form {
             SendMessageW(c, WM_SETFONT, Some(WPARAM(self.font.0 as usize)), Some(LPARAM(1)));
             self.tracked.borrow_mut().push((self.page.get(), c));
             c
+        }
+    }
+
+    /// Controls created from now on are placed relative to (`x`, `y`) instead of the top-left corner.
+    pub fn set_origin(&self, x: i32, y: i32) {
+        self.origin.set((x, y));
+    }
+
+    /// A sidebar entry: icon (`px` x `px` premultiplied BGRA, or none) and text, drawn by the form; a click arrives as `id`.
+    /// Call `select_side` from the handler to show which one is current.
+    pub fn side_tab(&self, id: u16, x: i32, y: i32, w: i32, h: i32, text: &str, icon: Option<(i32, &[u8])>, selected: bool) {
+        use windows::Win32::Graphics::Gdi::*;
+        let c = self.child(w!("BUTTON"), text, WINDOW_STYLE(WS_TABSTOP.0 | 0x0B /* BS_OWNERDRAW */), WINDOW_EX_STYLE(0), id, x, y, w, h);
+        let bitmap = icon.and_then(|(px, bgra)| unsafe {
+            let bmi = BITMAPINFO { bmiHeader: BITMAPINFOHEADER { biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32, biWidth: px, biHeight: -px, biPlanes: 1, biBitCount: 32, biCompression: 0, ..Default::default() }, ..Default::default() };
+            let mut bits: *mut c_void = std::ptr::null_mut();
+            let dib = CreateDIBSection(None, &bmi, DIB_RGB_COLORS, &mut bits, None, 0).ok()?;
+            if bits.is_null() || bgra.len() < (px * px * 4) as usize {
+                return None;
+            }
+            std::ptr::copy_nonoverlapping(bgra.as_ptr(), bits as *mut u8, (px * px * 4) as usize);
+            Some((dib, px))
+        });
+        self.side.borrow_mut().push(SideTab { id, text: text.to_string(), bitmap, hwnd: c });
+        if selected {
+            self.side_selected.set(id);
+        }
+    }
+
+    /// Mark `id` as the current sidebar entry and redraw them.
+    pub fn select_side(&self, id: u16) {
+        self.side_selected.set(id);
+        for t in self.side.borrow().iter() {
+            unsafe {
+                let _ = windows::Win32::Graphics::Gdi::InvalidateRect(Some(t.hwnd), None, true);
+            }
         }
     }
 
@@ -203,7 +255,7 @@ impl Form {
     pub fn combo(&self, id: u16, x: i32, y: i32, w: i32, h: i32, items: &[&str], selected: usize) {
         let c = self.child(w!("COMBOBOX"), "", WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(0x0003 /* CBS_DROPDOWNLIST */), WINDOW_EX_STYLE(0), id, x, y, w, h);
         for it in items {
-            let t = wide(it);
+            let t = wide(&nv_text::tr(it));
             unsafe {
                 SendMessageW(c, 0x0143 /* CB_ADDSTRING */, None, Some(LPARAM(t.as_ptr() as isize)));
             }
@@ -257,7 +309,11 @@ impl Form {
     }
 
     pub fn group(&self, x: i32, y: i32, w: i32, h: i32, text: &str) {
-        self.child(w!("BUTTON"), text, WINDOW_STYLE(BS_GROUPBOX as u32), WINDOW_EX_STYLE(0), 0, x, y, w, h);
+        let g = self.child(w!("BUTTON"), text, WINDOW_STYLE(BS_GROUPBOX as u32), WINDOW_EX_STYLE(0), 0, x, y, w, h);
+        // A group box goes to the bottom of the stack so it can never paint over the controls inside it.
+        unsafe {
+            let _ = SetWindowPos(g, Some(HWND_BOTTOM), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
     }
 
     pub fn check(&self, id: u16, x: i32, y: i32, w: i32, h: i32, text: &str, checked: bool) {
@@ -386,12 +442,67 @@ impl Form {
     }
 }
 
+/// A sidebar entry: a pale blue plate with an accent bar when selected, a light grey one under the pointer, the icon and the text.
+unsafe fn draw_side_tab(form: &Form, d: &DRAWITEMSTRUCT) {
+    use windows::Win32::Foundation::COLORREF;
+    use windows::Win32::Graphics::Gdi::*;
+    let side = form.side.borrow();
+    let Some(tab) = side.iter().find(|t| t.id == d.CtlID as u16) else { return };
+    let selected = form.side_selected.get() == tab.id;
+    let hot = d.itemState.0 & 0x40 != 0 /* ODS_HOTLIGHT */ || {
+        let mut pt = windows::Win32::Foundation::POINT::default();
+        let _ = GetCursorPos(&mut pt);
+        let mut r = RECT::default();
+        let _ = GetWindowRect(tab.hwnd, &mut r);
+        pt.x >= r.left && pt.x < r.right && pt.y >= r.top && pt.y < r.bottom
+    };
+    let dc = d.hDC;
+    let r = d.rcItem;
+    let fill = if selected { 0x00F7_E6D6 } else if hot { 0x00F0_EDEA } else { 0x00FF_FFFF }; // BGR
+    let brush = CreateSolidBrush(COLORREF(fill));
+    FillRect(dc, &r, brush);
+    let _ = DeleteObject(brush.into());
+    let s = |v: i32| v * form.dpi as i32 / 96;
+    if selected {
+        let bar = CreateSolidBrush(COLORREF(0x00D7_7800)); // accent blue
+        FillRect(dc, &RECT { left: r.left, top: r.top + s(5), right: r.left + s(3), bottom: r.bottom - s(5) }, bar);
+        let _ = DeleteObject(bar.into());
+    }
+    if let Some((bmp, px)) = tab.bitmap {
+        let mem = CreateCompatibleDC(Some(dc));
+        let old = SelectObject(mem, bmp.into());
+        let blend = BLENDFUNCTION { BlendOp: 0, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: 1 /* AC_SRC_ALPHA */ };
+        let size = s(20);
+        let _ = AlphaBlend(dc, r.left + s(14), r.top + (r.bottom - r.top - size) / 2, size, size, mem, 0, 0, px, px, blend);
+        SelectObject(mem, old);
+        let _ = DeleteDC(mem);
+    }
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, COLORREF(if selected { 0x0060_3000 } else { 0x0020_2020 }));
+    let old_font = SelectObject(dc, form.font.into());
+    let mut text: Vec<u16> = tab.text.encode_utf16().collect();
+    let mut tr = RECT { left: r.left + s(44), top: r.top, right: r.right - s(6), bottom: r.bottom };
+    DrawTextW(dc, &mut text, &mut tr, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS | DT_NOPREFIX);
+    SelectObject(dc, old_font);
+}
+
 unsafe extern "system" fn form_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     let ctx = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Ctx;
     match msg {
+        WM_DRAWITEM => {
+            if let Some(c) = ctx.as_ref() {
+                draw_side_tab(&*c.form, &*(lp.0 as *const DRAWITEMSTRUCT));
+            }
+            LRESULT(1)
+        }
         WM_COMMAND => {
             let id = (wp.0 & 0xFFFF) as u16;
             let notify = ((wp.0 >> 16) & 0xFFFF) as u32;
+            if let Some(c) = ctx.as_ref() {
+                if notify == 0 && (*c.form).side.borrow().iter().any(|t| t.id == id) {
+                    (*c.form).select_side(id);
+                }
+            }
             // Buttons report BN_CLICKED (0); Esc / Enter from IsDialogMessage arrive as IDCANCEL / IDOK with notify 0 too.
             // List and combo boxes report a changed selection as 1 (LBN_SELCHANGE / CBN_SELCHANGE).
             let id = if notify == 1 { id | SELECTION_CHANGED } else { id };

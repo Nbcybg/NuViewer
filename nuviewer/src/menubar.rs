@@ -3,7 +3,7 @@
 //! `mouse.rs`, so every item runs the same action as its key.
 
 use super::*;
-use nv_win::{menu, menubar::MenuBar, text};
+use nv_win::{menu, menubar::{MenuBar, Nav}, text};
 
 pub const LABELS: [&str; 6] = ["&File", "&Edit", "&View", "&Go", "&Tools", "&Help"];
 
@@ -35,6 +35,19 @@ impl App {
     pub fn menubar_press(&mut self, x: i32, y: i32) -> bool {
         let bar_h = self.menubar.height(self.gallery.dpi);
         if self.menubar.visible() && (y as f32) < bar_h {
+            if let Some(n) = self.menubar.nav_hit(x as f32, y as f32, self.gallery.dpi) {
+                self.menubar.close();
+                match n {
+                    // "<": back to where we came from, or into the gallery.
+                    Nav::Back => self.perform(nv_core::keys::Action::Gallery),
+                    // "x": close for good, without bringing the gallery back.
+                    Nav::Close => {
+                        FROM_GALLERY.store(false, Ordering::Relaxed);
+                        self.perform(nv_core::keys::Action::Quit);
+                    }
+                }
+                return true;
+            }
             match self.menubar.hit(x as f32, y as f32) {
                 Some(i) => self.open_menubar_menu(i),
                 None => {
@@ -94,6 +107,15 @@ impl App {
         let strip = self.menubar.strip(w as f32, d);
         let _ = self.renderer.fill_rect(strip, srgb(0x15171A, 0.97));
         let _ = self.renderer.fill_rect([0.0, strip[3] - 1.0, w as f32, strip[3]], srgb(0x34373C, 1.0));
+        let (back_n, back_r, close_n, close_r) = self.menubar.nav_rects(w as f32, d);
+        for (n, r, glyph) in [(back_n, back_r, "\u{2039}"), (close_n, close_r, "\u{2715}")] {
+            if self.menubar.nav_hot() == Some(n) {
+                let _ = self.renderer.fill_rect([r[0], r[1] + 2.0 * d, r[2], r[3] - 1.0], srgb(if n == Nav::Close { 0xC0392B } else { 0x34373C }, 1.0));
+            }
+            if let Some((key, tw, th)) = self.overlay_glyph(glyph, if n == Nav::Back { 22.0 } else { 14.0 }) {
+                let _ = self.renderer.draw_overlay(key, (r[0] + r[2] - tw) / 2.0, (r[1] + r[3] - th) / 2.0, srgb(0xF2F2F2, 1.0));
+            }
+        }
         let labels = self.menubar.labels();
         let rects: Vec<[f32; 4]> = self.menubar.rects().to_vec();
         let (hot, keyboard) = (self.menubar.hot(), self.menubar.keyboard());

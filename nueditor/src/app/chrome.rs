@@ -25,6 +25,9 @@ pub const C_TURN_L: u32 = 16;
 pub const C_TURN_R: u32 = 17;
 pub const C_INVERT: u32 = 18;
 pub const C_RESTORE: u32 = 19;
+pub const C_TO_PNG: u32 = 20;
+pub const C_COPY: u32 = 22;
+pub const C_TO_JPEG: u32 = 21;
 pub const C_FIT: u32 = 30;
 pub const C_Z100: u32 = 31;
 pub const C_Z200: u32 = 32;
@@ -167,6 +170,9 @@ impl App {
             0 => vec![
                 Entry::item(C_SAVE, "Save\tCtrl+S").enabled(has && (edits || self.dirty())),
                 Entry::item(C_SAVE_COPY, "Save a copy…\tCtrl+Shift+S").enabled(has),
+                Entry::item(C_TO_PNG, nv_core::i18n::t("menu.convert_png")).enabled(has),
+                Entry::item(C_TO_JPEG, nv_core::i18n::t("menu.convert_jpeg")).enabled(has),
+                Entry::item(C_COPY, nv_core::i18n::t("menu.copy_picture")).enabled(has),
                 Entry::item(C_RESTORE, "Bring back the burned-in original\tCtrl+Alt+Z"),
                 Entry::Separator,
                 Entry::item(C_GALLERY, "Close and go back\tEsc"),
@@ -234,6 +240,8 @@ impl App {
             Entry::Separator,
             Entry::item(C_SAVE, "Save\tCtrl+S").enabled(has && self.dirty()),
             Entry::item(C_SAVE_COPY, "Save a copy…\tCtrl+Shift+S").enabled(has),
+            Entry::item(C_TO_PNG, nv_core::i18n::t("menu.convert_png")).enabled(has),
+            Entry::item(C_TO_JPEG, nv_core::i18n::t("menu.convert_jpeg")).enabled(has),
             Entry::item(C_HELP, "Keys and credits\tF1"),
             Entry::item(C_GALLERY, "Close\tEsc"),
         ]
@@ -262,6 +270,9 @@ impl App {
         match id {
             C_SAVE => self.save_now(),
             C_SAVE_COPY => self.save_copy_dialog(),
+            C_TO_PNG => self.quick_convert(nv_core::quick::Target::Png),
+            C_COPY => self.copy_picture(),
+            C_TO_JPEG => self.quick_convert(nv_core::quick::Target::Jpeg),
             C_RESTORE => self.restore_original(),
             C_CLOSE | C_GALLERY => {
                 if self.request_exit() {

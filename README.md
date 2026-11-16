@@ -242,6 +242,26 @@ a slideshow, an animated GIF/APNG/WebP (play/pause, frame stepping, seek, speed)
 seek, frames per second). It is built so video and music can use the same bar later (play/pause, seek, time, speed,
 volume); there is no video or audio decoder yet.
 
+## New in 0.2.0
+
+The details, limits and what was not verified are in `docs/formats-0.2.md`, `docs/importer.md` and `docs/localization.md`.
+
+- **Video:** `.` / `,` (and two bar buttons) step one frame forward / back, exactly. **Ctrl+Shift+S** saves the frame as a picture (Settings > Video snapshot: PNG 8 / 16 bit,
+  JPEG, WebP, TIFF, BMP; folder; name). Colours are handled: Rec.709 / Rec.709-A / sRGB-as-shown for SDR; **HDR10 / HLG, 10 or 12 bit,** tone-mapped to sRGB or kept as a
+  16-bit PNG tagged BT.2020 + PQ. Needs ffmpeg for the exact frame (otherwise the frame on screen is saved, and it says so).
+- **Formats:** video mp4 webm mov mkv avi mpeg mpg flv AVCHD (mts, m2ts) vob ... and sound mp3 ogg opus flac alac aac m4a wma aiff au pcm ape dsd (dsf, dff) ...
+  (Windows plays what it can; ffmpeg makes a playable, colour-correct copy of the rest). 3D: **3DS 3MF AMF DAE LWO DXF LAS USDA / USDZ Maya ASCII Unity packages** natively;
+  STEP / IGES / Alembic / binary USD / DWG through FreeCAD, Blender, assimp or the ODA converter when installed; 3ds Max, Cinema 4D, Modo, ZBrush, Substance Painter, Marmoset,
+  Softimage, Unreal files are closed formats: their stored preview picture is shown, or a message says what to export. **JSON, XML, YAML, TOML, INI, TSV ...** open as a coloured page.
+- **Convert with one click:** "Convert to PNG / JPEG" in the right-click menu of NuViewer, NuGallery, NuEditor and **Explorer** (add it in Settings > Language & Explorer);
+  next to the file, same name, nothing lost. Keys Ctrl+Alt+P / Ctrl+Alt+J in the viewer.
+- **NuImporter:** scanner, screenshot (Ctrl+Print Screen / Ctrl+Alt+Print Screen from anywhere, through NuQuick), clipboard, a camera on a cable or writing into a watched folder
+  (tether), pictures inside PowerPoint / Word / zip / ISO files, a folder; then save at once, edit first, or put on the clipboard.
+- **NuEditor:** zoom out below the fit; click a value and type a number (beyond the slider's range); BMP / TIFF / TGA / QOI save formats; Ctrl+C.
+- **`<` and `x`** at the ends of every menu bar: back to the previous program (the gallery) and close.
+- **Settings** has a sidebar of categories with icons; the **credits** (F1) are centred with clickable website and support links; the **text is in files** (`crates/nv-text/lang`)
+  so a language is one file (Thai starter included).
+
 ## Using it
 
 ```
@@ -307,12 +327,17 @@ sending messages to the viewer window and reading its pixels back, so it never m
 
 ```
 crates/nv-core     folder listing, decode pool + prefetch, thumbnails, gallery layout, file operations
+crates/nv-text     the text of the programs (en.txt, th.txt) and `t()` / `tr()`: one file per language
+crates/nv-editor   NuEditor's engine, the formats it saves, quick convert's encoders
+crates/nv-media    video and sound playback (Media Foundation + waveOut), frame stepping
 crates/nv-codecs   all decoders, EXIF/ICC handling, resizing, metadata
 crates/nv-render   Direct3D 11 renderer (textures, mips, bicubic shader, overlays)
 crates/nv-win      Win32: window, input, text rasterising, shell integration, registry, form toolkit + file-type chooser, crash handling
 nuviewer           the viewer (start-up, one picture at a time, HUD, film strip, editing)
 nugallery          the gallery program (grid / details / list, panels, menus, file operations, batch)
-nuquick            Space-bar preview for Explorer (resident agent + borderless preview window)
+nueditor           the editor (recipe engine, panel, retouching, import mode)
+nuimporter         scanner, screenshot, clipboard, camera, pictures inside files
+nuquick            Space-bar preview for Explorer (resident agent + borderless preview window) and the screenshot hot keys
 setup              installer / uninstaller (carries a compressed nuviewer.exe)
 ```
 

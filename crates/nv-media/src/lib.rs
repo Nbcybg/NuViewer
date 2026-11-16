@@ -43,6 +43,13 @@ struct Shared {
     target: AtomicU64,
     /// Bumped when the speed changes (the sound restarts its resampling there).
     speed_gen: AtomicU64,
+    /// Frame-by-frame: forward steps still to show while paused; the time of the frame on screen; and, for a step back, the
+    /// time the video loop must stop before (it shows the frame decoded just ahead of it). `u64::MAX` = none.
+    step_fwd: AtomicU32,
+    last_ms: AtomicU64,
+    /// The time of the very first frame Media Foundation gave (an MP4 with B-frames starts at 80 ms there, at 0 for ffmpeg).
+    first_ms: AtomicU64,
+    stop_before: AtomicU64,
     clock: Mutex<Clock>,
     frame: Mutex<Option<Frame>>,
     error: Mutex<Option<String>>,
@@ -122,6 +129,10 @@ impl Player {
             gen: AtomicU64::new(0),
             target: AtomicU64::new(0),
             speed_gen: AtomicU64::new(0),
+            step_fwd: AtomicU32::new(0),
+            last_ms: AtomicU64::new(0),
+            first_ms: AtomicU64::new(u64::MAX),
+            stop_before: AtomicU64::new(u64::MAX),
             clock: Mutex::new(Clock { base_ms: 0.0, since: Instant::now(), running: false, speed: 1.0 }),
             frame: Mutex::new(None),
             error: Mutex::new(None),
@@ -166,11 +177,42 @@ impl Player {
         self.sh.playing.load(Ordering::SeqCst)
     }
 
+    /// Show the next (`forward`) or the previous frame exactly, pausing first. A video only; a sound has no frames.
+    /// Back is done by decoding forward from the key frame before the spot and showing the frame ahead of the current one.
+    pub fn step_frame(&self, forward: bool) {
+        if !self.info.has_video {
+            return;
+        }
+        self.pause();
+        if forward {
+            self.sh.step_fwd.fetch_add(1, Ordering::SeqCst);
+            self.sh.nudge();
+        } else {
+            let last = self.sh.last_ms.load(Ordering::SeqCst);
+            if last == 0 {
+                return; // already on the first frame
+            }
+            self.sh.stop_before.store(last, Ordering::SeqCst);
+            self.sh.seek(last.saturating_sub(2000));
+        }
+    }
+
+    /// The time Media Foundation gave the first frame (None until it has shown one).
+    pub fn first_frame_ms(&self) -> Option<u64> {
+        Some(self.sh.first_ms.load(Ordering::SeqCst)).filter(|v| *v != u64::MAX)
+    }
+
+    /// The time (ms) of the frame on screen.
+    pub fn frame_ms(&self) -> u64 {
+        self.sh.last_ms.load(Ordering::SeqCst)
+    }
+
     pub fn ended(&self) -> bool {
         self.sh.ended.load(Ordering::SeqCst)
     }
 
     pub fn seek(&self, ms: u64) {
+        self.sh.stop_before.store(u64::MAX, Ordering::SeqCst); // a seek of the user cancels a step back that was still under way
         self.sh.seek(ms);
     }
 
@@ -234,6 +276,7 @@ fn video_loop(path: &Path, sh: &Shared) {
     let mut seen = 0u64;
     let mut want_frame = true; // the first frame is shown while paused
     let mut skip_until: Option<u64> = None;
+    let mut prev: Option<Frame> = None;
     let mut last_shown = Instant::now();
     while !sh.quit.load(Ordering::SeqCst) {
         let g = sh.gen.load(Ordering::SeqCst);
@@ -243,14 +286,20 @@ fn video_loop(path: &Path, sh: &Shared) {
             vr.seek(t);
             skip_until = Some(t);
             want_frame = true;
+            prev = None;
         }
         let running = sh.playing.load(Ordering::SeqCst) && !sh.ended.load(Ordering::SeqCst);
         if !running && !want_frame {
-            sh.nap(30);
-            continue;
+            if sh.step_fwd.load(Ordering::SeqCst) > 0 {
+                sh.step_fwd.fetch_sub(1, Ordering::SeqCst);
+                want_frame = true; // one frame forward while paused: the reader is already just past the one on screen
+            } else {
+                sh.nap(30);
+                continue;
+            }
         }
         match vr.read() {
-            Read::Item(f) => {
+            Read::Item(mut f) => {
                 if g != sh.gen.load(Ordering::SeqCst) {
                     continue; // a seek came in while this frame was being decoded
                 }
@@ -259,6 +308,18 @@ fn video_loop(path: &Path, sh: &Shared) {
                         continue; // decoding forward from the key frame to the spot that was asked for
                     }
                     skip_until = None;
+                }
+                // A step back: keep the frame before the one that was on screen and show it when that one comes round.
+                let stop = sh.stop_before.load(Ordering::SeqCst);
+                if stop != u64::MAX {
+                    if f.ms < stop {
+                        prev = Some(f);
+                        continue;
+                    }
+                    sh.stop_before.store(u64::MAX, Ordering::SeqCst);
+                    if let Some(p) = prev.take() {
+                        f = p;
+                    }
                 }
                 // Wait for the frame's time.
                 while sh.playing.load(Ordering::SeqCst) && !sh.quit.load(Ordering::SeqCst) && g == sh.gen.load(Ordering::SeqCst) {
@@ -273,12 +334,27 @@ fn video_loop(path: &Path, sh: &Shared) {
                 if sh.playing.load(Ordering::SeqCst) && late > 120.0 && last_shown.elapsed() < Duration::from_millis(250) {
                     continue;
                 }
+                sh.last_ms.store(f.ms, Ordering::SeqCst);
+                let _ = sh.first_ms.compare_exchange(u64::MAX, f.ms, Ordering::SeqCst, Ordering::SeqCst);
+                if !sh.playing.load(Ordering::SeqCst) {
+                    sh.set_clock(f.ms as f64, false, None); // paused on a frame: the position is that frame's time
+                }
                 *sh.frame.lock().unwrap() = Some(f);
                 last_shown = Instant::now();
                 want_frame = false;
                 (sh.wake)();
             }
             Read::End => {
+                if sh.stop_before.swap(u64::MAX, Ordering::SeqCst) != u64::MAX {
+                    if let Some(p) = prev.take() {
+                        sh.last_ms.store(p.ms, Ordering::SeqCst);
+                        sh.set_clock(p.ms as f64, false, None);
+                        *sh.frame.lock().unwrap() = Some(p);
+                        want_frame = false;
+                        (sh.wake)();
+                        continue;
+                    }
+                }
                 if sh.looping.load(Ordering::SeqCst) && sh.playing.load(Ordering::SeqCst) {
                     sh.seek(0);
                 } else {

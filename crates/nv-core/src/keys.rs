@@ -244,6 +244,11 @@ pub enum Action {
     Settings,
     Back,
     Quit,
+    FrameBack,
+    FrameForward,
+    Snapshot,
+    ConvertPng,
+    ConvertJpeg,
 }
 
 pub struct ActionInfo {
@@ -334,6 +339,11 @@ pub const ACTIONS: &[ActionInfo] = &[
     a!(Settings, "settings", "Settings", ["Ctrl+,", "F9"]),
     a!(Back, "back", "Back / close panel / stop (Esc)", ["Esc"]),
     a!(Quit, "quit", "Close the viewer", ["Ctrl+Q"]),
+    a!(FrameBack, "frame_back", "Video: one frame back", [","]),
+    a!(FrameForward, "frame_forward", "Video: one frame forward", ["."]),
+    a!(Snapshot, "snapshot", "Video: save the frame on screen as a picture", ["Ctrl+Shift+S"]),
+    a!(ConvertPng, "convert_png", "Convert to PNG next to the file (no questions)", ["Ctrl+Alt+P"]),
+    a!(ConvertJpeg, "convert_jpeg", "Convert to JPEG next to the file (no questions)", ["Ctrl+Alt+J"]),
 ];
 
 pub fn info(action: Action) -> &'static ActionInfo {

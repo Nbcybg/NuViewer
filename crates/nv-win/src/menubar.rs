@@ -16,7 +16,16 @@ use windows::Win32::Foundation::HWND;
 /// Height of the bar in logical pixels.
 pub const BAR_H: f32 = 28.0;
 /// How far from the top edge the pointer reveals the bar (logical pixels).
-pub const EDGE: f32 = 3.0;
+pub const EDGE: f32 = 4.0;
+/// Width of the "back" button at the left end of the bar and of the "close" button at the right end (logical pixels).
+pub const NAV_W: f32 = 40.0;
+
+/// The two buttons at the ends of the bar: `<` goes back to the previous program (or into the gallery), `x` closes the program.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Nav {
+    Back,
+    Close,
+}
 
 pub struct MenuBar {
     /// Labels as written, with `&` before the mnemonic letter.
@@ -27,6 +36,7 @@ pub struct MenuBar {
     /// The pointer is on the bar or on the top edge.
     pointer: bool,
     hot: Option<usize>,
+    nav_hot: Option<Nav>,
     /// A popup is open under this label.
     open: Option<usize>,
     width: f32,
@@ -34,7 +44,7 @@ pub struct MenuBar {
 
 impl MenuBar {
     pub fn new(labels: &[&str]) -> MenuBar {
-        MenuBar { labels: labels.iter().map(|s| s.to_string()).collect(), rects: Vec::new(), keyboard: false, pointer: false, hot: None, open: None, width: 0.0 }
+        MenuBar { labels: labels.iter().map(|s| nv_text::tr(s).into_owned()).collect(), rects: Vec::new(), keyboard: false, pointer: false, hot: None, nav_hot: None, open: None, width: 0.0 }
     }
 
     pub fn len(&self) -> usize {
@@ -91,13 +101,39 @@ impl MenuBar {
     pub fn layout(&mut self, width: f32, dpi: f32, mut measure: impl FnMut(&str) -> f32) {
         self.width = width;
         self.rects.clear();
-        let (pad, mut x) = (12.0 * dpi, 6.0 * dpi);
+        let (pad, mut x) = (12.0 * dpi, NAV_W * dpi);
         let h = self.height(dpi);
         for l in &self.labels {
             let w = measure(&Self::plain(l)) + 2.0 * pad;
             self.rects.push([x, 0.0, x + w, h]);
             x += w;
         }
+    }
+
+    /// The `<` button (left end) and the `x` button (right end) of the bar, in client pixels.
+    pub fn nav_rects(&self, width: f32, dpi: f32) -> (Nav, [f32; 4], Nav, [f32; 4]) {
+        let (w, h) = (NAV_W * dpi, self.height(dpi));
+        (Nav::Back, [0.0, 0.0, w, h], Nav::Close, [width - w, 0.0, width, h])
+    }
+
+    /// Which end button is at the point (only while the bar shows).
+    pub fn nav_hit(&self, x: f32, y: f32, dpi: f32) -> Option<Nav> {
+        if !(self.pointer || self.keyboard) || self.width <= 0.0 {
+            return None;
+        }
+        let (a, ra, b, rb) = self.nav_rects(self.width, dpi);
+        let inside = |r: [f32; 4]| x >= r[0] && x < r[2] && y >= r[1] && y < r[3];
+        if inside(ra) {
+            Some(a)
+        } else if inside(rb) {
+            Some(b)
+        } else {
+            None
+        }
+    }
+
+    pub fn nav_hot(&self) -> Option<Nav> {
+        self.nav_hot
     }
 
     /// Which label is at the point.
@@ -109,21 +145,23 @@ impl MenuBar {
     /// when it leaves (unless a key opened it). True if what is drawn changed.
     pub fn pointer(&mut self, x: i32, y: i32, dpi: f32) -> bool {
         let (fx, fy) = (x as f32, y as f32);
-        let was = (self.pointer, self.hot);
+        let was = (self.pointer, self.hot, self.nav_hot);
         let on_bar = self.pointer && fy < self.height(dpi) + 2.0 * dpi;
         self.pointer = fy < EDGE * dpi || on_bar;
         self.hot = if self.pointer || self.keyboard { self.hit(fx, fy) } else { None };
+        self.nav_hot = self.nav_hit(fx, fy, dpi);
         if self.hot.is_some() && self.keyboard {
             // The pointer has taken over from the keyboard highlight.
         }
-        (self.pointer, self.hot) != was
+        (self.pointer, self.hot, self.nav_hot) != was
     }
 
     /// The pointer left the window.
     pub fn pointer_gone(&mut self) -> bool {
-        let changed = self.pointer;
+        let changed = self.pointer || self.nav_hot.is_some();
         self.pointer = false;
         self.hot = None;
+        self.nav_hot = None;
         changed
     }
 

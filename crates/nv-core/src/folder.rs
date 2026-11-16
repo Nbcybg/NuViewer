@@ -78,7 +78,7 @@ pub fn include_documents() -> bool {
 
 /// Is a file with this extension listed in a folder?
 pub fn is_listed_ext(ext: &str) -> bool {
-    nv_codecs::is_supported_ext(ext) || (include_documents() && nv_codecs::is_document_ext(ext))
+    nv_codecs::is_supported_ext(ext) || nv_codecs::is_code_ext(ext) || (include_documents() && nv_codecs::is_document_ext(ext))
 }
 
 /// Images in one directory in the chosen order (name by default), plus the index of the current one.

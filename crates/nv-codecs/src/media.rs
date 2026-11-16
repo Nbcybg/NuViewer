@@ -6,8 +6,26 @@ use crate::Image;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-pub const VIDEO_EXTS: &[&str] = &["mp4", "m4v", "mov", "mkv", "avi", "wmv", "webm", "mpg", "mpeg", "mpe", "ts", "mts", "m2ts", "3gp", "flv", "ogv"];
-pub const AUDIO_EXTS: &[&str] = &["wav", "mp3", "flac", "aac", "m4a", "ogg", "oga", "opus", "wma", "aif", "aiff"];
+pub const VIDEO_EXTS: &[&str] = &[
+    "mp4", "m4v", "mov", "mkv", "avi", "wmv", "webm", "mpg", "mpeg", "mpe", "ts", "mts", "m2ts", "m2t", "3gp", "3g2", "flv", "f4v", "ogv", "ogm", "vob", "asf", "dv", "rm", "rmvb", "divx", "m2v", "mod", "tod", "wtv",
+];
+pub const AUDIO_EXTS: &[&str] = &[
+    "wav", "mp3", "flac", "aac", "m4a", "m4b", "ogg", "oga", "opus", "wma", "aif", "aiff", "aifc", "au", "snd", "pcm", "alac", "ape", "dsf", "dff", "dsd", "wv", "tta", "mka", "mpc", "mp2", "amr", "ac3", "dts", "caf", "weba",
+];
+
+/// Formats Windows has no player for: these go straight to the ffmpeg helper (a playable copy, kept in a cache) instead of
+/// being tried in Media Foundation first. Everything else is tried natively and falls back to the helper when that fails.
+pub const HELPER_EXTS: &[&str] = &[
+    "ogg", "oga", "opus", "weba", "ape", "dsf", "dff", "dsd", "wv", "tta", "mka", "mpc", "au", "snd", "pcm", "caf", "amr", "ac3", "dts", "alac", "mp2", "flv", "f4v", "ogv", "ogm", "vob", "rm", "rmvb", "divx", "m2v", "wtv", "dv", "tod", "mod",
+];
+
+pub fn needs_helper(ext: &str) -> bool {
+    HELPER_EXTS.contains(&ext.to_ascii_lowercase().as_str())
+}
+
+pub fn needs_helper_path(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(needs_helper)
+}
 /// Camera / broadcast formats Windows has no codec for: recognised and described, played through a proxy when there is one.
 pub const PRO_EXTS: &[&str] = &["r3d", "mxf", "braw"];
 
@@ -121,6 +139,10 @@ mod tests {
         assert_eq!(media_kind("flac"), Some(MediaKind::Audio));
         assert_eq!(media_kind("r3d"), Some(MediaKind::Pro));
         assert_eq!(media_kind("jpg"), None);
+        for e in ["mp3", "ogg", "aiff", "au", "pcm", "flac", "alac", "ape", "opus", "aac", "dsf", "dff", "wma", "m4a", "mp4", "webm", "mov", "mkv", "avi", "mpeg", "mpg", "flv", "mts", "m2ts"] {
+            assert!(media_kind(e).is_some(), "{e}");
+        }
+        assert!(needs_helper("OGG") && needs_helper("ape") && !needs_helper("mp3") && !needs_helper("mp4"));
         let mut r3d = vec![0, 0, 0, 0x20];
         r3d.extend_from_slice(b"RED2");
         assert_eq!(describe_pro(&r3d), Some("RED R3D clip"));

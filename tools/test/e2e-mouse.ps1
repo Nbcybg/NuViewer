@@ -246,7 +246,7 @@ try {
         $hm = [In]::SendMessage($menu, 0x01E1, [IntPtr]::Zero, [IntPtr]::Zero)   # MN_GETHMENU
         $n = [In]::GetMenuItemCount($hm)
         $texts = @(0..($n - 1) | ForEach-Object { [In]::MenuText($hm, $_) })
-        Check "menu has the expected 32 entries (4 separators)  [count $n]" ($n -eq 32)
+        Check "menu has the expected 38 entries (4 separators)  [count $n]" ($n -eq 38)
         $want = 'Previous picture*', 'Next picture*', 'Fit to screen*', 'Actual size*', 'Gallery*', 'Fullscreen*', 'Slideshow*', 'Info*', 'Rename*', 'Copy to*', 'Move to*', 'Copy picture*', 'Copy file path*', 'Show in Explorer*', 'Delete*', 'Undo*', 'Edit in NuEditor*', 'Edit with*', 'File types*', 'Help*', 'Close*'
         $missing = @($want | Where-Object { $w = $_; -not ($texts | Where-Object { $_ -like $w }) })
         Check "menu lists every action  [missing: $($missing -join ', ')]" ($missing.Count -eq 0)

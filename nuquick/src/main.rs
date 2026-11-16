@@ -25,6 +25,7 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::ProcessStatus::EmptyWorkingSet;
 use windows::Win32::System::Threading::*;
 use windows::Win32::UI::Accessibility::*;
+use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT};
 use windows::Win32::UI::Shell::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -434,6 +435,16 @@ fn tray_menu(hwnd: HWND) {
     }
 }
 
+const HOTKEY_REGION: i32 = 0x4E51;
+const HOTKEY_FULL: i32 = 0x4E52;
+
+/// A screenshot hot key: NuImporter (next to us) takes it and does what its settings say with it.
+fn start_importer(mode: &str) {
+    if let Some(exe) = std::env::current_exe().ok().map(|e| e.with_file_name("nuimporter.exe")).filter(|p| p.is_file()) {
+        let _ = std::process::Command::new(exe).arg("--shot").arg(mode).spawn();
+    }
+}
+
 unsafe extern "system" fn agent_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
         WM_SPACE | WM_TEST_SPACE => {
@@ -465,6 +476,10 @@ unsafe extern "system" fn agent_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARA
         }
         WM_TIMER => {
             on_timer(wp.0);
+            LRESULT(0)
+        }
+        WM_HOTKEY => {
+            start_importer(if wp.0 as i32 == HOTKEY_REGION { "region" } else { "full" });
             LRESULT(0)
         }
         WM_TRAY => {
@@ -533,6 +548,12 @@ fn run_agent() -> i32 {
         lookup::start(hwnd.0 as isize, std::env::var_os("NUQUICK_TEST_DIR").map(PathBuf::from));
         view::start_worker(hwnd);
         tray_add(hwnd, !std::env::args().any(|a| a == "--silent"));
+        // Screenshots from anywhere: Ctrl+Print Screen = a region, Ctrl+Alt+Print Screen = the whole screen. Registered hot keys cost
+        // nothing while idle (no hook); if another program already owns the key, the registration simply fails.
+        if !test && nv_core::settings::Settings::load().more.screenshot_keys {
+            let _ = RegisterHotKey(Some(hwnd), HOTKEY_REGION, MOD_CONTROL | MOD_NOREPEAT, 0x2C);
+            let _ = RegisterHotKey(Some(hwnd), HOTKEY_FULL, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 0x2C);
+        }
         // Always-on part: one cheap event, only when the foreground window changes.
         let fg = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, None, Some(fg_hook), 0, 0, WINEVENT_OUTOFCONTEXT);
         foreground_changed(GetForegroundWindow());

@@ -73,6 +73,8 @@ impl Scope {
 pub struct View {
     /// Screen pixels per picture pixel; None = fitted.
     pub zoom: Option<f32>,
+    /// Zoomed out below the fit: the fitted picture drawn at this fraction of its size (1.0 = the fit itself).
+    pub out: f32,
     /// The picture point in the middle of the picture area, in full-size picture pixels.
     pub center: (f32, f32),
     /// The detail texture no longer matches the recipe / the position.
@@ -102,6 +104,7 @@ impl Default for View {
     fn default() -> View {
         View {
             zoom: None,
+            out: 1.0,
             center: (0.0, 0.0),
             detail_dirty: false,
             proxy_stale: false,
@@ -136,7 +139,10 @@ impl App {
         }
     }
 
-    /// The zoom at which the whole picture fits the picture area (never above 100%).
+    /// How far below the fit the picture can be zoomed out (a twentieth of it).
+const MIN_OUT: f32 = 0.05;
+
+/// The zoom at which the whole picture fits the picture area (never above 100%).
     pub(super) fn fit_zoom(&self) -> f32 {
         if self.full.is_none() {
             return 1.0;
@@ -148,7 +154,7 @@ impl App {
 
     /// The zoom in force: the chosen one, or the fit.
     pub(super) fn zoom_now(&self) -> f32 {
-        self.view.zoom.unwrap_or_else(|| self.fit_zoom())
+        self.view.zoom.unwrap_or_else(|| self.fit_zoom() * self.view.out)
     }
 
     /// Zoom and pan work on the picture as it is shown (turned, flipped, cropped), except while the crop frame is being set.
@@ -190,16 +196,21 @@ impl App {
         }
         let (w, h) = (self.shown_dims().0 as f32, self.shown_dims().1 as f32);
         let fit = self.fit_zoom();
-        let z = z.clamp(fit, 16.0);
+        let z = z.clamp(fit * Self::MIN_OUT, 16.0);
         let a = self.area();
         let mid = ((a[0] + a[2]) / 2.0, (a[1] + a[3]) / 2.0);
         let old = self.zoom_now();
         let c0 = if self.view.zoom.is_some() { self.view.center } else { (w / 2.0, h / 2.0) };
         let point = (c0.0 + (anchor.0 - mid.0) / old, c0.1 + (anchor.1 - mid.1) / old);
         if z <= fit * 1.001 {
+            // The fit, or smaller: the whole picture drawn at that size in the middle of the area (no need to fit).
             self.leave_detail();
+            self.view.out = if z >= fit * 0.999 { 1.0 } else { z / fit };
+            self.update_title();
+            invalidate(self.hwnd);
             return;
         }
+        self.view.out = 1.0;
         if self.view.zoom.is_none() && self.geo_overlay() && self.recipe.crop.is_some() {
             self.view.proxy_stale = true; // the fitted picture on the GPU is the uncropped one: bring it up to date on the way back
         }
@@ -214,6 +225,7 @@ impl App {
     /// Back to the fitted picture.
     pub(super) fn leave_detail(&mut self) {
         self.view.zoom = None;
+        self.view.out = 1.0;
         self.view.region = None;
         self.view.pan = None;
         self.view.detail_dirty = false;
@@ -491,6 +503,7 @@ impl App {
     pub(super) fn zoom_label(&self) -> String {
         match self.view.zoom {
             Some(z) => format!("{:.0}%", z * 100.0),
+            None if self.view.out < 0.999 => format!("{:.0}%", self.fit_zoom() * self.view.out * 100.0),
             None => format!("fit {:.0}%", self.fit_zoom() * 100.0),
         }
     }

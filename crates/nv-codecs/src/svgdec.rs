@@ -21,6 +21,21 @@ fn has_text(bytes: &[u8]) -> bool {
     bytes.starts_with(&[0x1F, 0x8B]) || bytes.windows(5).any(|w| w == b"<text")
 }
 
+/// A small icon from SVG source whose strokes are `currentColor`: drawn at `px` x `px` in the colour `rgb` (0xRRGGBB) on a transparent
+/// background, as premultiplied BGRA (what GDI's AlphaBlend takes). Two-tone icons keep their softer plate.
+pub fn render_icon(svg: &str, px: u32, rgb: u32) -> Option<Vec<u8>> {
+    let svg = svg.replace("currentColor", &format!("#{rgb:06X}"));
+    let tree = usvg::Tree::from_data(svg.as_bytes(), &usvg::Options::default()).ok()?;
+    let size = tree.size();
+    let mut pixmap = tiny_skia::Pixmap::new(px, px)?;
+    resvg::render(&tree, tiny_skia::Transform::from_scale(px as f32 / size.width().max(1.0), px as f32 / size.height().max(1.0)), &mut pixmap.as_mut());
+    let mut data = pixmap.take();
+    for p in data.chunks_exact_mut(4) {
+        p.swap(0, 2); // RGBA -> BGRA (tiny-skia is already premultiplied)
+    }
+    Some(data)
+}
+
 pub fn decode(bytes: &[u8], thumb: bool) -> Result<Image, String> {
     let mut opt = usvg::Options::default();
     if has_text(bytes) {

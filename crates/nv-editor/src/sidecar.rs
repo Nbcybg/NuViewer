@@ -390,7 +390,7 @@ mod tests {
         assert!(from_text("nuedit version=\"99\"\n").is_err());
         // Out-of-range values are clamped, garbage is ignored.
         let (r, _) = from_text("nuedit\nlight exposure=\"99\" contrast=\"abc\"\n").unwrap();
-        assert_eq!(r.get(P::Exposure), 5.0);
+        assert_eq!(r.get(P::Exposure), 99.0, "a value typed beyond the slider is kept in the pair file");
         assert_eq!(r.get(P::Contrast), 0.0);
         // Windows line ends are fine.
         assert!(from_text("nuedit\r\nlight exposure=\"1\"\r\n").is_ok());

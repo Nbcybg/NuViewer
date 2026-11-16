@@ -746,6 +746,18 @@ impl App {
         });
     }
 
+    /// Right-click > Convert to PNG / JPEG: every picked picture, next to itself, no questions.
+    pub fn quick_to(&mut self, target: nv_core::quick::Target) {
+        let paths: Vec<PathBuf> = self.sel.entries(&self.listing).into_iter().filter(|e| e.viewable() && !e.is_dir()).map(|e| e.path.clone()).collect();
+        if paths.is_empty() {
+            return;
+        }
+        self.spawn_job(nv_core::i18n::t("menu.converting"), move |progress| {
+            let report = nv_core::quick::convert_many(&paths, target, |i, n| progress(format!("{} / {n}", i + 1)));
+            JobResult { message: report.summary(target), refresh: true, select: report.made.clone() }
+        });
+    }
+
     pub fn quick_edit(&mut self, op: QuickOp) {
         let paths: Vec<PathBuf> = self.picked_files();
         if paths.is_empty() {

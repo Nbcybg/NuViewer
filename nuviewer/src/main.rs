@@ -5,6 +5,7 @@ mod colour;
 mod controls;
 mod display;
 mod editor_ui;
+mod extras;
 mod gallery;
 mod hud;
 mod loading;
@@ -388,6 +389,7 @@ struct App {
     disp: display::Display,
     /// The video / sound player for the file on screen (see `media.rs`).
     media: media::Media,
+    jobs: extras::Jobs,
     /// The next navigation keeps the zoom (stepping through a sequence).
     keep_view_once: bool,
     /// Fullscreen: the pointer touched the bottom edge, so the Windows taskbar is being shown.
@@ -806,6 +808,7 @@ impl App {
         let t0 = Instant::now();
         self.poll_background();
         self.media_pump();
+        self.jobs_pump();
         self.media_sync();
         let mut got_thumb = false;
         let mut slice_expired = false;
@@ -1140,6 +1143,12 @@ impl App {
                 }
             }
             Event::MouseDown { x, y, ctrl } => {
+                if self.hud.show_help {
+                    if let Some((_, url)) = self.hud.links.iter().find(|(r, _)| (x as f32) >= r[0] && (x as f32) < r[2] && (y as f32) >= r[1] && (y as f32) < r[3]) {
+                        nv_win::shell::open_url(url);
+                        return;
+                    }
+                }
                 if !self.menubar_press(x, y) && !self.sidebar_press(x, y) && !self.strip_press(x, y) && !self.editor_press(x, y) && !self.controls_press(x, y) {
                     self.viewer_press(x, y, ctrl);
                 }
@@ -1238,6 +1247,7 @@ impl App {
             seek_drag: false,
             disp: display::Display::new(),
             media: media::Media::new(),
+            jobs: extras::Jobs::new(),
             keep_view_once: false,
             taskbar_shown: false,
             edge_ticks: 0,
@@ -1518,6 +1528,36 @@ fn file_associations(register: bool) {
     }
 }
 
+/// `--to-png <file>` / `--to-jpg <file>`: what Explorer's right-click entries run.
+fn convert_cli(target: nv_core::quick::Target, args: &[std::ffi::OsString]) {
+    let files: Vec<PathBuf> = args.iter().filter(|a| !a.to_string_lossy().starts_with("--")).map(PathBuf::from).filter(|p| p.is_file()).collect();
+    if files.is_empty() {
+        return;
+    }
+    if let Some(report) = nv_core::quick::run_cli(target, files) {
+        if !report.failed.is_empty() {
+            nv_win::shell::message(&report.summary(target));
+        }
+    }
+}
+
+/// `--explorer-menu` / `--remove-explorer-menu`: add or remove "Convert to PNG / JPG" in Explorer's right-click menu.
+fn explorer_menu(add: bool) {
+    use nv_win::registry::Layout;
+    let exts: Vec<String> = nv_codecs::convertible_extensions().iter().map(|e| format!(".{e}")).collect();
+    let layout = Layout::real();
+    if add {
+        let exe = std::env::current_exe().unwrap_or_default();
+        match nv_win::explorer_menu::install(&layout, &exe, &exts, nv_core::i18n::t("explorer.to_png"), nv_core::i18n::t("explorer.to_jpg")) {
+            Ok(()) => nv_win::shell::message(nv_core::i18n::t("explorer.added")),
+            Err(e) => nv_win::shell::message(&format!("{e}")),
+        }
+    } else {
+        nv_win::explorer_menu::remove(&layout, &exts);
+        nv_win::shell::message(nv_core::i18n::t("explorer.removed"));
+    }
+}
+
 enum Shell {
     Boot(Boot),
     Run(Box<App>),
@@ -1528,6 +1568,7 @@ fn main() {
     nv_win::crash::install();
     nv_core::ffmpeg::configure(&Settings::load().more.ffmpeg);
     nv_core::posters::register(); // video frames and sound waveforms for the decoder (Media Foundation loads on first use)
+    nv_core::i18n::init(&Settings::load().more.language, &nv_win::ui_language());
     // Flags may appear anywhere; the first argument that isn't a flag is the file or folder to open.
     let mut args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     // `--shuffle <seed>` (from the gallery): walk the folder in the same random order the gallery shows.
@@ -1540,6 +1581,18 @@ fn main() {
     // Command-line maintenance modes: no window, just a message.
     if flag("--settings") {
         return settings_only();
+    }
+    // Explorer's "Convert to PNG / JPG": no window, no questions (several files at once are folded into one batch).
+    for target in [nv_core::quick::Target::Png, nv_core::quick::Target::Jpeg] {
+        if flag(target.flag()) {
+            return convert_cli(target, &args);
+        }
+    }
+    if flag("--explorer-menu") {
+        return explorer_menu(true);
+    }
+    if flag("--remove-explorer-menu") {
+        return explorer_menu(false);
     }
     if flag("--associate") {
         return associate_dialog();

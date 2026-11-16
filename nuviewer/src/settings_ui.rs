@@ -127,8 +127,8 @@ const WHEEL_VALUES: [WheelAction; 3] = [WheelAction::Pages, WheelAction::Zoom, W
 const ROTATE_ITEMS: [&str; 2] = ["Ask me every time (Save / Discard / Stay)", "Save automatically"];
 const EDITOR_ITEMS: [&str; 3] = ["Pair file next to the picture, picture untouched (the factory choice)", "New file next to the picture (name_edit.jpg)", "Burn in: replace the picture (the original is backed up for 7 days)"];
 const EDITOR_VALUES: [EditorSave; 3] = [EditorSave::Pair, EditorSave::NewFile, EditorSave::Burn];
-const FORMAT_ITEMS: [&str; 4] = ["Same as the picture (JPEG stays JPEG, everything else becomes PNG)", "JPEG", "PNG", "WebP (lossless)"];
-const FORMAT_VALUES: [EditorFormat; 4] = [EditorFormat::Same, EditorFormat::Jpeg, EditorFormat::Png, EditorFormat::Webp];
+const FORMAT_ITEMS: [&str; 8] = ["Same as the picture (JPEG stays JPEG, everything else becomes PNG)", "JPEG", "PNG", "WebP (lossless)", "BMP", "TIFF", "TGA", "QOI (lossless)"];
+const FORMAT_VALUES: [EditorFormat; 8] = [EditorFormat::Same, EditorFormat::Jpeg, EditorFormat::Png, EditorFormat::Webp, EditorFormat::Bmp, EditorFormat::Tiff, EditorFormat::Tga, EditorFormat::Qoi];
 const ROTATE_VALUES: [RotateSave; 2] = [RotateSave::Ask, RotateSave::Auto];
 const LIGHT_ITEMS: [&str; 2] = ["From the viewer (a headlight that follows the camera)", "Fixed in the scene (the model turns under it)"];
 const LIGHT_VALUES: [LightMode; 2] = [LightMode::Viewer, LightMode::World];
@@ -198,20 +198,65 @@ fn parse_percent(text: &str, lo: u32, hi: u32, fallback: u32) -> u32 {
     text.trim().trim_end_matches('%').trim().parse::<u32>().map(|v| v.clamp(lo, hi)).unwrap_or(fallback)
 }
 
+/// The categories down the left side: a heading, then the pages under it.
+fn sidebar(form: &Form) {
+    use nv_core::i18n::t;
+    let icon = |svg: &str| nv_codecs::render_icon(svg, 40, 0x3B4558).map(|b| (40i32, b));
+    macro_rules! entry {
+        ($y:expr, $id:expr, $key:expr, $file:literal, $sel:expr) => {{
+            let ic = icon(include_str!(concat!("../icons/", $file)));
+            form.side_tab($id, 8, $y, 176, 32, t($key), ic.as_ref().map(|(p, b)| (*p, b.as_slice())), $sel);
+        }};
+    }
+    let mut y = 8;
+    let heading = |form: &Form, y: &mut i32, key: &str| {
+        form.label(18, *y + 6, 170, 16, &t(key).to_uppercase());
+        *y += 24;
+    };
+    heading(form, &mut y, "settings.cat_look");
+    entry!(y, TAB_VIEWER, "settings.tab_viewer", "image.svg", true);
+    y += 32;
+    entry!(y, more::TAB_SCREEN, "settings.tab_screen", "monitor.svg", false);
+    y += 32;
+    entry!(y, TAB_COLOUR, "settings.tab_colour", "palette.svg", false);
+    y += 32;
+    entry!(y, TAB_PRINT, "settings.tab_cmyk", "camera.svg", false);
+    y += 32;
+    entry!(y, TAB_3D, "settings.tab_3d", "box.svg", false);
+    y += 32;
+    heading(form, &mut y, "settings.cat_media");
+    entry!(y, more::TAB_SNAP, "settings.tab_snapshot", "video.svg", false);
+    y += 32;
+    entry!(y, more::TAB_TOOLS, "settings.tab_archives", "archive.svg", false);
+    y += 32;
+    heading(form, &mut y, "settings.cat_edit");
+    entry!(y, TAB_EDITOR, "settings.tab_editor", "wand.svg", false);
+    y += 32;
+    entry!(y, more::TAB_IMPORT, "settings.tab_import", "download.svg", false);
+    y += 32;
+    heading(form, &mut y, "settings.cat_system");
+    entry!(y, TAB_TYPES, "settings.tab_types", "file-type.svg", false);
+    y += 32;
+    entry!(y, TAB_EXTERNAL, "settings.tab_external", "app-window.svg", false);
+    y += 32;
+    entry!(y, TAB_INPUT, "settings.tab_input", "mouse.svg", false);
+    y += 32;
+    entry!(y, TAB_QUICK, "settings.tab_quick", "scan.svg", false);
+    y += 32;
+    entry!(y, more::TAB_GENERAL, "settings.tab_general", "globe.svg", false);
+}
+
 /// Show the window. Returns the new settings if the user pressed OK.
 pub fn edit(current: &Settings) -> Option<Settings> {
-    let form = Form::new(&format!("NuViewer {} — Settings", env!("CARGO_PKG_VERSION")), 860, 704).ok()?;
+    let form = Form::new(&format!("NuViewer {} — {}", env!("CARGO_PKG_VERSION"), nv_core::i18n::t("settings.title")), 1070, 704).ok()?;
     let c = current;
 
-    // Tabs (always visible).
+    // The sidebar: categories, each with a two-tone icon (Keyline Icons, MIT: see docs/third-party). Always visible.
     form.begin_page(0);
-    let mut tab_x = 12;
-    let [screen, tools] = more::tabs();
-    for (i, (id, name, width)) in [(TAB_VIEWER, "Viewer", 56), (screen.0, screen.1, screen.2), (TAB_COLOUR, "Colour", 56), (TAB_PRINT, "CMYK && RAW", 92), (TAB_3D, "3D", 34), (TAB_TYPES, "File types", 72), (TAB_EXTERNAL, "External programs", 120), (TAB_INPUT, "Mouse && keyboard", 130), (TAB_EDITOR, "NuEditor", 66), (TAB_QUICK, "Space preview", 98), (tools.0, tools.1, tools.2)].iter().enumerate() {
-        form.tab(*id, tab_x, 10, *width, 30, name, i == 0, i == 0);
-        tab_x += *width + 3;
-    }
+    sidebar(&form);
+    form.set_origin(196, 0); // the pages sit to the right of it
     more::build(&form, c);
+    more::build_more(&form, c);
 
     // ---- page 1: Viewer ----
     form.begin_page(1);
@@ -399,8 +444,8 @@ pub fn edit(current: &Settings) -> Option<Settings> {
 
     // Buttons (always visible).
     form.begin_page(0);
-    form.button(ID_OK, 676, 666, 84, 28, "OK", true);
-    form.button(ID_CANCEL, 768, 666, 80, 28, "Cancel", false);
+    form.button(ID_OK, 676, 666, 84, 28, nv_core::i18n::t("settings.ok"), true);
+    form.button(ID_CANCEL, 768, 666, 80, 28, nv_core::i18n::t("settings.cancel"), false);
     form.show_page(1);
 
     let mut cur = c.clone();
@@ -459,6 +504,10 @@ pub fn edit(current: &Settings) -> Option<Settings> {
             TAB_TYPES => form.show_page(2),
             more::TAB_SCREEN => form.show_page(more::PAGE_SCREEN),
             more::TAB_TOOLS => form.show_page(more::PAGE_TOOLS),
+            more::TAB_SNAP => form.show_page(more::PAGE_SNAP),
+            more::TAB_IMPORT => form.show_page(more::PAGE_IMPORT),
+            more::TAB_GENERAL => form.show_page(more::PAGE_GENERAL),
+            x if more::click_more(form, x) => {}
             x if more::click(form, x, &cur) => {}
             TAB_EXTERNAL => form.show_page(3),
             TAB_INPUT => form.show_page(4),
@@ -625,6 +674,7 @@ pub fn edit(current: &Settings) -> Option<Settings> {
                 s.read_start = parse_percent(&form.text(M_READ_START), 1, 9999, cur.read_start);
                 s.read_rtl = form.is_checked(M_READ_RTL);
                 more::read(form, &mut s);
+                more::read_more(form, &mut s);
                 result = Some(s);
                 return true;
             }

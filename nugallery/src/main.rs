@@ -54,7 +54,9 @@ fn default_dir(persist: &Persist) -> PathBuf {
 fn main() {
     let started = Instant::now();
     nv_win::crash::install();
-    nv_core::ffmpeg::configure(&nv_core::settings::Settings::load().more.ffmpeg);
+    let early = nv_core::settings::Settings::load();
+    nv_core::i18n::init(&early.more.language, &nv_win::ui_language());
+    nv_core::ffmpeg::configure(&early.more.ffmpeg);
     nv_core::posters::register(); // video frames and sound waveforms for the thumbnails (loaded on first use)
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     let flag = |name: &str| args.iter().any(|a| a == name);

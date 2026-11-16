@@ -58,6 +58,9 @@ try {
     Copy-Item $exe (Join-Path $stage 'nuviewer.exe')
     Copy-Item $galleryExe (Join-Path $stage 'nugallery.exe')
     Copy-Item $editorExe (Join-Path $stage 'nueditor.exe')
+    # Languages: one text file each (en.txt is the template, th.txt a Thai starter); see docs\localization.md
+    New-Item -ItemType Directory (Join-Path $stage 'lang') | Out-Null
+    Copy-Item (Join-Path $root 'crates\nv-text\lang\*.txt') (Join-Path $stage 'lang')
     Copy-Item $importerExe (Join-Path $stage 'nuimporter.exe')
     Copy-Item $quickExe (Join-Path $stage 'nuquick.exe')
     Copy-Item (Join-Path $root 'README.md') $stage

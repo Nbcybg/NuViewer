@@ -34,12 +34,15 @@ fn main() {
     let flag = |name: &str| args.iter().any(|a| a == name);
     let mut path_arg: Option<PathBuf> = None;
     let (mut from, mut angle): (Option<String>, Option<f32>) = (None, None);
+    // `--import <source>`: the picture was just brought in by NuImporter and is not saved anywhere yet (a temporary file).
+    let mut import: Option<String> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let s = a.to_string_lossy();
         match s.as_ref() {
             "--from" => from = it.next().map(|v| v.to_string_lossy().into_owned()),
             "--angle" => angle = it.next().and_then(|v| v.to_string_lossy().parse().ok()),
+            "--import" => import = it.next().map(|v| v.to_string_lossy().into_owned()),
             _ if !s.starts_with("--") && path_arg.is_none() => path_arg = Some(instance::absolute(Path::new(a))),
             _ => {}
         }
@@ -58,10 +61,11 @@ fn main() {
     let origin = flow::Origin::parse(from.as_deref(), flag("--via-gallery"));
 
     let settings = Settings::load();
+    nv_core::i18n::init(&settings.more.language, &nv_win::ui_language());
     colour::apply_at_startup(&settings);
 
     // One editor window: a second launch hands its picture to the first.
-    if !flag("--new-window") {
+    if !flag("--new-window") && import.is_none() {
         let request = OpenRequest { path: Some(path.display().to_string()), gallery: false, from_gallery: false };
         if let Instance::Forwarded = instance::claim_or_forward_as(Program::Editor, &request) {
             return;
@@ -92,7 +96,7 @@ fn main() {
     let (tx, rx) = mpsc::channel::<Msg>();
     app::spawn_decode(&tx, &wake, path.clone());
 
-    let opts = Options { windowed: flag("--windowed"), origin, start_angle: angle };
+    let opts = Options { windowed: flag("--windowed"), origin, start_angle: angle, import };
     let fullscreen = !opts.windowed && nv_win::winstate::load().map(|s| s.fullscreen).unwrap_or(settings.start_fullscreen);
     let result = nv_win::run_as(Program::Editor, "NuEditor", 1280, 800, fullscreen, move |hwnd: WindowHandle, w, h| {
         hwnd_slot.store(hwnd.0 as isize, Ordering::Release);

@@ -529,6 +529,32 @@ New code is in new files on purpose (nothing grew `main.rs` / `app.rs` beyond a 
 - Tests added: unit (prefs, archive_tools incl. ZipCrypto, pdf_make incl. a Windows PDF render, wave, blend, media, jpegmeta) and
   `tools/test/e2e-session14.ps1`, `tools/test/e2e-gallery-archives.ps1`.
 
+### Session 15 (2026-11-16): version 0.2.0, the 17-point list
+
+Details: `docs/formats-0.2.md`, `docs/importer.md`, `docs/localization.md`, CHANGELOG 0.2.0. Tests: `tools/test/e2e-session15.ps1` (38 checks, run with
+`CARGO_TARGET_DIR=T:\cargo-target\NuViewer`), `crates/nv-core/tests/video_colour.rs` (real ffmpeg clips: BT.709 / BT.601 matrices, HDR10 tone-map + 16-bit cICP),
+`crates/nv-editor/tests/extreme.rs` (every slider at +-1e6), unit tests in every new module.
+
+| # | What | Where |
+|---|---|---|
+| 1 | Frame step (exact, also back): `Player::step_frame`, `Shared.step_fwd / stop_before / last_ms / first_ms`; keys `,` `.`; two bar buttons for video | `nv-media/src/lib.rs`, `nuviewer/src/controls.rs`, `media.rs` |
+| 2 4 | Audio / video lists, `HELPER_EXTS` straight to ffmpeg, audio-only proxy (AAC m4a), colour-aware proxy filter (HDR tone-map via zscale), `ffprobe` (`Probe`), `.pcm` input args | `nv-codecs/src/media.rs`, `nv-core/src/ffmpeg.rs`, `posters.rs` |
+| 3 | 3DS 3MF AMF DAE LAS DXF LWO USDA/USDZ MA unitypackage; converters (FreeCAD / Blender / assimp / ODA); closed formats show the picture stored inside | `nv-codecs/src/model_more.rs` (`#[path]` child of `model.rs`), `roxmltree` dependency |
+| 5 | JSON etc as a coloured page | `nv-codecs/src/codepage.rs`, hooked in `docthumb::decode`; always listed (`folder::is_listed_ext`) |
+| 6 | Snapshot: `videocolour.rs` (PQ / HLG / BT.1886 / Rec.709-A / tone maps / primaries), `snapshot.rs`, settings in `Prefs`, `extras.rs` (viewer). **Media Foundation times start at the first sample (80 ms for B-frame MP4s) while ffmpeg starts at 0: `first_ms` lines them up** | `nv-core` |
+| 7 | NuImporter rewritten (the mock-up and `plan.rs` are gone); logic in `nv-core/src/importer.rs`; screen / clipboard in `nv-win/src/{capture,regionpick}.rs`; NuQuick registers Ctrl+PrtSc / Ctrl+Alt+PrtSc (`screenshot_keys`); NuEditor `--import <source>` mode (`finish_import`); test hooks `NUIMPORTER_FILE`, `NUIMPORTER_TETHER_DIR`, `--shot region|full` | |
+| 8 | `<` and `x` are the two ends of `nv_win::menubar::MenuBar` (`Nav`); viewer `<` = gallery, `x` = quit without bringing the gallery back; gallery `<` = open the picked picture in the viewer (else up one folder); editor `<` = the Esc flow, `x` = no hand-back | `nv-win/src/menubar.rs` + the three programs |
+| 9 10 | Editor zoom below fit (`view.out`, `MIN_OUT` 5%); typed numbers (`nueditor/src/app/entry.rs`; `Recipe::set_index` now clamps only to `TYPED_LIMIT` = 1e6) | |
+| 11 | `nv_core::quick` (+ `--to-png` / `--to-jpg`, queue + leader so Explorer's one-process-per-file becomes one batch), `nv_win::explorer_menu` (HKCU classic verbs, Document model: 15 files max; Windows 11: "Show more options") | |
+| 12 | Settings = owner-drawn sidebar (`Form::side_tab`, `set_origin`), Keyline two-tone icons (MIT, `nuviewer/icons`, `docs/third-party`, rendered by `nv_codecs::render_icon`), pages Video snapshot / Import / Language & Explorer in `settings_more.rs`; group boxes go to the bottom of the z-order (they hid the controls of the last group otherwise) | |
+| 13 | Credits centred + clickable (`about.rs`, `shell::open_url`). **The website `nuviewer.noobcygorg.com` and the support address `buymeacoffee.com/noobcyborg` are constants in `about.rs`: the user typed "noobcygorg" (maybe a typo of noobcyborg) and gave no Buy Me a Coffee handle: confirm both** | |
+| 14 | New crate `nv-text` (`t`, `tr`, `en.txt`, `th.txt`); `tr` is applied in the window layer, menus, toasts, help, action labels, editor slider names; `tools/lang-extract.py` fills the phrase section of en.txt | |
+| 15 | Start-up, release exes, minimum of 12 warm runs (the machine is noisy): viewer 49 vs 50 ms, gallery / editor within noise (old = `T:\nv-baseline`) | |
+
+Not verified: scanner / WIA camera on real hardware (no device), FreeCAD / Blender / assimp / ODA converters, real Collada / 3MF / LWO / MA / USD files from those programs (only hand-built
+files), audible sound, Explorer's real right-click menu (registry layout is unit-tested), editor value typing with a real mouse (parse + extreme tests only), DPI > 100%, Thai text wherever
+a string is built by `format!` in code.
+
 ## 2. Build, test, run
 
 ```powershell

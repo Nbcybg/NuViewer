@@ -8,5 +8,6 @@ nv-core = { path = "../crates/nv-core" }
 nv-codecs = { path = "../crates/nv-codecs" }
 nv-render = { path = "../crates/nv-render" }
 nv-win = { path = "../crates/nv-win" }
+nv-text = { path = "../crates/nv-text" }
 nv-editor = { path = "../crates/nv-editor" }
 nv-media = { path = "../crates/nv-media" }

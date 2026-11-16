@@ -47,6 +47,9 @@ pub struct Controller {
 pub struct Bar {
     pub rect: [f32; 4],
     pub prev: [f32; 4],
+    /// One frame back / forward: a video only.
+    pub fprev: Option<[f32; 4]>,
+    pub fnext: Option<[f32; 4]>,
     pub play: [f32; 4],
     pub next: [f32; 4],
     pub seek: [f32; 4],
@@ -136,7 +139,12 @@ impl App {
             *x += btn + 4.0 * d;
             r
         };
-        let (prev, play, next) = (next_btn(&mut x), next_btn(&mut x), next_btn(&mut x));
+        let frames = matches!(c.map(|c| c.kind), Some(MediaKind::Video));
+        let prev = next_btn(&mut x);
+        let fprev = frames.then(|| next_btn(&mut x));
+        let play = next_btn(&mut x);
+        let fnext = frames.then(|| next_btn(&mut x));
+        let next = next_btn(&mut x);
         let mut r = x0 + bar_w - 8.0 * d;
         let has_sound = c.map(|c| c.volume.is_some()).unwrap_or(false);
         let vol = has_sound.then(|| {
@@ -157,7 +165,7 @@ impl App {
         let time = [r - time_w, by, r, by + btn];
         r -= time_w + 8.0 * d;
         let seek = [x + 6.0 * d, y0 + bar_h / 2.0 - 5.0 * d, r, y0 + bar_h / 2.0 + 5.0 * d];
-        Bar { rect: [x0, y0, x0 + bar_w, y0 + bar_h], prev, play, next, seek, time, speed, looping, mute, vol }
+        Bar { rect: [x0, y0, x0 + bar_w, y0 + bar_h], prev, fprev, fnext, play, next, seek, time, speed, looping, mute, vol }
     }
 
     /// Show the bar? Always for "always", otherwise when the pointer is in the lower part of the window.
@@ -203,6 +211,12 @@ impl App {
         };
         let stepping = c.kind != MediaKind::Slideshow;
         glyph(self, bar.prev, "\u{25C0}\u{25C0}", stepping, false);
+        if let Some(r) = bar.fprev {
+            glyph(self, r, "\u{258F}\u{25C0}", true, false);
+        }
+        if let Some(r) = bar.fnext {
+            glyph(self, r, "\u{25B6}\u{2595}", true, false);
+        }
         glyph(self, bar.play, if c.playing { "\u{275A}\u{275A}" } else { "\u{25B6}" }, true, false);
         glyph(self, bar.next, "\u{25B6}\u{25B6}", stepping, false);
         glyph(self, bar.speed, &format!("{}\u{00D7}", fmt_speed(c.speed)), true, (c.speed - 1.0).abs() > 0.01);
@@ -340,6 +354,10 @@ impl App {
         }
         if inside(&bar.play, fx, fy) {
             self.toggle_play();
+        } else if bar.fprev.is_some_and(|r| inside(&r, fx, fy)) {
+            self.frame_step(false);
+        } else if bar.fnext.is_some_and(|r| inside(&r, fx, fy)) {
+            self.frame_step(true);
         } else if inside(&bar.prev, fx, fy) && c.kind != MediaKind::Slideshow {
             self.step_frame(-1);
         } else if inside(&bar.next, fx, fy) && c.kind != MediaKind::Slideshow {

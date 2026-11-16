@@ -57,7 +57,7 @@ unsafe fn build(entries: &[Entry]) -> Option<HMENU> {
                 let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
             }
             Entry::Item { id, text, checked, enabled } => {
-                let t: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+                let t: Vec<u16> = nv_text::tr(text).encode_utf16().chain(std::iter::once(0)).collect();
                 let mut flags = MF_STRING;
                 if *checked {
                     flags |= MF_CHECKED;
@@ -69,7 +69,7 @@ unsafe fn build(entries: &[Entry]) -> Option<HMENU> {
             }
             Entry::Submenu { text, items, enabled } => {
                 if let Some(sub) = build(items) {
-                    let t: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+                    let t: Vec<u16> = nv_text::tr(text).encode_utf16().chain(std::iter::once(0)).collect();
                     let mut flags = MF_POPUP | MF_STRING;
                     if !*enabled {
                         flags |= MF_GRAYED;

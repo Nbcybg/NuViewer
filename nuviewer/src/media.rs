@@ -16,7 +16,7 @@ pub struct Media {
     pub player: Option<Player>,
     /// The file the viewer asked for, the file the player really has open (a proxy for a professional clip or for video Windows
     /// can't decode), and the picture id it draws into.
-    origin: PathBuf,
+    pub origin: PathBuf,
     path: PathBuf,
     id: u64,
     opening: Option<mpsc::Receiver<(PathBuf, Result<Player, String>)>>,
@@ -30,11 +30,13 @@ pub struct Media {
     scrub_size: Option<(u32, u32)>,
     scrub_asked: Option<u64>,
     pub vol_drag: bool,
+    /// The frame on screen (kept for a snapshot when ffmpeg isn't there).
+    pub last: Option<nv_media::Frame>,
 }
 
 impl Media {
     pub fn new() -> Media {
-        Media { player: None, origin: PathBuf::new(), path: PathBuf::new(), id: 0, opening: None, proxy: None, proxy_stop: Arc::new(std::sync::atomic::AtomicBool::new(false)), failed: None, scrub: None, scrub_for: PathBuf::new(), scrub_size: None, scrub_asked: None, vol_drag: false }
+        Media { player: None, origin: PathBuf::new(), path: PathBuf::new(), id: 0, opening: None, proxy: None, proxy_stop: Arc::new(std::sync::atomic::AtomicBool::new(false)), failed: None, scrub: None, scrub_for: PathBuf::new(), scrub_size: None, scrub_asked: None, vol_drag: false, last: None }
     }
 }
 
@@ -141,6 +143,7 @@ impl App {
             if self.renderer.upload_video(self.media.id, f.width, f.height, &f.bgra).is_ok() {
                 invalidate(self.hwnd);
             }
+            self.media.last = Some(f);
         }
         if let Some(n) = p.take_notice() {
             self.toast(n);
@@ -228,6 +231,17 @@ impl App {
         }
     }
 
+    /// One frame forward / back (`,` and `.`, the two buttons of the bar). A video steps exactly; an animation or a sequence
+    /// takes one picture; a sound has no frames.
+    pub fn frame_step(&mut self, forward: bool) {
+        if let Some(p) = &self.media.player {
+            p.step_frame(forward);
+            invalidate(self.hwnd);
+        } else if self.controller().is_some() {
+            self.step_frame(if forward { 1 } else { -1 });
+        }
+    }
+
     pub fn media_apply_speed(&self) {
         if let Some(p) = &self.media.player {
             p.set_speed(self.anim_speed);
@@ -306,7 +320,7 @@ impl App {
     /// there) makes a playable copy in the background and that is played instead; otherwise the message is shown.
     fn media_failed(&mut self, error: String) {
         let origin = self.media.origin.clone();
-        let no_decoder = error.contains("no decoder") || error.contains("no suitable") || error.contains("can't be played");
+        let no_decoder = error.contains("no decoder") || error.contains("no suitable") || error.contains("can't be played") || nv_codecs::media::needs_helper_path(&origin);
         let already_proxy = self.media.path != origin;
         if let Some(p) = self.media.player.take() {
             std::thread::spawn(move || drop(p));

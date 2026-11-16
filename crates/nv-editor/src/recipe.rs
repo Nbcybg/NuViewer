@@ -47,6 +47,9 @@ impl Group {
     }
 }
 
+/// The largest size of a number typed into a slider.
+pub const TYPED_LIMIT: f32 = 1.0e6;
+
 #[derive(Clone, Copy, Debug)]
 pub struct ParamInfo {
     pub group: Group,
@@ -304,10 +307,10 @@ impl Recipe {
         self.set_index(p as usize, value);
     }
 
-    /// Set a slider by index, kept inside its range.
+    /// Set a slider by index. The slider itself moves inside `min..=max`, but a number typed by hand may go beyond it, up to
+    /// `TYPED_LIMIT` (each step of the engine clamps what it computes, so any such value is safe).
     pub fn set_index(&mut self, i: usize, value: f32) {
-        let info = &PARAMS[i];
-        self.v[i] = value.clamp(info.min, info.max);
+        self.v[i] = if value.is_finite() { value.clamp(-TYPED_LIMIT, TYPED_LIMIT) } else { PARAMS[i].default };
     }
 
     pub fn is_default(&self, i: usize) -> bool {
@@ -451,10 +454,12 @@ mod tests {
     }
 
     #[test]
-    fn sliders_are_clamped_and_groups_reset() {
+    fn typed_values_may_pass_the_slider_range_up_to_the_limit_and_groups_reset() {
         let mut r = Recipe::default();
         r.set(P::Exposure, 99.0);
-        assert_eq!(r.get(P::Exposure), 5.0);
+        assert_eq!(r.get(P::Exposure), 99.0, "a typed number beyond the slider is kept");
+        r.set(P::Exposure, 1.0e9);
+        assert_eq!(r.get(P::Exposure), TYPED_LIMIT);
         r.set(P::Contrast, 40.0);
         r.invert = true;
         r.curves.master.set_point(0.5, 0.7);

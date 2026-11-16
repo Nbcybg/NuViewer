@@ -55,6 +55,10 @@ pub enum EditorFormat {
     Jpeg,
     Png,
     Webp,
+    Bmp,
+    Tiff,
+    Tga,
+    Qoi,
 }
 
 impl EditorFormat {
@@ -64,6 +68,10 @@ impl EditorFormat {
             EditorFormat::Jpeg => "jpeg",
             EditorFormat::Png => "png",
             EditorFormat::Webp => "webp",
+            EditorFormat::Bmp => "bmp",
+            EditorFormat::Tiff => "tiff",
+            EditorFormat::Tga => "tga",
+            EditorFormat::Qoi => "qoi",
         }
     }
 
@@ -73,6 +81,10 @@ impl EditorFormat {
             "jpeg" | "jpg" => Some(EditorFormat::Jpeg),
             "png" => Some(EditorFormat::Png),
             "webp" => Some(EditorFormat::Webp),
+            "bmp" => Some(EditorFormat::Bmp),
+            "tiff" | "tif" => Some(EditorFormat::Tiff),
+            "tga" => Some(EditorFormat::Tga),
+            "qoi" => Some(EditorFormat::Qoi),
             _ => None,
         }
     }

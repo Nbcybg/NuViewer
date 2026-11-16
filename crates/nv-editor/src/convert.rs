@@ -13,6 +13,12 @@ pub enum Out {
     Webp,
     /// 24-bit Windows bitmap.
     Bmp,
+    /// Baseline TIFF, 8-bit RGB.
+    Tiff,
+    /// Truevision TGA, 32-bit.
+    Tga,
+    /// Quite OK Image, lossless.
+    Qoi,
 }
 
 impl Out {
@@ -22,6 +28,9 @@ impl Out {
             Out::Png => "png",
             Out::Webp => "webp",
             Out::Bmp => "bmp",
+            Out::Tiff => "tif",
+            Out::Tga => "tga",
+            Out::Qoi => "qoi",
         }
     }
 
@@ -31,12 +40,15 @@ impl Out {
             Out::Png => "PNG".into(),
             Out::Webp => "WebP (lossless)".into(),
             Out::Bmp => "BMP".into(),
+            Out::Tiff => "TIFF".into(),
+            Out::Tga => "TGA".into(),
+            Out::Qoi => "QOI (lossless)".into(),
         }
     }
 
     /// Does this format keep transparency?
     pub fn has_alpha(self) -> bool {
-        matches!(self, Out::Png | Out::Webp)
+        matches!(self, Out::Png | Out::Webp | Out::Tga | Out::Qoi)
     }
 }
 
@@ -103,7 +115,101 @@ pub fn encode(p: &Pixels, out: Out, bg: [u8; 3], exif: Option<&[u8]>) -> Result<
             }
             Ok(b)
         }
+        Out::Tiff => {
+            // Baseline TIFF, 8-bit RGB, uncompressed, little-endian: opens everywhere.
+            let rgb = flatten_rgb(p, bg);
+            let mut b: Vec<u8> = Vec::with_capacity(140 + rgb.len());
+            b.extend(b"II*\0");
+            b.extend(8u32.to_le_bytes());
+            let entries: [(u16, u16, u32, u32); 10] = [
+                (256, 4, 1, p.w),
+                (257, 4, 1, p.h),
+                (258, 3, 3, 134),
+                (259, 3, 1, 1),
+                (262, 3, 1, 2),
+                (273, 4, 1, 140),
+                (277, 3, 1, 3),
+                (278, 4, 1, p.h),
+                (279, 4, 1, rgb.len() as u32),
+                (284, 3, 1, 1),
+            ];
+            b.extend((entries.len() as u16).to_le_bytes());
+            for (tag, ty, count, value) in entries {
+                b.extend(tag.to_le_bytes());
+                b.extend(ty.to_le_bytes());
+                b.extend(count.to_le_bytes());
+                b.extend(value.to_le_bytes());
+            }
+            b.extend([0u8; 4]); // no next IFD
+            b.extend([8u8, 0, 8, 0, 8, 0]); // BitsPerSample 8,8,8 at offset 134
+            b.extend(rgb);
+            Ok(b)
+        }
+        Out::Tga => {
+            // Uncompressed 32-bit true colour, top-left origin.
+            let mut b = Vec::with_capacity(18 + p.rgba.len());
+            b.extend([0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+            b.extend((p.w as u16).to_le_bytes());
+            b.extend((p.h as u16).to_le_bytes());
+            b.extend([32, 0x28]);
+            for px in p.rgba.chunks_exact(4) {
+                b.extend([px[2], px[1], px[0], px[3]]);
+            }
+            Ok(b)
+        }
+        Out::Qoi => Ok(qoi_encode(p)),
     }
+}
+
+/// QOI ("Quite OK Image"): lossless, simple, very fast to write and read.
+fn qoi_encode(p: &Pixels) -> Vec<u8> {
+    let mut out = Vec::with_capacity(p.rgba.len() / 2 + 32);
+    out.extend(b"qoif");
+    out.extend(p.w.to_be_bytes());
+    out.extend(p.h.to_be_bytes());
+    out.extend([4u8, 0]); // RGBA, sRGB with linear alpha
+    let mut index = [[0u8; 4]; 64];
+    let mut prev = [0u8, 0, 0, 255];
+    let mut run = 0u8;
+    let n = p.rgba.len() / 4;
+    for (i, px) in p.rgba.chunks_exact(4).enumerate() {
+        let px = [px[0], px[1], px[2], px[3]];
+        if px == prev {
+            run += 1;
+            if run == 62 || i == n - 1 {
+                out.push(0xC0 | (run - 1));
+                run = 0;
+            }
+            continue;
+        }
+        if run > 0 {
+            out.push(0xC0 | (run - 1));
+            run = 0;
+        }
+        let h = (px[0] as usize * 3 + px[1] as usize * 5 + px[2] as usize * 7 + px[3] as usize * 11) % 64;
+        if index[h] == px {
+            out.push(h as u8);
+        } else {
+            index[h] = px;
+            if px[3] == prev[3] {
+                let (dr, dg, db) = (px[0].wrapping_sub(prev[0]) as i8, px[1].wrapping_sub(prev[1]) as i8, px[2].wrapping_sub(prev[2]) as i8);
+                let (dr_dg, db_dg) = (dr.wrapping_sub(dg), db.wrapping_sub(dg));
+                if (-2..=1).contains(&dr) && (-2..=1).contains(&dg) && (-2..=1).contains(&db) {
+                    out.push(0x40 | ((dr + 2) as u8) << 4 | ((dg + 2) as u8) << 2 | (db + 2) as u8);
+                } else if (-32..=31).contains(&dg) && (-8..=7).contains(&dr_dg) && (-8..=7).contains(&db_dg) {
+                    out.push(0x80 | (dg + 32) as u8);
+                    out.push(((dr_dg + 8) as u8) << 4 | (db_dg + 8) as u8);
+                } else {
+                    out.extend([0xFE, px[0], px[1], px[2]]);
+                }
+            } else {
+                out.extend([0xFF, px[0], px[1], px[2], px[3]]);
+            }
+        }
+        prev = px;
+    }
+    out.extend([0, 0, 0, 0, 0, 0, 0, 1]);
+    out
 }
 
 #[cfg(test)]
@@ -133,6 +239,14 @@ mod tests {
         assert_eq!(&bmp[0..2], b"BM");
         assert_eq!(u32::from_le_bytes(bmp[2..6].try_into().unwrap()) as usize, bmp.len(), "BMP file size field");
         assert_eq!(u32::from_le_bytes(bmp[18..22].try_into().unwrap()), 37);
+        let tiff = encode(&p, Out::Tiff, [255; 3], None).unwrap();
+        assert_eq!(&tiff[0..4], b"II*\0");
+        assert_eq!(tiff.len(), 140 + 37 * 21 * 3);
+        let tga = encode(&p, Out::Tga, [255; 3], None).unwrap();
+        assert_eq!(tga.len(), 18 + 37 * 21 * 4);
+        let qoi = encode(&p, Out::Qoi, [255; 3], None).unwrap();
+        assert_eq!(&qoi[0..4], b"qoif");
+        assert_eq!(&qoi[qoi.len() - 8..], &[0, 0, 0, 0, 0, 0, 0, 1]);
     }
 
     #[test]

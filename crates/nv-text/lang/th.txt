@@ -1,0 +1,119 @@
+# NuViewer — ภาษาไทย (ฉบับเริ่มต้น). แปลเฉพาะที่เห็นบ่อย; ข้อความที่ไม่มีในไฟล์นี้จะแสดงเป็นภาษาอังกฤษ
+# วิธีใช้: วางไฟล์นี้ไว้ในโฟลเดอร์ lang ข้างโปรแกรม (หรือ %APPDATA%\NuViewer\lang) แล้วตั้ง language = th ใน settings.ini
+# หรือเลือกที่ Settings > ภาษา และ Explorer
+
+lang.name = ไทย
+
+# ---- menu bar ----
+&File = ไฟล์ (&F)
+&Edit = แก้ไข (&E)
+&View = มุมมอง (&V)
+&Go = ไปที่ (&G)
+&Tools = เครื่องมือ (&T)
+&Help = ช่วยเหลือ (&H)
+Previous picture = ภาพก่อนหน้า
+Next picture = ภาพถัดไป
+Fit to screen = พอดีหน้าจอ
+Actual size (100%) = ขนาดจริง (100%)
+Gallery = แกลเลอรี
+Fullscreen = เต็มหน้าจอ
+Slideshow = สไลด์โชว์
+Shuffle = สุ่มลำดับ
+Info / EXIF = ข้อมูล / EXIF
+Rename… = เปลี่ยนชื่อ…
+Copy to… = คัดลอกไปที่…
+Move to… = ย้ายไปที่…
+Copy picture = คัดลอกภาพ
+Copy file path = คัดลอกที่อยู่ไฟล์
+Show in Explorer = แสดงใน Explorer
+Delete (Recycle Bin) = ลบ (ถังขยะ)
+Settings… = ตั้งค่า…
+Help = ช่วยเหลือ
+Close = ปิด
+Edit in NuEditor = แก้ไขใน NuEditor
+
+# ---- new in this version ----
+menu.convert_png = แปลงเป็น PNG (ที่เดิม ไม่ต้องถาม)
+menu.convert_jpeg = แปลงเป็น JPEG (ที่เดิม ไม่ต้องถาม)
+menu.snapshot = บันทึกเฟรมนี้เป็นภาพ
+menu.converting = กำลังแปลง
+menu.copy_picture = คัดลอกภาพ\tCtrl+C
+snapshot.not_video = ไม่มีเฟรมให้บันทึก: ไม่ใช่วิดีโอหรือภาพเคลื่อนไหว
+snapshot.working = กำลังบันทึกเฟรม…
+snapshot.saved = บันทึกเฟรมแล้ว: {0}
+snapshot.saved_note = บันทึกเฟรมแล้ว: {0}  ({1})
+snapshot.failed = บันทึกเฟรมไม่ได้: {0}
+convert.done = บันทึก {0} ไว้ข้างไฟล์เดิมแล้ว
+convert.failed = แปลงไม่ได้: {0}
+explorer.to_png = แปลงเป็น PNG (NuViewer)
+explorer.to_jpg = แปลงเป็น JPG (NuViewer)
+editor.copied = คัดลอกภาพไปที่คลิปบอร์ดแล้ว
+
+# ---- settings ----
+settings.title = ตั้งค่า
+settings.ok = ตกลง
+settings.cancel = ยกเลิก
+settings.cat_look = การแสดงผล
+settings.cat_media = สื่อ
+settings.cat_edit = การแก้ไข
+settings.cat_system = ระบบ
+settings.tab_viewer = ตัวดูภาพ
+settings.tab_screen = หน้าจอและการเล่น
+settings.tab_colour = สี
+settings.tab_cmyk = CMYK และ RAW
+settings.tab_3d = 3D
+settings.tab_snapshot = บันทึกเฟรมวิดีโอ
+settings.tab_archives = ไฟล์บีบอัดและ PDF
+settings.tab_editor = NuEditor
+settings.tab_import = นำเข้า
+settings.tab_types = ชนิดไฟล์
+settings.tab_external = โปรแกรมภายนอก
+settings.tab_input = เมาส์และคีย์บอร์ด
+settings.tab_quick = ดูตัวอย่างด้วย Space
+settings.tab_general = ภาษาและ Explorer
+general.group_language = ภาษา
+general.language = ภาษาของข้อความ:
+general.lang_auto = ตามภาษาของ Windows (อัตโนมัติ)
+general.group_explorer = เมนูคลิกขวาของ Explorer
+general.explorer_add = เพิ่มในเมนูคลิกขวาของ Explorer
+general.explorer_remove = เอาออก
+general.explorer_on = ติดตั้งแล้ว
+general.explorer_off = ยังไม่อยู่ในเมนู
+general.group_about = เกี่ยวกับ
+general.support = สนับสนุนผู้พัฒนา (Buy Me a Coffee)
+snapshot.group_file = ภาพที่บันทึก  (Ctrl+Shift+S, คลิกขวา > บันทึกเฟรมนี้)
+snapshot.format = รูปแบบ:
+snapshot.folder = โฟลเดอร์:
+snapshot.group_colour = สี
+snapshot.hdr_tone = แปลง HDR เป็น sRGB ปกติ (tone mapping) ดูถูกต้องทุกที่
+snapshot.hdr_keep = เก็บเป็น HDR: PNG 16 บิต พร้อมแท็ก BT.2020 + PQ
+
+# ---- credits ----
+about.made_by = สร้างโดย {0}
+about.website = เว็บไซต์
+about.support = สนับสนุนผลงาน
+about.thanks = ขอบคุณทุกคนที่เขียนไลบรารีเหล่านี้
+
+# ---- NuImporter ----
+importer.back = ‹  ย้อนกลับ
+importer.close = ✕  ปิด
+importer.heading = นำภาพเข้ามาจากทุกที่
+importer.group_bring = นำเข้าจาก
+importer.scanner = สแกนเนอร์…
+importer.shot_region = จับภาพหน้าจอ: ลากเลือกพื้นที่
+importer.shot_full = จับภาพหน้าจอ: ทั้งจอ
+importer.clipboard = จากคลิปบอร์ด
+importer.cam_shoot = กล้อง: ถ่ายภาพ
+importer.cam_watch = กล้อง: เฝ้าโฟลเดอร์ (tether)
+importer.from_file = จากไฟล์…
+importer.from_folder = จากโฟลเดอร์…
+importer.group_after = เมื่อภาพเข้ามา
+importer.after = จากนั้น:
+importer.after_save = บันทึกทันที
+importer.after_confirm = เปิดใน NuEditor ก่อน แล้วค่อยบันทึกหรือทิ้ง
+importer.after_clipboard = ใส่คลิปบอร์ด (ไม่บันทึกไฟล์)
+importer.format = บันทึกเป็น:
+importer.folder = ในโฟลเดอร์:
+importer.names = ชื่อไฟล์:
+importer.group_log = ในครั้งนี้
+importer.ready = เลือกว่าภาพมาจากไหน

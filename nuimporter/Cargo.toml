@@ -3,8 +3,8 @@ name = "nuimporter"
 version.workspace = true
 edition.workspace = true
 
-# NuImporter: bring pictures from a card, a camera or a folder into the library. For now a MOCK-UP: the whole window works
-# (sources, scan, where the files would go) and nothing is copied. It is started from NuGallery's Tools menu.
+# NuImporter: bring pictures in from a scanner, a screenshot, the clipboard, a camera (cable or folder), a file with pictures inside
+# (PowerPoint, Word, zip, ISO) or a folder. It is started from NuGallery's Tools menu, by NuQuick's screenshot hot keys, or alone.
 [[bin]]
 name = "nuimporter"
 path = "src/main.rs"
@@ -13,3 +13,4 @@ path = "src/main.rs"
 nv-core = { path = "../crates/nv-core" }
 nv-codecs = { path = "../crates/nv-codecs" }
 nv-win = { path = "../crates/nv-win" }
+nv-editor = { path = "../crates/nv-editor" }

@@ -28,6 +28,8 @@ const HELP: &[&str] = &[
     "Order: J sort by name / date / size / type  ·  Shift+J ascending / descending  ·  R shuffle (random order, R again restores the sort)",
     "Film strip: pointer at the right edge (or L)  ·  click a thumbnail to jump  ·  wheel scrolls it  ·  its header sorts and shuffles",
     "Read mode (books): B two pages side by side, no gap  ·  Shift+B pairs start at this page  ·  Ctrl+B Western (left to right) / Japanese (right to left)",
+    ", .  one frame back / forward (video, GIF)  ·  Ctrl+Shift+S  save this frame as a picture (Settings > Video snapshot: format, folder, HDR / Rec.709 colours)",
+    "Ctrl+Alt+P  /  Ctrl+Alt+J     convert this picture to PNG / JPEG next to it, no questions (also in the right-click menu and Explorer's)",
     "Video and sound: Space or P play / pause  ·  Shift+←  Shift+→ seek 5 s  ·  the bar: 1× 2× 4× 0.5× speed, loop (Shift+L), sound (Shift+M), volume; point at the track for a picture",
     "Shift+D dim the screen (how much: Settings > Screen & play)  ·  Shift+P 360 view of a picture twice as wide as high (drag looks, wheel zooms)  ·  double click: gallery",
     "F2 rename   Del Recycle Bin (asks first: Settings > Viewer)   Shift+Del delete permanently   Ctrl+Z undo a delete / move / rename / copy   F5 copy to…   F6 / M move to…",
@@ -46,11 +48,13 @@ pub struct Hud {
     pub used: HashSet<u64>,
     /// File size text of the current picture (id, text) so the top bar doesn't stat the file every frame.
     pub size_cache: Option<(u64, String)>,
+    /// The links of the credit lines on screen (rectangle, address): a click on one opens it.
+    pub links: Vec<([f32; 4], String)>,
 }
 
 impl Hud {
     pub fn new() -> Self {
-        Hud { toast: None, show_info: false, show_help: false, info_rows: Vec::new(), info_for: None, used: HashSet::new(), size_cache: None }
+        Hud { toast: None, show_info: false, show_help: false, info_rows: Vec::new(), info_for: None, used: HashSet::new(), size_cache: None, links: Vec::new() }
     }
 }
 
@@ -67,7 +71,8 @@ pub fn clip(s: &str, max: usize) -> String {
 
 impl App {
     pub fn toast(&mut self, msg: impl Into<String>) {
-        self.hud.toast = Some((msg.into(), Instant::now()));
+        let msg: String = msg.into();
+        self.hud.toast = Some((nv_text::tr(&msg).into_owned(), Instant::now()));
         set_timer(self.hwnd, TIMER_TOAST, TOAST_MS);
         invalidate(self.hwnd);
     }
@@ -186,12 +191,34 @@ impl App {
 
         // Help (centred).
         if self.hud.show_help {
-            let mut lines: Vec<String> = HELP.iter().map(|s| s.to_string()).collect();
-            lines.extend(nv_core::about::credit_lines());
+            let lines: Vec<String> = HELP.iter().map(|s| nv_text::tr(s).into_owned()).collect();
+            let credits = nv_core::about::credit_lines();
+            let mut credit_overlays: Vec<(u64, f32, f32, Option<String>)> = Vec::new();
+            for l in &credits {
+                let shown = if l.is_empty() { " ".to_string() } else { l.clone() };
+                if let Some((k, tw, th)) = self.overlay_small(&[shown]) {
+                    credit_overlays.push((k, tw, th, nv_core::about::link_of(l)));
+                }
+            }
+            self.hud.links.clear();
             if let Some((key, tw, th)) = self.overlay(&lines) {
-                let (x, y) = (((w - tw) / 2.0).max(0.0), ((h - th) / 2.0).max(0.0));
-                let _ = self.renderer.fill_rect([x, y, x + tw, y + th], srgb(0x0E0E0E, 0.92));
-                let _ = self.renderer.draw_overlay(key, x, y, text_c);
+                let cw = credit_overlays.iter().map(|c| c.1).fold(0.0f32, f32::max);
+                let ch: f32 = credit_overlays.iter().map(|c| c.2).sum();
+                let (bw, bh) = (tw.max(cw), th + ch);
+                let (x, y) = (((w - bw) / 2.0).max(0.0), ((h - bh) / 2.0).max(0.0));
+                let _ = self.renderer.fill_rect([x, y, x + bw, y + bh], srgb(0x0E0E0E, 0.92));
+                let _ = self.renderer.draw_overlay(key, x + (bw - tw) / 2.0, y, text_c);
+                let mut cy = y + th;
+                for (k, ctw, cth, link) in &credit_overlays {
+                    let cx = x + (bw - ctw) / 2.0;
+                    let colour = if link.is_some() { srgb(0x7DB4FF, 1.0) } else { dim_c };
+                    let _ = self.renderer.draw_overlay(*k, cx, cy, colour);
+                    if let Some(l) = link {
+                        self.hud.links.push(([cx, cy, cx + ctw, cy + cth], l.clone()));
+                        let _ = self.renderer.fill_rect([cx, cy + cth - 4.0 * d, cx + ctw, cy + cth - 3.0 * d], srgb(0x7DB4FF, 0.8));
+                    }
+                    cy += cth;
+                }
             }
         }
 

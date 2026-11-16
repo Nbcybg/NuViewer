@@ -1141,32 +1141,35 @@ dependencies = [
 
 [[package]]
 name = "nueditor"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nv-codecs",
  "nv-core",
  "nv-editor",
  "nv-render",
+ "nv-text",
  "nv-win",
 ]
 
 [[package]]
 name = "nugallery"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nv-codecs",
  "nv-core",
  "nv-editor",
  "nv-render",
+ "nv-text",
  "nv-win",
 ]
 
 [[package]]
 name = "nuimporter"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nv-codecs",
  "nv-core",
+ "nv-editor",
  "nv-win",
 ]
 
@@ -1266,7 +1269,7 @@ dependencies = [
 
 [[package]]
 name = "nuquick"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nv-codecs",
  "nv-core",
@@ -1276,19 +1279,20 @@ dependencies = [
 
 [[package]]
 name = "nuviewer"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nv-codecs",
  "nv-core",
  "nv-editor",
  "nv-media",
  "nv-render",
+ "nv-text",
  "nv-win",
 ]
 
 [[package]]
 name = "nuviewer-setup"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "miniz_oxide 0.9.1",
  "nv-win",
@@ -1297,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "nv-codecs"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fbxcel-dom",
  "flate2",
@@ -1317,6 +1321,7 @@ dependencies = [
  "psd",
  "rawler",
  "resvg",
+ "roxmltree 0.20.0",
  "ruzstd",
  "serde_json",
  "windows",
@@ -1326,18 +1331,19 @@ dependencies = [
 
 [[package]]
 name = "nv-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "flate2",
  "nv-codecs",
  "nv-editor",
  "nv-media",
+ "nv-text",
  "png",
 ]
 
 [[package]]
 name = "nv-editor"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "image-webp",
  "jpeg-encoder",
@@ -1346,23 +1352,29 @@ dependencies = [
 
 [[package]]
 name = "nv-media"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "windows",
 ]
 
 [[package]]
 name = "nv-render"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nv-codecs",
  "windows",
 ]
 
 [[package]]
+name = "nv-text"
+version = "0.2.0"
+
+[[package]]
 name = "nv-win"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "nv-text",
+ "png",
  "windows",
  "windows-core",
 ]

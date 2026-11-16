@@ -18,6 +18,7 @@ use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 mod chrome;
+mod entry;
 mod heal;
 mod panel;
 mod tools;
@@ -40,6 +41,8 @@ pub struct Options {
     pub origin: Origin,
     /// A turn made in the viewer, to continue here.
     pub start_angle: Option<f32>,
+    /// A picture NuImporter has just brought in (what it came from): not saved anywhere yet; closing asks where it goes.
+    pub import: Option<String>,
 }
 
 pub enum Msg {
@@ -180,6 +183,10 @@ pub struct App {
     hot: Option<Hit>,
     last_wheel: Option<(usize, Instant)>,
     toast: Option<String>,
+    /// The links among the credit lines on screen (rectangle, address).
+    help_links: Vec<([f32; 4], String)>,
+    /// A number being typed into a slider's value (see `entry.rs`).
+    entry: Option<entry::NumEntry>,
     first_frame_ms: Option<f64>,
     menubar: MenuBar,
     /// Where the tool strip's buttons were drawn (command, rect), for clicks.
@@ -270,6 +277,8 @@ impl App {
             hot: None,
             last_wheel: None,
             toast: None,
+            help_links: Vec::new(),
+            entry: None,
             first_frame_ms: None,
             menubar: MenuBar::new(&chrome::MENU_LABELS),
             toolbar_hits: Vec::new(),
@@ -306,15 +315,41 @@ impl App {
                 self.toast = None;
                 invalidate(self.hwnd);
             }
-            Event::Key(vk) => self.key(vk),
+            Event::Key(vk) => {
+                if !self.entry_key(vk) {
+                    self.key(vk);
+                }
+            }
+            Event::Char(c) => self.entry_char(c),
             Event::AltTap => {
                 self.menubar.alt_tap();
                 invalidate(self.hwnd);
             }
             Event::MouseDown { x, y, ctrl } => {
+                if self.help {
+                    if let Some((_, url)) = self.help_links.iter().find(|(r, _)| (x as f32) >= r[0] && (x as f32) < r[2] && (y as f32) >= r[1] && (y as f32) < r[3]) {
+                        nv_win::shell::open_url(url);
+                        return;
+                    }
+                }
+                if self.entry_press(x, y) {
+                    return;
+                }
                 let bar_h = self.menubar.height(self.dpi);
                 if self.menubar.visible() && (y as f32) < bar_h {
-                    if let Some(i) = self.menubar.hit(x as f32, y as f32) {
+                    if let Some(n) = self.menubar.nav_hit(x as f32, y as f32, self.dpi) {
+                        self.menubar.close();
+                        let origin = self.opts.origin;
+                        if n == nv_win::menubar::Nav::Close {
+                            self.opts.origin = flow::Origin::Nowhere; // close for good: nothing is brought back
+                        }
+                        if self.request_exit() {
+                            nv_win::quit();
+                        } else {
+                            self.opts.origin = origin;
+                        }
+                        invalidate(self.hwnd);
+                    } else if let Some(i) = self.menubar.hit(x as f32, y as f32) {
                         self.open_menu(i);
                     } else {
                         self.menubar.close();
@@ -634,7 +669,7 @@ impl App {
 
     fn update_title(&mut self) {
         let name = flow::file_name(&self.path);
-        let mut t = format!("{}{name}", if self.dirty() { "● " } else { "" });
+        let mut t = format!("{}{}{name}", if self.opts.import.is_some() { "Import — " } else { "" }, if self.dirty() { "● " } else { "" });
         if let Some(f) = &self.full {
             t.push_str(&format!(" — {}x{} — {}", f.w, f.h, self.zoom_label()));
         }
@@ -663,7 +698,7 @@ impl App {
     }
 
     fn dirty(&self) -> bool {
-        self.recipe != self.kept
+        self.opts.import.is_some() || self.recipe != self.kept
     }
 
     fn say(&mut self, s: &str) {
@@ -872,6 +907,7 @@ impl App {
             0x59 if m.ctrl => self.redo(),
             0x53 if m.ctrl && m.shift => self.save_copy_dialog(),
             0x53 if m.ctrl => self.save_now(),
+            0x43 if m.ctrl && !m.shift => self.copy_picture(),
             0x43 if !m.ctrl => {
                 self.show_original = !self.show_original;
                 invalidate(self.hwnd);
@@ -996,6 +1032,9 @@ impl App {
 
     /// Esc / close box. True if the window may close now (edits were kept, discarded or there were none).
     fn request_exit(&mut self) -> bool {
+        if let Some(source) = self.opts.import.clone() {
+            return self.finish_import(&source);
+        }
         let mut show = self.path.clone();
         if self.dirty() && self.full.is_some() {
             let choice = self.choose_save();
@@ -1265,6 +1304,7 @@ impl App {
         let scope_now = self.view.scope;
         let recipe_crop = self.recipe.crop;
         let show_help = self.help;
+        let entry_box = self.entry_box();
         let Some(r) = self.renderer.as_mut() else { return };
         if !r.begin(rgb(pal::BG, 1.0)) {
             return;
@@ -1287,7 +1327,7 @@ impl App {
             r.set_clip(None);
             true
         } else if let Some((iw, ih)) = r.image_size_of(if split { ID_EDIT } else { id }) {
-            let s = (aw / iw as f32).min(ah / ih as f32).min(1.0);
+            let s = (aw / iw as f32).min(ah / ih as f32).min(1.0) * self.view.out;
             let (w, h) = (iw as f32 * s, ih as f32 * s);
             let (x, y) = ((aw / 2.0 - w / 2.0).round(), (ah / 2.0 - h / 2.0).round());
             if geo || mode == Mode::Crop {
@@ -1298,7 +1338,7 @@ impl App {
             self.tools.pic_rect = [x, y, x + w, y + h];
             if split {
                 if let Some((ow, oh)) = r.image_size_of(ID_ORIG) {
-                    let s = (aw / ow as f32).min(ah / oh as f32).min(1.0);
+                    let s = (aw / ow as f32).min(ah / oh as f32).min(1.0) * self.view.out;
                     let (w, h) = (ow as f32 * s, oh as f32 * s);
                     let (x, y) = ((aw / 2.0 - w / 2.0).round(), (ah / 2.0 - h / 2.0).round());
                     r.set_clip(Some([l.area[0], l.area[1], l.area[0] + aw * split_at, l.area[3]]));
@@ -1403,7 +1443,7 @@ impl App {
                 let arrow = if open { "▾" } else { "▸" };
                 self.text.draw(r, arrow, px(12.0), rect[0] + 14.0 * d, rect[1] + 7.0 * d, dim_c);
                 let (label, changed) = if *gi < Group::ALL.len() { (Group::ALL[*gi].label(), self.recipe.group_changed(Group::ALL[*gi])) } else { (SECTION_NAMES[*gi - Group::ALL.len()], sections_changed[*gi - Group::ALL.len()]) };
-                self.text.draw(r, label, px(13.0), rect[0] + 34.0 * d, rect[1] + 6.0 * d, text_c);
+                self.text.draw(r, &nv_text::tr(label), px(13.0), rect[0] + 34.0 * d, rect[1] + 6.0 * d, text_c);
                 if changed {
                     let _ = r.fill_rect([rect[2] - 26.0 * d, rect[1] + 11.0 * d, rect[2] - 18.0 * d, rect[1] + 19.0 * d], accent);
                 }
@@ -1423,7 +1463,7 @@ impl App {
                 let info = &PARAMS[*i];
                 let live = engine::is_implemented(*i);
                 let (label_c, value_c) = if live { (text_c, if self.recipe.is_default(*i) { dim_c } else { accent }) } else { (rgb(0x6B7078, 1.0), rgb(0x6B7078, 1.0)) };
-                let label = if live { info.label.to_string() } else { format!("{}  (soon)", info.label) };
+                let label = if live { nv_text::tr(info.label).into_owned() } else { format!("{}  ({})", nv_text::tr(info.label), nv_text::tr("soon")) };
                 self.text.draw(r, &label, px(12.0), row[0] + 14.0 * d, row[1] + 5.0 * d, label_c);
                 self.text.draw_right(r, &values[n], px(12.0), row[2] - 14.0 * d, row[1] + 5.0 * d, value_c);
                 let _ = r.fill_rect(*track, rgb(0x2E3238, 1.0));
@@ -1464,19 +1504,36 @@ impl App {
             self.text.draw_centered(r, label, px(12.0), (rect[0] + rect[2]) / 2.0, rect[1] + 7.0 * d, text_c);
         }
         if show_help {
-            let mut lines: Vec<String> = chrome::HELP.iter().map(|s| s.to_string()).collect();
-            lines.extend(nv_core::about::credit_lines());
+            let help: Vec<String> = chrome::HELP.iter().map(|s| nv_text::tr(s).into_owned()).collect();
+            let credits = nv_core::about::credit_lines();
             let fs = px(13.0);
             let lh = gfx::line_h(fs);
-            let wmax = lines.iter().map(|s| self.text.width(s, fs)).max().unwrap_or(400) as f32;
-            let (bw, bh) = ((wmax + 40.0 * d).min(l.area[2] - 20.0 * d), lines.len() as f32 * lh + 30.0 * d);
+            let wmax = help.iter().chain(credits.iter()).map(|s| self.text.width(s, fs)).max().unwrap_or(400) as f32;
+            let (bw, bh) = ((wmax + 40.0 * d).min(l.area[2] - 20.0 * d), (help.len() + credits.len()) as f32 * lh + 30.0 * d);
             let (bx, by) = (((l.area[2] + (l.panel[2] - l.panel[0]) * 0.0) / 2.0 - bw / 2.0).max(10.0 * d), ((self.size.1 as f32 - bh) / 2.0).max(10.0 * d));
             let _ = r.fill_rect([bx, by, bx + bw, by + bh], rgb(0x0E0E0E, 0.95));
-            for (i, line) in lines.iter().enumerate() {
-                let c = if i == 0 || line.starts_with("Credits") { accent } else { text_c };
+            for (i, line) in help.iter().enumerate() {
+                let c = if i == 0 { accent } else { text_c };
                 let fitted = self.text.fit(line, fs, (bw - 30.0 * d) as i32);
                 self.text.draw(r, &fitted, fs, bx + 20.0 * d, by + 15.0 * d + i as f32 * lh, c);
             }
+            // Credits, centred; the website and the support address are links.
+            self.help_links.clear();
+            for (j, line) in credits.iter().enumerate() {
+                let ly = by + 15.0 * d + (help.len() + j) as f32 * lh;
+                let fitted = self.text.fit(line, fs, (bw - 30.0 * d) as i32);
+                let lw = self.text.width(&fitted, fs) as f32;
+                let cx = bx + (bw - lw) / 2.0;
+                let link = nv_core::about::link_of(line);
+                self.text.draw(r, &fitted, fs, cx, ly, if link.is_some() { rgb(0x7DB4FF, 1.0) } else { rgb(0xA5ABB3, 1.0) });
+                if let Some(u) = link {
+                    let _ = r.fill_rect([cx, ly + lh - 3.0 * d, cx + lw, ly + lh - 2.0 * d], rgb(0x7DB4FF, 0.8));
+                    self.help_links.push(([cx, ly, cx + lw, ly + lh], u));
+                }
+            }
+        }
+        if let Some(eb) = &entry_box {
+            entry::draw_entry_box(r, &mut self.text, eb, d);
         }
         gfx::draw_menubar(r, &mut self.text, &mut self.menubar, self.size.0 as f32, d);
         self.text.end_frame(r);
