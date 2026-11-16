@@ -49,6 +49,13 @@ impl App {
                 self.set_page(q as u32);
                 return;
             }
+            // A document with several pages is left only on purpose (Ctrl+Left / Ctrl+Right = previous / next file): a
+            // wheel spun fast must stop at the last page, not carry on into the next file.
+            if n >= 2 {
+                let (key, edge) = if d > 0 { ("Ctrl+Right", "last") } else { ("Ctrl+Left", "first") };
+                self.toast(format!("This is the {edge} page  ·  {key} goes to the {} file", if d > 0 { "next" } else { "previous" }));
+                return;
+            }
         }
         let cur = self.folder.index as isize;
         self.navigate(cur + d);
@@ -325,6 +332,7 @@ impl App {
                 checked(self.action_entry(Action::ReadDirection, "Japanese reading (right to left)").enabled(viewer), self.settings.read_rtl),
                 checked(self.action_entry(Action::Dim, "Dim the screen"), self.disp.dim),
                 checked(self.action_entry(Action::Pano, "360 view").enabled(viewer), self.disp.pano.is_some()),
+                checked(self.action_entry(Action::RawLook, "RAW: camera look (not sensor data)"), self.settings.raw_mode.is_camera_look()),
                 checked(self.action_entry(Action::ToggleSidebar, "Viewer controls").enabled(viewer), self.sidebar.pinned),
                 checked(self.action_entry(Action::ToggleSequences, "Fold image sequences"), self.settings.sequences),
                 Entry::Separator,
@@ -402,6 +410,7 @@ impl App {
             checked(self.action_entry(Action::ReadDirection, "Japanese reading (right to left)").enabled(viewer), self.settings.read_rtl),
             checked(self.action_entry(Action::Dim, "Dim the screen"), self.disp.dim),
             checked(self.action_entry(Action::Pano, "360 view").enabled(viewer), self.disp.pano.is_some()),
+            checked(self.action_entry(Action::RawLook, "RAW: camera look (not sensor data)"), self.settings.raw_mode.is_camera_look()),
             sort_menu,
             checked(self.action_entry(Action::Shuffle, "Shuffle").enabled(many), order.shuffle.is_some()),
             checked(self.action_entry(Action::Info, "Info / EXIF").enabled(has_file), self.hud.show_info),

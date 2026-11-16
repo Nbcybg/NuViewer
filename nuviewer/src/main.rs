@@ -370,6 +370,8 @@ struct App {
     /// Playback of a numbered image sequence / an animation (see `controls.rs`).
     seq_playing: bool,
     anim_paused: bool,
+    /// Ping-pong play: the animation / sequence is currently running backward.
+    pp_back: bool,
     anim_speed: f32,
     fps: u32,
     controls_pinned: bool,
@@ -552,13 +554,30 @@ impl App {
         if self.mode == Mode::Viewer {
             if let Some(id) = self.renderer.current() {
                 let last = self.renderer.frame_count(id).saturating_sub(1);
-                if !self.anim_paused && !self.settings.more.play_loop && self.renderer.frame_index(id) >= last {
-                    self.anim_paused = true; // loop off: stay on the last frame
+                let f = self.renderer.frame_index(id);
+                let pingpong = self.settings.more.play_pingpong && last >= 1;
+                // Loop off: a plain animation stays on its last frame, a ping-pong one ends back on its first.
+                let finished = if pingpong { self.pp_back && f == 0 } else { f >= last };
+                if !self.anim_paused && !self.settings.more.play_loop && finished {
+                    self.anim_paused = true;
+                    self.pp_back = false;
                     kill_timer(self.hwnd, TIMER_ANIM);
                     invalidate(self.hwnd);
                     return;
                 }
-                if let (false, Some(ms)) = (self.anim_paused, self.renderer.advance_frame(id)) {
+                let next = if !pingpong {
+                    self.renderer.advance_frame(id)
+                } else {
+                    if !self.pp_back && f >= last {
+                        self.pp_back = true;
+                    } else if self.pp_back && f == 0 {
+                        self.pp_back = false;
+                    }
+                    let to = if self.pp_back { f - 1 } else { f + 1 };
+                    self.renderer.set_frame(id, to);
+                    self.renderer.frame_delay(id)
+                };
+                if let (false, Some(ms)) = (self.anim_paused, next) {
                     set_timer(self.hwnd, TIMER_ANIM, self.scaled_delay(ms));
                     set_title(self.hwnd, &self.title());
                     invalidate(self.hwnd);
@@ -659,6 +678,7 @@ impl App {
         if !std::mem::take(&mut self.keep_view_once) {
             self.view = self.view.fresh();
             self.anim_paused = false;
+            self.pp_back = false;
         }
         if self.slide.on {
             set_timer(self.hwnd, TIMER_SLIDE, self.slide_ms()); // manual navigation restarts the interval
@@ -1236,6 +1256,7 @@ impl App {
             runs: Vec::new(),
             seq_playing: false,
             anim_paused: false,
+            pp_back: false,
             anim_speed: 1.0,
             controls_pinned: false,
             edits: nv_editor::EditStack::new(),

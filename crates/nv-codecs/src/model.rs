@@ -1478,6 +1478,14 @@ pub fn parse_gltf(bytes: &[u8], dir: Option<&Path>) -> Result<Mesh, String> {
     };
     let doc: Value = serde_json::from_slice(json_bytes).map_err(|e| format!("gltf: {e}"))?;
     let arr = |k: &str| doc.get(k).and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    // Geometry in a compressed form cannot be read without the matching decoder: say so instead of drawing nothing.
+    for ext in arr("extensionsRequired").iter().filter_map(|e| e.as_str()) {
+        match ext {
+            "KHR_draco_mesh_compression" => return Err("gltf: this model's geometry is Draco-compressed (KHR_draco_mesh_compression), which NuViewer cannot read yet; re-export it uncompressed, e.g. `gltf-transform copy in.glb out.glb`".into()),
+            "EXT_meshopt_compression" | "KHR_meshopt_compression" => return Err("gltf: this model's geometry is meshopt-compressed (EXT_meshopt_compression), which NuViewer cannot read yet; re-export it uncompressed, e.g. `gltf-transform copy in.glb out.glb`".into()),
+            _ => {}
+        }
+    }
 
     // Buffers: the GLB's binary chunk, a data: URI, or a file next to the .gltf.
     let mut buffers: Vec<Vec<u8>> = Vec::new();

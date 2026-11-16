@@ -81,6 +81,8 @@ pub struct Prefs {
     pub canvas_shade: u8,
     /// Playback: loop animations / videos / slideshow, volume 0..=100, muted, the speed the bar starts at.
     pub play_loop: bool,
+    /// Animations and sequences play forward, then backward, then forward again (instead of jumping back to the start).
+    pub play_pingpong: bool,
     /// A video or sound starts playing when it comes up.
     pub autoplay: bool,
     pub volume: u8,
@@ -134,6 +136,7 @@ impl Default for Prefs {
             canvas_image: String::new(),
             canvas_shade: 35,
             play_loop: true,
+            play_pingpong: false,
             autoplay: true,
             volume: 80,
             muted: false,
@@ -183,6 +186,7 @@ impl Prefs {
             "canvas_image" => self.canvas_image = v.to_string(),
             "canvas_shade" => self.canvas_shade = pct(v, 0, 90, self.canvas_shade),
             "play_loop" => self.play_loop = parse_bool(v).unwrap_or(self.play_loop),
+            "play_pingpong" => self.play_pingpong = parse_bool(v).unwrap_or(self.play_pingpong),
             "autoplay" => self.autoplay = parse_bool(v).unwrap_or(self.autoplay),
             "volume" => self.volume = pct(v, 0, 100, self.volume),
             "muted" => self.muted = parse_bool(v).unwrap_or(self.muted),
@@ -242,12 +246,13 @@ impl Prefs {
     pub fn serialize(&self) -> String {
         let b = |v: bool| if v { "true" } else { "false" };
         format!(
-            "dim_pct = {}\ncanvas_mode = {}\ncanvas_image = {}\ncanvas_shade = {}\nplay_loop = {}\nautoplay = {}\nvolume = {}\nmuted = {}\nscrub_preview = {}\nseven_zip = {}\nffmpeg = {}\narchive_format = {}\narchive_level = {}\npdf_page = {}\npdf_quality = {}\nlanguage = {}\nsnapshot_format = {}\nsnapshot_quality = {}\nsnapshot_dir = {}\nsnapshot_name = {}\nsnapshot_sdr = {}\nsnapshot_tonemap = {}\nsnapshot_peak = {}\nsnapshot_keep_hdr = {}\nimport_after = {}\nimport_dir = {}\nimport_format = {}\nimport_quality = {}\nimport_name = {}\nimport_edit = {}\ntether_dir = {}\nscreenshot_keys = {}\n",
+            "dim_pct = {}\ncanvas_mode = {}\ncanvas_image = {}\ncanvas_shade = {}\nplay_loop = {}\nplay_pingpong = {}\nautoplay = {}\nvolume = {}\nmuted = {}\nscrub_preview = {}\nseven_zip = {}\nffmpeg = {}\narchive_format = {}\narchive_level = {}\npdf_page = {}\npdf_quality = {}\nlanguage = {}\nsnapshot_format = {}\nsnapshot_quality = {}\nsnapshot_dir = {}\nsnapshot_name = {}\nsnapshot_sdr = {}\nsnapshot_tonemap = {}\nsnapshot_peak = {}\nsnapshot_keep_hdr = {}\nimport_after = {}\nimport_dir = {}\nimport_format = {}\nimport_quality = {}\nimport_name = {}\nimport_edit = {}\ntether_dir = {}\nscreenshot_keys = {}\n",
             self.dim_pct,
             self.canvas_mode.id(),
             self.canvas_image,
             self.canvas_shade,
             b(self.play_loop),
+            b(self.play_pingpong),
             b(self.autoplay),
             self.volume,
             b(self.muted),

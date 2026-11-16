@@ -135,6 +135,8 @@ impl App {
             Action::Dim => self.toggle_dim(),
             Action::Pano if !gallery => self.toggle_pano(),
             Action::MediaLoop => self.toggle_loop(),
+            Action::MediaPingPong => self.toggle_pingpong(),
+            Action::RawLook => self.toggle_raw_look(),
             Action::MediaMute => self.toggle_mute(),
             Action::MediaSpeed => self.cycle_speed(),
             Action::FrameBack if !gallery => self.frame_step(false),

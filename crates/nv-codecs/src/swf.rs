@@ -173,6 +173,161 @@ fn lossless(d: &[u8], with_alpha: bool) -> Option<Image> {
     Some(Image::new(w as u32, h as u32, rgba))
 }
 
+// ---------------------------------------------------------------------------------------------------- cards and FLA
+
+/// What the header of a movie says.
+#[derive(Debug, PartialEq)]
+pub struct Info {
+    pub version: u8,
+    /// Stage size in pixels (0 when unknown, e.g. LZMA movies whose header is compressed).
+    pub width: f64,
+    pub height: f64,
+    pub fps: f64,
+    pub frames: u16,
+}
+
+fn bits(body: &[u8], pos: usize, n: usize) -> i64 {
+    let mut v: i64 = 0;
+    for i in 0..n {
+        let p = pos + i;
+        let bit = body.get(p / 8).map(|b| (b >> (7 - p % 8)) & 1).unwrap_or(0);
+        v = (v << 1) | bit as i64;
+    }
+    if n > 0 && v & (1 << (n - 1)) != 0 {
+        v -= 1 << n; // sign-extend
+    }
+    v
+}
+
+pub fn info(bytes: &[u8]) -> Option<Info> {
+    if !is_swf(bytes) {
+        return None;
+    }
+    let version = bytes[3];
+    let head: Vec<u8> = match &bytes[0..3] {
+        b"CWS" => inflate(&bytes[8..], 64).ok()?,
+        b"ZWS" => return Some(Info { version, width: 0.0, height: 0.0, fps: 0.0, frames: 0 }),
+        _ => bytes[8..bytes.len().min(8 + 64)].to_vec(),
+    };
+    let n = (*head.first()? >> 3) as usize;
+    let (x0, x1, y0, y1) = (bits(&head, 5, n), bits(&head, 5 + n, n), bits(&head, 5 + 2 * n, n), bits(&head, 5 + 3 * n, n));
+    let at = (5 + 4 * n).div_ceil(8);
+    let fps = u16::from_le_bytes([*head.get(at)?, *head.get(at + 1)?]) as f64 / 256.0;
+    let frames = u16::from_le_bytes([*head.get(at + 2)?, *head.get(at + 3)?]);
+    Some(Info { version, width: (x1 - x0) as f64 / 20.0, height: (y1 - y0) as f64 / 20.0, fps, frames })
+}
+
+fn describe(i: &Info) -> String {
+    let mut s = format!("Flash {}", i.version);
+    if i.width > 0.0 {
+        s.push_str(&format!("  ·  {} × {}", i.width.round(), i.height.round()));
+    }
+    if i.fps > 0.0 {
+        s.push_str(&format!("  ·  {} fps  ·  {} frames", (i.fps * 10.0).round() / 10.0, i.frames));
+    }
+    s
+}
+
+/// A Flash movie as a picture: the largest bitmap inside it, or, for a movie made of vector art and scripts (which this
+/// program cannot play), a card with what the header says. A file that is no Flash movie at all is an error.
+pub(crate) fn decode_or_card(path: &std::path::Path, bytes: &[u8], first_only: bool) -> Result<Image, String> {
+    match decode(bytes) {
+        Ok(mut img) => {
+            img.colour_note = Some("the largest bitmap stored inside the Flash movie".into());
+            Ok(img)
+        }
+        Err(e) => {
+            let Some(i) = info(bytes) else { return Err(e) };
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let sub = format!("{}  ·  {}", describe(&i), crate::docthumb::fmt_bytes(bytes.len() as u64));
+            let mut img = crate::docthumb::render_card(&crate::docthumb::Card { badge: "SWF".into(), accent: crate::docthumb::accent_for("swf"), title: name, subtitle: sub, lines: Vec::new() }, if first_only { 1 } else { 2 });
+            img.colour_note = Some(format!("a card ({}; Flash movies are programs, not pictures)", e.trim_start_matches("swf: ")));
+            Ok(img)
+        }
+    }
+}
+
+/// `<DOMDocument ... width="550" height="400" frameRate="24">`: one attribute of the document's root element.
+fn xml_attr(head: &str, name: &str) -> Option<String> {
+    let key = format!(" {name}=\"");
+    let s = head.find(&key)? + key.len();
+    let e = head[s..].find('"')?;
+    Some(head[s..s + e].to_string())
+}
+
+/// A Flash authoring file (`.fla`). Since CS5 it is a zip holding `DOMDocument.xml` (the stage, the timeline) and the library:
+/// a picture stored in it is shown; otherwise a card with the stage size and what the library holds. The older binary
+/// format (an OLE container) is only recognised.
+#[allow(unused_assignments)]
+pub(crate) fn decode_fla(path: &std::path::Path, first_only: bool) -> Result<Image, String> {
+    use crate::docthumb::{ext_of, fmt_bytes, is_image_name, render_card, Card, Zip};
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let size = std::fs::metadata(path).map_err(|e| format!("stat: {e}"))?.len();
+    let scale = if first_only { 1 } else { 2 };
+    let limit: u64 = if first_only { 64 << 20 } else { 256 << 20 };
+    let mut head = [0u8; 8];
+    {
+        use std::io::Read;
+        let mut f = std::fs::File::open(path).map_err(|e| format!("open: {e}"))?;
+        let n = f.read(&mut head).unwrap_or(0);
+        head[n..].fill(0);
+    }
+    let mut about = String::new();
+    let mut note = String::new();
+    if head.starts_with(&[0xD0, 0xCF, 0x11, 0xE0]) {
+        about = "Flash 8 or older (binary FLA)".into();
+        note = "an old binary FLA holds no preview picture".into();
+    } else {
+        match Zip::open(path) {
+            Ok(mut zip) => {
+                let mut pics: Vec<usize> = (0..zip.entries.len()).filter(|&i| is_image_name(&zip.entries[i].name)).collect();
+                pics.sort_by(|&a, &b| zip.entries[b].size.cmp(&zip.entries[a].size));
+                for i in pics.into_iter().take(4) {
+                    let e = zip.entries[i].clone();
+                    if let Ok(mut img) = zip.read(&e, limit).and_then(|b| crate::decode_image_bytes(&b, &ext_of(&e.name))) {
+                        img.colour_note = Some(format!("FLA library picture: {}", e.name));
+                        img.profile_assumable = true;
+                        return Ok(img);
+                    }
+                }
+                let xml = zip.entries.iter().position(|e| e.name.eq_ignore_ascii_case("DOMDocument.xml")).and_then(|i| {
+                    let e = zip.entries[i].clone();
+                    zip.read(&e, 8 << 20).ok()
+                });
+                let library = zip.entries.iter().filter(|e| e.name.to_ascii_lowercase().starts_with("library/")).count();
+                match xml {
+                    Some(x) => {
+                        let text = String::from_utf8_lossy(&x).into_owned();
+                        let root = text.find("<DOMDocument").map(|s| &text[s..(s + 2048).min(text.len())]).unwrap_or("");
+                        let root = root.split('>').next().unwrap_or("");
+                        let mut parts = vec!["Flash document".to_string()];
+                        if let (Some(w), Some(h)) = (xml_attr(root, "width").or_else(|| Some("550".into())), xml_attr(root, "height").or_else(|| Some("400".into()))) {
+                            parts.push(format!("{w} × {h}"));
+                        }
+                        if let Some(f) = xml_attr(root, "frameRate") {
+                            parts.push(format!("{f} fps"));
+                        }
+                        let bitmaps = text.matches("<DOMBitmapItem").count();
+                        if bitmaps > 0 {
+                            parts.push(format!("{bitmaps} bitmap{}", if bitmaps == 1 { "" } else { "s" }));
+                        }
+                        if library > 0 {
+                            parts.push(format!("{library} library items"));
+                        }
+                        about = parts.join("  ·  ");
+                        note = "an FLA keeps its bitmaps in a private format: no picture to show".into();
+                    }
+                    None => about = "zip without DOMDocument.xml".into(),
+                }
+            }
+            Err(e) => about = format!("not readable as an FLA ({e})"),
+        }
+    }
+    let mut img = render_card(&Card { badge: "FLA".into(), accent: crate::docthumb::accent_for("fla"), title: name, subtitle: format!("{}  ·  {about}", fmt_bytes(size)), lines: Vec::new() }, scale);
+    img.colour_note = Some(format!("a card ({note})"));
+    Ok(img)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,5 +407,41 @@ mod tests {
         assert!(decode(b"not flash").is_err());
         assert!(decode(b"ZWS\x09\0\0\0\0xx").err().unwrap().contains("LZMA"));
         assert!(decode(b"CWS\x09\0\0\0\0garbage").is_err());
+    }
+    #[test]
+    fn header_info_and_cards() {
+        let swf = movie(&[tag(2, &[0; 4])], false);
+        // 1-bit RECT fields (all 0 or -1) -> 0 x 0 stage; frame rate 24, 1 frame, version 9
+        let i = info(&swf).unwrap();
+        assert_eq!((i.version, i.fps, i.frames), (9, 24.0 / 256.0, 1));
+        assert!(info(b"nope").is_none());
+        // a 550 x 400 px stage: nbits = 15 -> 11000 twips wide
+        let mut head = vec![];
+        let n = 15usize;
+        let mut acc: Vec<bool> = vec![];
+        let push = |acc: &mut Vec<bool>, v: u32, n: usize| (0..n).rev().for_each(|b| acc.push(v >> b & 1 == 1));
+        push(&mut acc, n as u32, 5);
+        for v in [0u32, 11000, 0, 8000] {
+            push(&mut acc, v, n);
+        }
+        while acc.len() % 8 != 0 {
+            acc.push(false);
+        }
+        for c in acc.chunks(8) {
+            head.push(c.iter().fold(0u8, |a, &b| a << 1 | b as u8));
+        }
+        head.extend([0, 24, 120, 0]); // 24.0 fps (8.8), 120 frames
+        let mut f = b"FWS".to_vec();
+        f.push(10);
+        f.extend((head.len() as u32 + 8).to_le_bytes());
+        f.extend(head);
+        let i = info(&f).unwrap();
+        assert_eq!((i.width, i.height, i.fps, i.frames, i.version), (550.0, 400.0, 24.0, 120, 10));
+        assert_eq!(describe(&i), "Flash 10  ·  550 × 400  ·  24 fps  ·  120 frames");
+        // a vector-only movie becomes a card, not an error; garbage stays an error
+        let p = std::env::temp_dir().join("nv_vector.swf");
+        let img = decode_or_card(&p, &f, true).expect("card");
+        assert!(img.width > 0 && img.colour_note.as_deref().unwrap_or("").starts_with("a card"));
+        assert!(decode_or_card(&p, b"junk", true).is_err());
     }
 }

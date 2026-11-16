@@ -48,6 +48,15 @@ const ID_PAUSE: usize = 1;
 const ID_STARTUP: usize = 2;
 const ID_QUIT: usize = 3;
 const ID_SETTINGS: usize = 4;
+const ID_RAW_LOOK: usize = 5;
+
+/// RAW files in the preview follow the shared "RAW look" setting: the camera's own look (embedded JPEG, instant) or the
+/// sensor data (half-size development, to stay quick).
+fn apply_raw_look() -> bool {
+    let camera = nv_core::settings::Settings::load().raw_mode.is_camera_look();
+    nv_codecs::set_raw_mode(if camera { nv_codecs::RawMode::Preview } else { nv_codecs::RawMode::Half });
+    camera
+}
 
 /// State of the main thread only (the hook thread has its own atomics in `keys`).
 struct Agent {
@@ -407,6 +416,8 @@ fn tray_menu(hwnd: HWND) {
         let paused = with(|a| a.paused).unwrap_or(false);
         let _ = AppendMenuW(menu, if paused { MF_CHECKED | MF_STRING } else { MF_STRING }, ID_PAUSE, w!("Pause"));
         let _ = AppendMenuW(menu, if startup_enabled() { MF_CHECKED | MF_STRING } else { MF_STRING }, ID_STARTUP, w!("Start with Windows"));
+        let camera = nv_core::settings::Settings::load().raw_mode.is_camera_look();
+        let _ = AppendMenuW(menu, if camera { MF_CHECKED | MF_STRING } else { MF_STRING }, ID_RAW_LOOK, w!("RAW: camera look (not sensor data)"));
         let _ = AppendMenuW(menu, MF_STRING, ID_SETTINGS, w!("Settings..."));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING, ID_QUIT, w!("Quit NuQuick"));
@@ -426,6 +437,11 @@ fn tray_menu(hwnd: HWND) {
                 }
             }
             ID_STARTUP => set_startup(!startup_enabled()),
+            ID_RAW_LOOK => {
+                nv_core::settings::Settings::flip_raw_look_on_disk();
+                apply_raw_look();
+                view::clear_cache(); // pictures made under the other look are stale
+            }
             ID_SETTINGS => open_settings(),
             ID_QUIT => {
                 let _ = DestroyWindow(hwnd);
@@ -518,7 +534,7 @@ fn run_agent() -> i32 {
         if std::env::var_os("NUQUICK_TEST").is_none() && nv_win::quick::is_running() {
             return 0;
         }
-        nv_codecs::set_raw_mode(nv_codecs::RawMode::Preview);
+        apply_raw_look();
         let hinst = GetModuleHandleW(None).unwrap_or_default();
         let wc = WNDCLASSEXW { cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32, lpfnWndProc: Some(agent_proc), hInstance: hinst.into(), lpszClassName: AGENT_CLASS, ..Default::default() };
         RegisterClassExW(&wc);
@@ -578,7 +594,7 @@ fn run_preview(path: &str, timing: bool) -> i32 {
     unsafe {
         let _ = windows::Win32::System::Com::CoInitializeEx(None, windows::Win32::System::Com::COINIT_APARTMENTTHREADED); // the info card asks the shell
     }
-    nv_codecs::set_raw_mode(nv_codecs::RawMode::Preview);
+    apply_raw_look();
     let desktop = unsafe { GetDesktopWindow() };
     let (mw, mh) = view::max_size(desktop);
     match view::decode_now(std::path::Path::new(path), mw, mh) {

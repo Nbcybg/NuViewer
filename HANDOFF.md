@@ -555,6 +555,15 @@ Not verified: scanner / WIA camera on real hardware (no device), FreeCAD / Blend
 files), audible sound, Explorer's real right-click menu (registry layout is unit-tested), editor value typing with a real mouse (parse + extreme tests only), DPI > 100%, Thai text wherever
 a string is built by `format!` in code.
 
+### Session 16 (2026-11-16): the five points (damaged JPEG, formats, ping-pong, paged wheel, RAW look)
+
+Details, tests and limits: `docs/session16.md`; test script `tools/test/e2e-session16.ps1`. In short: (1) zune-jpeg was in *strict* mode by default: lenient mode +
+`jpeg::repair` + WIC fallback; (2) HTML (headless Edge / Chrome screenshot, offline, cached in `%LOCALAPPDATA%\NuViewer\pages`), SWF card, FLA, GLB-compression message
+(FLV / F4V / GLB were already supported); (3) ping-pong: bar button, `Shift+K`, `play_pingpong`; (4) `App::step` stops at the first / last page of a paged document, Ctrl+Left /
+Ctrl+Right leave it; (5) RAW look = `RawMode::Preview` (camera look) vs `Full` (sensor data): `Shift+R` in the viewer / gallery, NuQuick tray, NuImporter check box, NuEditor
+shows `nv_codecs::camera_data` (as-shot WB + K, ISO, EV) and its pair file is accepted at either size (`Source::matches`). Not done: the camera's look on the full-size
+development, mapping picture-style maker notes to sliders (would be guessing), real Fujifilm / Canon files, the user's own damaged JPEG.
+
 ## 2. Build, test, run
 
 ```powershell

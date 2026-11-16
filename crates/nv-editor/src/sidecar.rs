@@ -45,9 +45,24 @@ impl Source {
 
     /// Is `now` the same picture this was written for? The pixel size must match; size / time on disk may differ when the
     /// picture was merely copied (a copy has a new time), so they only matter if the size also differs.
+    ///
+    /// A camera RAW file is shown in two sizes (the camera's own JPEG, or developed from the sensor data: 4416x2944 and
+    /// 6240x4160 for the same Fujifilm picture), and its edits (white balance, light, colour, a crop kept as fractions) mean
+    /// the same in both: for RAW files the same *shape* (aspect ratio, within 2%) is enough.
     pub fn matches(&self, now: &Source) -> bool {
-        (self.width == 0 || self.width == now.width) && (self.height == 0 || self.height == now.height)
+        let exact = (self.width == 0 || self.width == now.width) && (self.height == 0 || self.height == now.height);
+        if exact || !is_raw_name(&self.name) || self.width == 0 || self.height == 0 || now.width == 0 || now.height == 0 {
+            return exact;
+        }
+        let (a, b) = (self.width as f64 / self.height as f64, now.width as f64 / now.height as f64);
+        (a / b - 1.0).abs() < 0.02
     }
+}
+
+/// The extensions of camera RAW files (the list of `nv_codecs`, which this crate does not depend on).
+fn is_raw_name(name: &str) -> bool {
+    const RAW: &[&str] = &["cr2", "cr3", "crw", "nef", "nrw", "arw", "sr2", "srf", "dng", "orf", "rw2", "raf", "pef", "srw", "3fr", "erf", "kdc", "mrw", "raw", "rwl", "iiq", "x3f"];
+    name.rsplit('.').next().map(|e| RAW.contains(&e.to_ascii_lowercase().as_str())).unwrap_or(false)
 }
 
 /// `dir/IMG.jpg` -> `dir/IMG.jpg.nuedit`.

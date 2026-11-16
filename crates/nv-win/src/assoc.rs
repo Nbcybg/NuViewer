@@ -44,6 +44,8 @@ pub const FORMATS: &[Format] = &[
     f("PDF / Illustrator", &["pdf", "ai"], false),
     f("SVG", &["svg", "svgz"], false),
     f("EPS", &["eps"], false),
+    f("Flash (SWF movie, FLA project)", &["swf", "fla"], false),
+    f("Web page (HTML, as a picture)", &["html", "htm", "xhtml", "mhtml", "mht"], false),
     f("Windows metafile", &["emf", "wmf"], false),
     f("STL", &["stl"], false),
     f("OBJ", &["obj"], false),
@@ -72,10 +74,10 @@ pub const FORMATS: &[Format] = &[
 /// The groups of the chooser: title and the range of `FORMATS` each one shows.
 pub const GROUPS: &[(&str, std::ops::Range<usize>)] = &[
     ("Pictures", 0..21),
-    ("Documents and vector art", 21..25),
-    ("3D models", 25..34),
-    ("Video and sound", 34..37),
-    ("Camera RAW", 37..47),
+    ("Documents and vector art", 21..27),
+    ("3D models", 27..36),
+    ("Video and sound", 36..39),
+    ("Camera RAW", 39..49),
 ];
 
 const ROW_HEIGHT: i32 = 20;

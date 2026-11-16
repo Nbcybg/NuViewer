@@ -26,6 +26,7 @@ const S_LOOP: u16 = 1011;
 const S_SCRUB: u16 = 1012;
 const S_VOLUME: u16 = 1013;
 const S_VOLUME_TEXT: u16 = 1014;
+const S_PINGPONG: u16 = 1015;
 const T_7Z: u16 = 1101;
 const T_7Z_BROWSE: u16 = 1102;
 const T_7Z_STATUS: u16 = 1103;
@@ -74,12 +75,13 @@ pub fn build(form: &Form, s: &Settings) {
     form.label_id(S_SHADE_TEXT, 620, 284, 80, 20, &format!("{}%", m.canvas_shade));
     form.label(28, 322, 660, 44, "The colour is also the hex box on the Viewer tab. A blurred or chosen picture shows only where the picture does not fill the window.");
     form.group(12, 384, 696, 180, "Video, sound and animation");
-    form.check(S_AUTOPLAY, 28, 410, 660, 22, "A video or a sound starts playing when it comes up", m.autoplay);
-    form.check(S_LOOP, 28, 438, 660, 22, "Loop animations, videos, sounds, sequences and the slideshow  (Shift+L)", m.play_loop);
-    form.check(S_SCRUB, 28, 466, 660, 22, "Show a picture of the spot under the pointer over the seek bar", m.scrub_preview);
-    form.label(28, 500, 90, 20, "Volume:");
-    form.slider(S_VOLUME, 120, 496, 250, 28, 0, 100, m.volume as i32);
-    form.label_id(S_VOLUME_TEXT, 380, 500, 80, 20, &format!("{}%", m.volume));
+    form.check(S_AUTOPLAY, 28, 408, 660, 22, "A video or a sound starts playing when it comes up", m.autoplay);
+    form.check(S_LOOP, 28, 430, 660, 22, "Loop animations, videos, sounds, sequences and the slideshow  (Shift+L)", m.play_loop);
+    form.check(S_PINGPONG, 28, 452, 660, 22, "Ping-pong: animations and sequences play forward, then backward  (Shift+K)", m.play_pingpong);
+    form.check(S_SCRUB, 28, 474, 660, 22, "Show a picture of the spot under the pointer over the seek bar", m.scrub_preview);
+    form.label(28, 514, 90, 20, "Volume:");
+    form.slider(S_VOLUME, 120, 510, 250, 28, 0, 100, m.volume as i32);
+    form.label_id(S_VOLUME_TEXT, 380, 514, 80, 20, &format!("{}%", m.volume));
 
     form.begin_page(PAGE_TOOLS);
     form.group(12, 52, 696, 190, "Archives (zip, 7z, rar, tar ...) in NuGallery");
@@ -175,6 +177,7 @@ pub fn read(form: &Form, s: &mut Settings) {
     m.canvas_shade = form.slider_value(S_SHADE).clamp(0, 90) as u8;
     m.autoplay = form.is_checked(S_AUTOPLAY);
     m.play_loop = form.is_checked(S_LOOP);
+    m.play_pingpong = form.is_checked(S_PINGPONG);
     m.scrub_preview = form.is_checked(S_SCRUB);
     m.volume = form.slider_value(S_VOLUME).clamp(0, 100) as u8;
     m.seven_zip = form.text(T_7Z).trim().trim_matches('"').to_string();

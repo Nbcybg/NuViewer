@@ -318,7 +318,7 @@ impl App {
 /// A file that goes into a PDF as a picture (not a document, a sound, a model or an archive).
 fn is_picture(p: &Path) -> bool {
     let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    nv_codecs::is_supported_ext(&ext) && nv_codecs::media::media_kind(&ext).is_none() && !matches!(ext.as_str(), "pdf" | "ai" | "eps" | "svg" | "svgz" | "swf" | "blend" | "blend1" | "stl" | "obj" | "ply" | "glb" | "gltf" | "fbx" | "vrm")
+    nv_codecs::is_supported_ext(&ext) && nv_codecs::media::media_kind(&ext).is_none() && !matches!(ext.as_str(), "pdf" | "ai" | "eps" | "svg" | "svgz" | "swf" | "fla" | "html" | "htm" | "xhtml" | "mhtml" | "mht" | "blend" | "blend1" | "stl" | "obj" | "ply" | "glb" | "gltf" | "fbx" | "vrm")
 }
 
 /// The pictures of a folder in natural name order.

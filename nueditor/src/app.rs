@@ -143,6 +143,8 @@ pub struct App {
     full: Option<Pixels>,
     reduced: bool,
     decode_ms: f64,
+    /// RAW: what the camera recorded (from the file), one line.
+    camera: Option<String>,
     /// The unedited picture at the size it is shown at.
     proxy: Option<Arc<Pixels>>,
     /// Counts the proxies built, so the worker can tell one from another.
@@ -251,6 +253,7 @@ impl App {
             full: None,
             reduced: false,
             decode_ms: 0.0,
+            camera: None,
             proxy: None,
             proxy_gen: 0,
             jobs,
@@ -475,6 +478,7 @@ impl App {
             }
             Ok(d) => {
                 self.decode_ms = d.ms;
+                self.camera = d.camera;
                 self.reduced = d.reduced_from.is_some();
                 let img = d.image;
                 self.full = Some(Pixels::new(img.width, img.height, img.rgba));
@@ -500,6 +504,10 @@ impl App {
                 }
                 if self.recipe == Recipe::default() && nv_editor::journal::last_for(&flow::backup_dir(), &self.path).is_some() {
                     self.say("This picture was burned in earlier: Ctrl+Alt+Z brings the original back");
+                }
+                if let Some(c) = self.camera.clone() {
+                    // The sliders are relative to what the camera chose (0 = as shot); the file itself is never rewritten.
+                    self.say(&format!("{c}  ·  edits are kept in the pair file; the RAW stays as it is (save a JPEG to burn them in)"));
                 }
                 if let Some(a) = self.opts.start_angle.take() {
                     self.recipe.set(P::Angle, a);
@@ -1079,6 +1087,7 @@ impl App {
 
     fn begin_load(&mut self, path: PathBuf) {
         self.path = path.clone();
+        self.camera = None;
         self.loading = true;
         self.error = None;
         self.full = None;
@@ -1278,6 +1287,11 @@ impl App {
         let (text_c, dim_c, accent) = (rgb(pal::TEXT, 1.0), rgb(pal::DIM, 1.0), rgb(pal::ACCENT, 1.0));
         // Everything that needs `&self` is worked out before the renderer is borrowed.
         let status = if self.dirty() { format!("edited · {:.1} ms per change", self.edit_ms) } else { format!("unchanged · {:.1} ms per change", self.edit_ms) };
+        // A RAW file: what the camera recorded (the as-shot balance the sliders are relative to), without the model name.
+        let status = match self.camera.as_deref().map(|c| c.split("  ·  ").skip(1).take(2).collect::<Vec<_>>().join(" · ")).filter(|s| !s.is_empty()) {
+            Some(c) => format!("{c} · {status}"),
+            None => status,
+        };
         let values: Vec<String> = l.rows.iter().map(|(i, _, _)| self.value_text(*i)).collect();
         let sections_changed = [self.section_changed(SECTION_CURVES), self.section_changed(SECTION_WHEEL), self.section_changed(SECTION_PRESETS), self.section_changed(panel::SECTION_EXPORT)];
         let item_list = self.item_draws(&l);

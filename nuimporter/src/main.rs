@@ -44,6 +44,7 @@ const ID_LIST: u16 = 120;
 const ID_STATUS: u16 = 121;
 const ID_SHOW_FOLDER: u16 = 130;
 const ID_EDIT_SELECTED: u16 = 131;
+const ID_RAW_LOOK: u16 = 132;
 const ID_TICK: u16 = 999;
 
 const AFTER_IDS: [&str; 3] = ["save", "confirm", "clipboard"];
@@ -87,6 +88,7 @@ fn run(from_gallery: bool, start_dir: PathBuf, shot_mode: Option<String>) -> Res
     let _ = nv_win::com_init();
     let mut st = State { from_gallery, start_dir, pictures: nv_win::files::known_folder("pictures"), log: Vec::new(), watch: None, temp_seq: 0 };
     let prefs = Settings::load().more;
+    nv_codecs::set_raw_mode(Settings::load().raw_mode);
 
     let form = Form::new(t("importer.title"), 780, 640)?;
     form.button(ID_BACK, 14, 10, 110, 28, t("importer.back"), false);
@@ -124,6 +126,7 @@ fn run(from_gallery: bool, start_dir: PathBuf, shot_mode: Option<String>) -> Res
     form.list(ID_LIST, 28, 386, 724, 150);
     form.label_id(ID_STATUS, 28, 544, 724, 34, t("importer.ready"));
 
+    form.check(ID_RAW_LOOK, 14, 600, 456, 22, t("importer.raw_look"), Settings::load().raw_mode.is_camera_look());
     form.button(ID_SHOW_FOLDER, 480, 596, 140, 30, t("importer.show_folder"), false);
     form.button(ID_EDIT_SELECTED, 626, 596, 140, 30, t("importer.edit_selected"), false);
 
@@ -156,6 +159,14 @@ fn run(from_gallery: bool, start_dir: PathBuf, shot_mode: Option<String>) -> Res
             ID_FILE => from_file(f, &mut st),
             ID_FOLDER => from_folder(f, &mut st),
             ID_TICK => tick(f, &mut st),
+            ID_RAW_LOOK => {
+                // Camera look (the camera's own processing) or sensor data: shared with the other programs.
+                let mut s = Settings::load();
+                s.raw_mode = if f.is_checked(ID_RAW_LOOK) { nv_codecs::RawMode::Preview } else { nv_codecs::RawMode::Full };
+                let _ = s.save();
+                nv_codecs::set_raw_mode(s.raw_mode);
+                status(f, s.raw_mode.look_name());
+            }
             ID_BROWSE => {
                 if let Some(p) = nv_win::shell::pick_folder(f.hwnd, t("importer.pick_folder"), Some(Path::new(f.text(ID_DIR).trim()))) {
                     f.set_text(ID_DIR, &p.display().to_string());

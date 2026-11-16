@@ -109,6 +109,7 @@ pub enum Cmd {
     ToggleFolders,
     ToggleHidden,
     ToggleNames,
+    RawLook,
     View(ViewMode),
     PinTop,
     PinLeft,
@@ -383,6 +384,7 @@ impl App {
                 m.push(b.checked(Cmd::ToggleHidden, "Hidden files", self.persist.hidden));
                 m.push(b.checked(Cmd::ToggleNames, "File names under thumbnails", self.persist.names));
                 m.push(b.checked(Cmd::ToggleSequences, "Group image sequences\tCtrl+G", self.settings.sequences));
+                m.push(b.checked(Cmd::RawLook, "RAW: camera look (not sensor data)\tShift+R", self.settings.raw_mode.is_camera_look()));
                 m.push(Item::Separator);
                 m.push(b.checked(Cmd::PinTop, "Keep the toolbar open\tCtrl+T", self.panels.pin_top));
                 m.push(b.checked(Cmd::PinLeft, "Keep folders open\tCtrl+B", self.panels.pin_left));
@@ -538,6 +540,7 @@ impl App {
                 self.refresh(Vec::new());
                 self.save_state();
             }
+            Cmd::RawLook => self.toggle_raw_look(),
             Cmd::ToggleNames => {
                 self.persist.names = !self.persist.names;
                 self.clamp_scroll();

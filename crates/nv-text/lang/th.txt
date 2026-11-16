@@ -97,6 +97,7 @@ about.thanks = ขอบคุณทุกคนที่เขียนไล�
 # ---- NuImporter ----
 importer.back = ‹  ย้อนกลับ
 importer.close = ✕  ปิด
+importer.raw_look = ภาพ RAW: ใช้สีที่กล้องปรุงแต่งให้ (ปิด = ข้อมูลดิบจากเซนเซอร์)
 importer.heading = นำภาพเข้ามาจากทุกที่
 importer.group_bring = นำเข้าจาก
 importer.scanner = สแกนเนอร์…

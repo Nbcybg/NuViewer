@@ -825,7 +825,7 @@ impl App {
     // ---- right panel: preview and details -------------------------------------------------------------
 
     /// The timer fired: load the preview / details of the focused item.
-    fn load_info(&mut self) {
+    pub fn load_info(&mut self) {
         kill_timer(self.hwnd, TIMER_INFO);
         if !self.panels.right_shown() {
             return;
@@ -1643,6 +1643,7 @@ impl App {
             0xFFF8 => self.extract_selected(),
             0xFFF9 => self.make_pdf(),
             0x52 if ctrl => self.toggle_shuffle(),
+            0x52 if shift && !ctrl => self.toggle_raw_look(), // Shift+R: RAW camera look / sensor data
             0x4A if ctrl => self.set_sort(self.listing.order.key.next()),
             0x31 if ctrl => self.set_mode(ViewMode::Thumbs),
             0x32 if ctrl => self.set_mode(ViewMode::Details),

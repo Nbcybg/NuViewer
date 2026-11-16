@@ -45,6 +45,7 @@ pub mod wave;
 pub mod stats;
 mod svgdec;
 mod swf;
+mod webpage;
 #[cfg(windows)]
 mod wic;
 mod webpdec;
@@ -65,7 +66,7 @@ pub fn zip_pictures(path: &Path, limit: usize) -> Result<Vec<(String, Vec<u8>)>,
 pub use docthumb::is_document_ext;
 pub use resize::downscale;
 
-pub use develop::{raw_mode, set_raw_mode, set_raw_thumbs_develop, RawMode};
+pub use develop::{camera_data, raw_mode, set_raw_mode, set_raw_thumbs_develop, CameraData, RawMode};
 pub use icc::{ColourSettings, Intent, Profile};
 
 /// Colour management settings (see `icc`): on / off, the output profile (None = sRGB), what pictures that carry no
@@ -310,8 +311,10 @@ const NATIVE_EXTS: &[&str] = &["jpg", "jpeg", "jpe", "jfif", "png", "apng", "gif
 /// cursors, bare Windows bitmaps, PCX and DICOM.
 const MORE_EXTS: &[&str] = &["psb", "jxl", "jp2", "j2k", "j2c", "jpf", "jpx", "jpc", "flif", "icns", "cur", "dib", "pcx", "dcm", "dicom"];
 /// Formats that are listed in folders but not registered as file types: ECW (no decoder we can ship; Windows' codecs are
-/// asked, then the error says what to do) and Flash (only the largest bitmap inside a movie can be shown).
-const TRY_EXTS: &[&str] = &["ecw", "swf"];
+/// asked, then the error says what to do).
+const TRY_EXTS: &[&str] = &["ecw"];
+/// Flash: movies (`swf`: the largest bitmap inside, else a card with the header's facts) and authoring files (`fla`).
+const FLASH_EXTS: &[&str] = &["swf", "fla"];
 /// PDF and PDF-compatible Illustrator files, rendered by Windows (`Windows.Data.Pdf`).
 const DOC_EXTS: &[&str] = &["pdf", "ai"];
 /// SVG, rendered by resvg.
@@ -334,6 +337,8 @@ pub fn supported_extensions() -> Vec<&'static str> {
         v.extend(EPS_EXTS);
     }
     v.extend(SVG_EXTS);
+    v.extend(FLASH_EXTS);
+    v.extend(webpage::EXTS);
     v.extend(media::VIDEO_EXTS);
     v.extend(media::AUDIO_EXTS);
     v.extend(media::PRO_EXTS);
@@ -343,7 +348,7 @@ pub fn supported_extensions() -> Vec<&'static str> {
 /// Extensions of still pictures that can be converted to PNG / JPEG: everything we open except video, sound, 3D models,
 /// documents and Blender files.
 pub fn convertible_extensions() -> Vec<&'static str> {
-    let skip = |e: &str| media::media_kind(e).is_some() || model::EXTS.contains(&e) || DOC_EXTS.contains(&e) || BLEND_EXTS.contains(&e) || EPS_EXTS.contains(&e) || TRY_EXTS.contains(&e);
+    let skip = |e: &str| media::media_kind(e).is_some() || model::EXTS.contains(&e) || DOC_EXTS.contains(&e) || BLEND_EXTS.contains(&e) || EPS_EXTS.contains(&e) || TRY_EXTS.contains(&e) || FLASH_EXTS.contains(&e) || webpage::is_ext(e);
     supported_extensions().into_iter().filter(|e| !skip(e)).collect()
 }
 
@@ -355,7 +360,7 @@ pub fn is_raw_ext(ext: &str) -> bool {
 pub fn is_supported_ext(ext: &str) -> bool {
     let e = ext.to_ascii_lowercase();
     let e = e.as_str();
-    NATIVE_EXTS.contains(&e) || RAW_EXTS.contains(&e) || MORE_EXTS.contains(&e) || TRY_EXTS.contains(&e) || model::EXTS.contains(&e) || imgfmt::is_ext(e) || (cfg!(windows) && (WIC_EXTS.contains(&e) || DOC_EXTS.contains(&e) || META_EXTS.contains(&e) || EPS_EXTS.contains(&e))) || SVG_EXTS.contains(&e) || BLEND_EXTS.contains(&e) || media::media_kind(e).is_some()
+    NATIVE_EXTS.contains(&e) || RAW_EXTS.contains(&e) || MORE_EXTS.contains(&e) || TRY_EXTS.contains(&e) || FLASH_EXTS.contains(&e) || webpage::is_ext(e) || model::EXTS.contains(&e) || imgfmt::is_ext(e) || (cfg!(windows) && (WIC_EXTS.contains(&e) || DOC_EXTS.contains(&e) || META_EXTS.contains(&e) || EPS_EXTS.contains(&e))) || SVG_EXTS.contains(&e) || BLEND_EXTS.contains(&e) || media::media_kind(e).is_some()
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -540,8 +545,14 @@ fn decode_file_opts(path: &Path, first_only: bool, thumb: bool) -> Result<Image,
     if WIC_EXTS.contains(&ext.as_str()) {
         return decode_wic(path);
     }
+    if webpage::is_ext(&ext) {
+        return webpage::decode(path, first_only);
+    }
     if ext == "swf" {
-        return swf::decode(&progress::read_file(path)?);
+        return swf::decode_or_card(path, &progress::read_file(path)?, first_only);
+    }
+    if ext == "fla" {
+        return swf::decode_fla(path, first_only);
     }
     if TRY_EXTS.contains(&ext.as_str()) {
         // Nothing we can ship decodes these: Windows might have a codec installed for them, otherwise say what to do.
@@ -688,10 +699,23 @@ pub(crate) fn decode_image_bytes(bytes: &[u8], ext_hint: &str) -> Result<Image, 
         Some(Kind::Jp2) => jp2::decode(bytes),
         #[cfg(windows)]
         Some(Kind::Wic) => wic::decode_bytes(bytes),
+        _ if is_raw_ext(&hint) => decode_raw_bytes(bytes, &hint),
         _ if bytes.starts_with(b"DDS ") => imgfmt::decode(bytes, "dds"),
         _ if imgfmt::is_ext(&hint) => imgfmt::decode(bytes, &hint),
         _ => Err("unrecognised picture format".into()),
     }
+}
+
+/// A camera RAW file held in memory (an importer's incoming file): the RAW decoders work on files, so it goes through a
+/// temporary one. Follows the RAW look in force (camera look = embedded JPEG, otherwise developed from the sensor data).
+fn decode_raw_bytes(bytes: &[u8], ext: &str) -> Result<Image, String> {
+    static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = std::env::temp_dir().join(format!("nuviewer-raw-{}-{n}.{ext}", std::process::id()));
+    std::fs::write(&tmp, bytes).map_err(|e| format!("temporary file: {e}"))?;
+    let r = decode_file(&tmp);
+    let _ = std::fs::remove_file(&tmp);
+    r
 }
 
 /// In *preview* mode (the user chose the camera's embedded JPEG), a preview below this many pixels is still replaced by

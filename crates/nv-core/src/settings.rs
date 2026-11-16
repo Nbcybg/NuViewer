@@ -359,6 +359,16 @@ fn parse_bool(v: &str) -> Option<bool> {
 }
 
 impl Settings {
+    /// The RAW toggle, for a program that does not keep the settings in memory (NuQuick, NuImporter): flip camera look <-> sensor
+    /// data in the shared settings file and make it the mode in force here. Returns the new mode.
+    pub fn flip_raw_look_on_disk() -> RawMode {
+        let mut s = Settings::load();
+        s.raw_mode = s.raw_mode.flipped();
+        let _ = s.save();
+        nv_codecs::set_raw_mode(s.raw_mode);
+        s.raw_mode
+    }
+
     /// Where the file lives.
     pub fn path() -> PathBuf {
         if let Some(p) = std::env::var_os("NUVIEWER_SETTINGS") {

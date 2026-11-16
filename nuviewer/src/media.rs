@@ -196,6 +196,7 @@ impl App {
             time: if dur > 0 { format!("{} / {}", fmt_time(pos), fmt_time(dur)) } else { fmt_time(pos) },
             speed: self.anim_speed,
             looping: self.settings.more.play_loop,
+            pingpong: None,
             volume: p.info.has_audio.then_some((level, muted)),
         })
     }

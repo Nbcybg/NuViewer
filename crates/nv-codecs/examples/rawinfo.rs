@@ -5,7 +5,12 @@ use rawler::rawimage::RawImageData;
 use rawler::rawsource::RawSource;
 
 fn main() {
-    for (n, f) in std::env::args().skip(1).enumerate() {
+    let camera = std::env::args().any(|a| a == "--camera");
+    for (n, f) in std::env::args().skip(1).filter(|a| a != "--camera").enumerate() {
+        if camera {
+            println!("#{n} {:?}", nv_codecs::camera_data(std::path::Path::new(&f)).map(|c| c.summary()));
+            continue;
+        }
         let Ok(src) = RawSource::new(std::path::Path::new(&f)) else { println!("#{n} cannot open"); continue };
         let Ok(dec) = rawler::get_decoder(&src) else { println!("#{n} no decoder"); continue };
         let raw = match dec.raw_image(&src, &RawDecodeParams::default(), false) {
@@ -37,3 +42,5 @@ fn main() {
         println!("   data min {mn} max {mx} mean {mean:.0}");
     }
 }
+
+// (appended) what NuEditor shows for a RAW file: `cargo run -p nv-codecs --example rawinfo -- --camera <file>`

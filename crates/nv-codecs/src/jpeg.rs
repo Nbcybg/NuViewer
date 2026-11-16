@@ -6,8 +6,96 @@ use zune_jpeg::JpegDecoder;
 /// `fallback_orientation` is used when the JPEG itself carries no orientation tag
 /// (e.g. a RAW file's embedded preview, whose orientation lives in the container).
 pub fn decode(bytes: &[u8], fallback_orientation: Option<u32>) -> Result<Image, String> {
+    let first = match decode_zune(bytes, fallback_orientation) {
+        Ok(img) => return Ok(img),
+        Err(e) => e,
+    };
+    // Damaged files that every other viewer still shows (a cut-off download, a bogus length in a metadata block, junk
+    // before a marker): first the same decoder on a repaired copy, then Windows' own JPEG codec, which is very forgiving.
+    if let Some(fixed) = repair(bytes) {
+        if let Ok(img) = decode_zune(&fixed, fallback_orientation) {
+            return Ok(img);
+        }
+    }
+    #[cfg(windows)]
+    if let Ok(mut img) = crate::wic::decode_bytes(bytes) {
+        if img.orientation <= 1 {
+            img.orientation = orient::exif_orientation(bytes).or(fallback_orientation).unwrap_or(1).clamp(1, 8) as u8;
+        }
+        return Ok(img);
+    }
+    Err(first)
+}
+
+/// A copy of a damaged JPEG that a decoder is more likely to accept, or `None` when there is nothing to fix: metadata
+/// segments (APPn / COM) whose declared length runs past the end of the file are cut out, and the end-of-image marker
+/// is added when the file stops in the middle of the picture data (an interrupted copy or download).
+fn repair(bytes: &[u8]) -> Option<Vec<u8>> {
+    if bytes.len() < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len() + 2);
+    out.extend_from_slice(&bytes[..2]);
+    let mut i = 2;
+    let mut changed = false;
+    let mut in_scan = false;
+    while i + 4 <= bytes.len() {
+        if bytes[i] != 0xFF {
+            i += 1; // stray byte between segments
+            changed = true;
+            continue;
+        }
+        let m = bytes[i + 1];
+        if m == 0xFF {
+            i += 1; // fill byte
+            continue;
+        }
+        if m == 0xD9 {
+            break;
+        }
+        if m == 0xDA {
+            in_scan = true;
+            out.extend_from_slice(&bytes[i..]);
+            break;
+        }
+        if (0xD0..=0xD8).contains(&m) || m == 0x01 {
+            out.extend_from_slice(&bytes[i..i + 2]);
+            i += 2;
+            continue;
+        }
+        let len = u16::from_be_bytes([bytes[i + 2], bytes[i + 3]]) as usize;
+        let end = i + 2 + len;
+        let is_meta = (0xE0..=0xEF).contains(&m) || m == 0xFE;
+        // A sane segment is followed by the next marker; a metadata block whose length lands in the middle of other data lies.
+        let lands_on_marker = end + 1 < bytes.len() && bytes[end] == 0xFF && bytes[end + 1] >= 0xC0 && bytes[end + 1] != 0xFF;
+        if len >= 2 && end <= bytes.len() && (lands_on_marker || !is_meta) {
+            out.extend_from_slice(&bytes[i..end]);
+            i = end;
+        } else if is_meta {
+            // Resume at the next marker that can only be a real header.
+            let next = (i + 2..bytes.len().saturating_sub(1)).find(|&k| bytes[k] == 0xFF && matches!(bytes[k + 1], 0xC0..=0xC2 | 0xC4 | 0xDB | 0xDA));
+            changed = true;
+            match next {
+                Some(k) => i = k,
+                None => return None,
+            }
+        } else {
+            return None;
+        }
+    }
+    // Trailing data after the EOI (phone "motion photo" tails) is fine; only a missing EOI matters.
+    if in_scan && !bytes.windows(2).rev().take(1 << 20).any(|w| w == [0xFF, 0xD9]) {
+        out.extend_from_slice(&[0xFF, 0xD9]);
+        changed = true;
+    }
+    changed.then_some(out)
+}
+
+fn decode_zune(bytes: &[u8], fallback_orientation: Option<u32>) -> Result<Image, String> {
     // The decoder's default 16384 px cap is lower than what we can handle (we shrink big images afterwards).
-    let opts = DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGBA).set_max_width(1 << 16).set_max_height(1 << 16);
+    // Its default is *strict* mode, which refuses what every other viewer shows (extra bytes between headers, a progressive
+    // file cut off in its last scans, ...): lenient mode decodes what is there.
+    let opts = DecoderOptions::default().set_strict_mode(false).jpeg_set_out_colorspace(ColorSpace::RGBA).set_max_width(1 << 16).set_max_height(1 << 16);
     let mut dec = JpegDecoder::new_with_options(bytes, opts);
     dec.decode_headers().map_err(|e| format!("jpeg: {e:?}"))?;
     // CMYK / YCCK (print-oriented JPEGs): hand the ink amounts over raw, the colour engine converts them (see `cmyk`).
@@ -89,7 +177,7 @@ pub(crate) fn adobe_marker(bytes: &[u8]) -> Option<u8> {
 /// A four-component JPEG as raw ink amounts (0 = no ink): Adobe's inversion undone, YCCK turned back into CMYK (the
 /// first three components of YCCK are YCbCr of the inverted C, M, Y).
 fn decode_cmyk(bytes: &[u8], space: ColorSpace, fallback_orientation: Option<u32>) -> Result<Image, String> {
-    let opts = DecoderOptions::default().jpeg_set_out_colorspace(space).set_max_width(1 << 16).set_max_height(1 << 16);
+    let opts = DecoderOptions::default().set_strict_mode(false).jpeg_set_out_colorspace(space).set_max_width(1 << 16).set_max_height(1 << 16);
     let mut dec = JpegDecoder::new_with_options(bytes, opts);
     dec.decode_headers().map_err(|e| format!("jpeg: {e:?}"))?;
     if let Some((w, h)) = dec.dimensions() {
@@ -227,6 +315,45 @@ mod tests {
         let img = decode(&jpg, None).expect("decodes");
         assert!(img.cmyk);
         assert!((img.rgba[0] as i32 - 200).abs() <= 6 && img.rgba[1] <= 6, "cyan 200 stays cyan 200: {:?}", &img.rgba[..4]);
+    }
+
+    fn plain_jpeg(progressive: bool) -> Vec<u8> {
+        let mut px = Vec::new();
+        for y in 0..64u32 {
+            for x in 0..96u32 {
+                px.extend_from_slice(&[(x * 2) as u8, (y * 3) as u8, ((x * y) % 251) as u8]);
+            }
+        }
+        let mut out = Vec::new();
+        let mut enc = jpeg_encoder::Encoder::new(&mut out, 85);
+        enc.set_progressive(progressive);
+        enc.encode(&px, 96, 64, jpeg_encoder::ColorType::Rgb).expect("encodes");
+        out
+    }
+
+    #[test]
+    fn cut_off_files_still_open() {
+        for progressive in [false, true] {
+            let jpg = plain_jpeg(progressive);
+            assert_eq!(decode(&jpg, None).expect("whole file").width, 96);
+            // missing end marker, and cut in the middle of the picture data
+            for cut in [2, jpg.len() / 2] {
+                let img = decode(&jpg[..jpg.len() - cut.min(jpg.len() - 600)], None).unwrap_or_else(|e| panic!("progressive={progressive} cut={cut}: {e}"));
+                assert_eq!((img.width, img.height), (96, 64));
+            }
+        }
+    }
+
+    #[test]
+    fn metadata_length_past_the_end_is_cut_out() {
+        let jpg = plain_jpeg(false);
+        // insert an APP1 block that claims to be 60000 bytes long right after SOI
+        let mut bad = vec![0xFF, 0xD8, 0xFF, 0xE1, 0xEA, 0x60, b'E', b'x', b'i', b'f', 0, 0];
+        bad.extend_from_slice(&jpg[2..]);
+        let fixed = repair(&bad).expect("needs a repair");
+        assert!(decode_zune(&fixed, None).is_ok());
+        let img = decode(&bad, None).expect("opens via the repaired copy");
+        assert_eq!((img.width, img.height), (96, 64));
     }
 
     #[test]

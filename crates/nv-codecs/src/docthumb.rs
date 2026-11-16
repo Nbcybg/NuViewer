@@ -159,11 +159,11 @@ impl Zip {
 
 const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "jpe", "png", "webp", "gif", "bmp", "jxl", "avif", "tif", "tiff", "jp2"];
 
-fn ext_of(name: &str) -> String {
+pub(crate) fn ext_of(name: &str) -> String {
     name.rsplit('/').next().and_then(|f| f.rsplit_once('.')).map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default()
 }
 
-fn is_image_name(name: &str) -> bool {
+pub(crate) fn is_image_name(name: &str) -> bool {
     let file = name.rsplit('/').next().unwrap_or(name);
     IMAGE_EXTS.contains(&ext_of(name).as_str()) && !file.starts_with('.') && !name.starts_with("__MACOSX/")
 }
@@ -308,13 +308,13 @@ fn read_text_head(path: &Path) -> Option<String> {
 }
 
 /// Non-empty lines of `text`, tabs turned into spaces, control characters dropped.
-fn text_lines(text: &str, max: usize) -> Vec<String> {
+pub(crate) fn text_lines(text: &str, max: usize) -> Vec<String> {
     text.lines().map(|l| l.replace('\t', "    ").chars().filter(|c| !c.is_control()).collect::<String>()).map(|l| l.trim_end().to_string()).filter(|l| !l.trim().is_empty()).take(max).collect()
 }
 
 // ------------------------------------------------------------------------------------------------ cards
 
-fn fmt_bytes(n: u64) -> String {
+pub(crate) fn fmt_bytes(n: u64) -> String {
     match n {
         0..=1023 => format!("{n} B"),
         1024..=1_048_575 => format!("{:.1} KB", n as f64 / 1024.0),
@@ -336,10 +336,12 @@ pub(crate) struct Card {
     pub lines: Vec<String>,
 }
 
-fn accent_for(ext: &str) -> u32 {
+pub(crate) fn accent_for(ext: &str) -> u32 {
     match ext {
         "zip" | "cbz" => 0xD9A400,
         "epub" => 0x6E8B3D,
+        "html" | "htm" | "xhtml" | "mhtml" | "mht" => 0xE34F26,
+        "swf" | "fla" | "xfl" => 0xC8272D,
         "docx" | "docm" | "dotx" => 0x2B579A,
         "xlsx" | "xlsm" | "xltx" => 0x217346,
         "pptx" | "pptm" | "potx" | "ppsx" => 0xD24726,

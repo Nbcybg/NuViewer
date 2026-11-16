@@ -33,7 +33,9 @@ pub enum RawMode {
     Full,
     /// Developed from the sensor data at reduced size (binned): faster.
     Half,
-    /// The camera's embedded JPEG preview (fast; it is the camera's rendering, not the sensor data).
+    /// "Camera look": the camera's own rendering, its embedded JPEG (picture style, tone curve, white balance, sharpening
+    /// exactly as the camera applied them; read from the file, nothing guessed). Fast. A preview too small to look at
+    /// (an Adobe DNG's 0.7 MP thumbnail) is replaced by a half-size development.
     Preview,
 }
 
@@ -61,7 +63,26 @@ impl RawMode {
         match self {
             RawMode::Full => "developed from the sensor data, full resolution",
             RawMode::Half => "developed from the sensor data, half size (faster)",
-            RawMode::Preview => "the camera's embedded preview (fastest)",
+            RawMode::Preview => "the camera look: its own embedded JPEG, with all its processing (fastest)",
+        }
+    }
+
+    /// Is this the "camera look" (the camera's own processing) rather than the sensor data?
+    pub fn is_camera_look(self) -> bool {
+        self == RawMode::Preview
+    }
+
+    /// The other look: camera look <-> sensor data (full resolution). What the RAW toggle of every program does.
+    pub fn flipped(self) -> RawMode {
+        if self == RawMode::Preview { RawMode::Full } else { RawMode::Preview }
+    }
+
+    /// One line for a toast: what RAW files show now.
+    pub fn look_name(self) -> &'static str {
+        if self.is_camera_look() {
+            "RAW: camera look (the camera's own processing, from the embedded JPEG)"
+        } else {
+            "RAW: sensor data (no camera processing)"
         }
     }
 }
@@ -164,6 +185,11 @@ fn flat3(m: &[f32]) -> Option<M3> {
 /// result is interpolated, in reciprocal temperature, at the colour temperature of the as-shot white balance, solved the
 /// way the DNG specification describes (the temperature depends on the matrix and the matrix on the temperature).
 pub(crate) fn pick_matrix(matrices: &[(Illuminant, Vec<f32>)], neutral: [f32; 3]) -> Option<(M3, String)> {
+    pick_matrix_cct(matrices, neutral).map(|(m, note, _)| (m, note))
+}
+
+/// `pick_matrix`, and the colour temperature (K) of the as-shot white balance when two illuminants allowed solving for it.
+pub(crate) fn pick_matrix_cct(matrices: &[(Illuminant, Vec<f32>)], neutral: [f32; 3]) -> Option<(M3, String, Option<f32>)> {
     let get = |names: &[Illuminant]| names.iter().find_map(|i| matrices.iter().find(|(k, _)| k == i).and_then(|(_, m)| flat3(m)));
     let low = get(&[Illuminant::A, Illuminant::Tungsten, Illuminant::IsoStudioTungsten]);
     let high = get(&[Illuminant::D65, Illuminant::Daylight, Illuminant::FineWeather, Illuminant::D75, Illuminant::CloudyWeather, Illuminant::D55, Illuminant::D50]);
@@ -190,11 +216,68 @@ pub(crate) fn pick_matrix(matrices: &[(Illuminant, Vec<f32>)], neutral: [f32; 3]
             }
             let _ = xy;
             let w = ((1e6 / cct - mired_d) / (mired_a - mired_d)).clamp(0.0, 1.0);
-            Some((blend(w), format!("camera colour matrix interpolated for {:.0} K", cct)))
+            Some((blend(w), format!("camera colour matrix interpolated for {:.0} K", cct), Some(cct)))
         }
-        (Some(m), None) | (None, Some(m)) => Some((m, "camera colour matrix".to_string())),
-        (None, None) => matrices.iter().filter_map(|(i, m)| flat3(m).map(|m| (*i as u16, m))).min_by_key(|(i, _)| *i).map(|(_, m)| (m, "camera colour matrix".to_string())),
+        (Some(m), None) | (None, Some(m)) => Some((m, "camera colour matrix".to_string(), None)),
+        (None, None) => matrices.iter().filter_map(|(i, m)| flat3(m).map(|m| (*i as u16, m))).min_by_key(|(i, _)| *i).map(|(_, m)| (m, "camera colour matrix".to_string(), None)),
     }
+}
+
+/// What the camera wrote into a RAW file about how it was shot and balanced: read from the file, never estimated. This is
+/// what NuEditor starts from (its white balance sliders are relative to the as-shot balance, so 0 = what the camera chose).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CameraData {
+    pub make: String,
+    pub model: String,
+    /// As-shot white balance multipliers for red and blue (green = 1).
+    pub wb: Option<[f32; 2]>,
+    /// Colour temperature (K) of the as-shot white balance, solved from the camera's own colour matrices (two illuminants needed).
+    pub kelvin: Option<f32>,
+    pub iso: Option<u32>,
+    /// The exposure compensation dialled in (EV).
+    pub exposure_bias: Option<f32>,
+}
+
+impl CameraData {
+    /// One line: "Fujifilm X-T4 · as shot 5230 K (red x1.84, blue x1.33) · ISO 400 · EV +0.3".
+    pub fn summary(&self) -> String {
+        let mut parts = vec![format!("{} {}", self.make, self.model).trim().to_string()];
+        match (self.kelvin, self.wb) {
+            (Some(k), Some(w)) => parts.push(format!("as shot {:.0} K (red x{:.2}, blue x{:.2})", k, w[0], w[1])),
+            (None, Some(w)) => parts.push(format!("as-shot balance red x{:.2}, blue x{:.2}", w[0], w[1])),
+            _ => {}
+        }
+        if let Some(i) = self.iso {
+            parts.push(format!("ISO {i}"));
+        }
+        if let Some(e) = self.exposure_bias.filter(|e| e.abs() >= 0.05) {
+            parts.push(format!("EV {e:+.1}"));
+        }
+        parts.retain(|p| !p.is_empty());
+        parts.join("  ·  ")
+    }
+}
+
+/// The camera's own data of a RAW file (white balance, temperature, ISO, exposure compensation), or `None` when the file isn't a
+/// RAW file rawler can read. Reads the metadata only: no sensor data is decoded.
+pub fn camera_data(path: &Path) -> Option<CameraData> {
+    let src = RawSource::new(path).ok()?;
+    let dec = rawler::get_decoder(&src).ok()?;
+    let params = RawDecodeParams::default();
+    let raw = dec.raw_image(&src, &params, true).ok()?;
+    let wb = {
+        let w = raw.wb_coeffs;
+        (w[..3].iter().all(|v| v.is_finite() && *v > 0.0)).then(|| [w[0] / w[1], w[2] / w[1]])
+    };
+    let kelvin = wb.and_then(|w| {
+        let neutral = [1.0 / w[0], 1.0, 1.0 / w[1]];
+        let matrices: Vec<(Illuminant, Vec<f32>)> = raw.color_matrix.iter().map(|(k, v)| (*k, v.clone())).collect();
+        pick_matrix_cct(&matrices, neutral).and_then(|(_, _, k)| k)
+    });
+    let exif = dec.raw_metadata(&src, &params).ok().map(|m| m.exif);
+    let iso = exif.as_ref().and_then(|e| e.iso_speed.or(e.iso_speed_ratings.map(|i| i as u32)));
+    let exposure_bias = exif.as_ref().and_then(|e| e.exposure_bias.as_ref()).filter(|r| r.d != 0).map(|r| r.n as f32 / r.d as f32);
+    Some(CameraData { make: raw.clean_make.clone(), model: raw.clean_model.clone(), wb, kelvin, iso, exposure_bias })
 }
 
 /// The colour filter array: 2x2 Bayer or 6x6 X-Trans, as colours 0 (R), 1 (G), 2 (B).

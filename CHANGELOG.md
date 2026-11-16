@@ -2,6 +2,27 @@
 
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
+## Unreleased - 2026-11-16 (after 0.2.0)
+
+Details, what was tested and what was not: `docs/session16.md`.
+
+### Fixed
+- **A JPEG that other programs open could be refused** ("jpeg: Exhausted data in the image", NV-3000): the decoder ran in its *strict* mode by default. It is lenient now
+  (progressive files cut off in their last scans, extra bytes between headers ...), then a repaired copy is tried (metadata blocks with a wrong length cut out, the missing
+  end marker added), then Windows' own JPEG codec.
+- **Paged documents (PDF ...) no longer lose you to the next file:** the wheel, the arrows and Space stop at the first / last page (a toast says so); only Ctrl+Left / Ctrl+Right leave the document.
+
+### Added
+- **Formats:** web pages (`.html .htm .xhtml .mhtml .mht`: drawn by Microsoft Edge / Chrome in the background without network access, kept as a picture in
+  `%LOCALAPPDATA%\NuViewer\pages`; a text card when no browser is found), Flash movies `.swf` (the largest bitmap inside, or a card with version / stage size / frame rate / frames)
+  and Flash projects `.fla` (a library picture, or a card with the stage and library facts). `.flv`, `.f4v` and `.glb` were already supported; a GLB with Draco or meshopt
+  compression now says so instead of showing nothing. All three new formats are in Settings > file types.
+- **Ping-pong play** (button on the playback bar for animations and sequences, `Shift+K`, Settings > Screen & play): forward, then backward; with loop off it makes one trip.
+- **RAW look toggle** (`Shift+R`, View menus, right-click, NuQuick's tray menu, NuImporter's check box): the camera's own look (its embedded JPEG, exactly as the camera
+  processed it) or the sensor data without camera processing. One shared setting (`raw_mode`). NuImporter converts RAW files by the same choice.
+- **NuEditor and RAW:** the picture follows the same toggle; the panel shows what the camera recorded (as-shot white balance with its colour temperature, ISO, exposure
+  compensation), read from the file. Edits are kept in the pair file (the RAW is never rewritten) and keep applying when you flip the look; saving a JPEG / PNG burns them in.
+
 ## 0.2.0 - 2026-11-16
 
 Everything in this version is described, with what was and was not verified, in `docs/formats-0.2.md`, `docs/importer.md` and

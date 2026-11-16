@@ -39,6 +39,8 @@ pub struct Controller {
     pub time: String,
     pub speed: f32,
     pub looping: bool,
+    /// Ping-pong play (animations and sequences only; `None` = the control is not shown).
+    pub pingpong: Option<bool>,
     /// Volume 0..=1 and whether it is muted; only for what has sound.
     pub volume: Option<(f32, bool)>,
 }
@@ -56,6 +58,7 @@ pub struct Bar {
     pub time: [f32; 4],
     pub speed: [f32; 4],
     pub looping: [f32; 4],
+    pub pingpong: Option<[f32; 4]>,
     pub mute: Option<[f32; 4]>,
     pub vol: Option<[f32; 4]>,
 }
@@ -78,6 +81,7 @@ impl App {
         let i = self.folder.index;
         let id = self.id_at(i);
         let (speed, looping) = (self.anim_speed, self.settings.more.play_loop);
+        let pingpong = Some(self.settings.more.play_pingpong);
         if let Some(c) = self.media_controller(id) {
             return Some(c);
         }
@@ -92,6 +96,7 @@ impl App {
                 time: format!("frame {}/{n}", pos + 1),
                 speed,
                 looping,
+                pingpong,
                 volume: None,
             });
         }
@@ -106,6 +111,7 @@ impl App {
                 time: format!("frame {}/{frames}", f + 1),
                 speed,
                 looping,
+                pingpong,
                 volume: None,
             });
         }
@@ -119,6 +125,7 @@ impl App {
                 time: format!("{}/{n}", i + 1),
                 speed,
                 looping,
+                pingpong: None,
                 volume: None,
             });
         }
@@ -159,13 +166,18 @@ impl App {
         });
         let looping = [r - btn, by, r, by + btn];
         r -= btn + 2.0 * d;
+        let pingpong = c.and_then(|c| c.pingpong).map(|_| {
+            let p = [r - btn, by, r, by + btn];
+            r -= btn + 2.0 * d;
+            p
+        });
         let speed = [r - 46.0 * d, by, r, by + btn];
         r -= 50.0 * d;
         let time_w = if matches!(c.map(|c| c.kind), Some(MediaKind::Video | MediaKind::Audio)) { 124.0 * d } else { 92.0 * d };
         let time = [r - time_w, by, r, by + btn];
         r -= time_w + 8.0 * d;
         let seek = [x + 6.0 * d, y0 + bar_h / 2.0 - 5.0 * d, r, y0 + bar_h / 2.0 + 5.0 * d];
-        Bar { rect: [x0, y0, x0 + bar_w, y0 + bar_h], prev, fprev, fnext, play, next, seek, time, speed, looping, mute, vol }
+        Bar { rect: [x0, y0, x0 + bar_w, y0 + bar_h], prev, fprev, fnext, play, next, seek, time, speed, looping, pingpong, mute, vol }
     }
 
     /// Show the bar? Always for "always", otherwise when the pointer is in the lower part of the window.
@@ -221,6 +233,9 @@ impl App {
         glyph(self, bar.next, "\u{25B6}\u{25B6}", stepping, false);
         glyph(self, bar.speed, &format!("{}\u{00D7}", fmt_speed(c.speed)), true, (c.speed - 1.0).abs() > 0.01);
         glyph(self, bar.looping, "\u{21BB}", true, c.looping);
+        if let (Some(r), Some(on)) = (bar.pingpong, c.pingpong) {
+            glyph(self, r, "\u{21C4}", true, on);
+        }
         if let (Some(m), Some((_, muted))) = (bar.mute, c.volume) {
             glyph(self, m, if muted { "\u{1F507}" } else { "\u{1F50A}" }, true, false);
         }
@@ -366,6 +381,8 @@ impl App {
             self.cycle_speed();
         } else if inside(&bar.looping, fx, fy) {
             self.toggle_loop();
+        } else if bar.pingpong.is_some_and(|r| inside(&r, fx, fy)) {
+            self.toggle_pingpong();
         } else if bar.mute.is_some_and(|m| inside(&m, fx, fy)) {
             self.toggle_mute();
         } else if bar.vol.is_some_and(|v| fx >= v[0] - 6.0 && fx <= v[2] + 6.0) {
@@ -469,6 +486,9 @@ impl App {
             }
             Some(MediaKind::Animation) => {
                 self.anim_paused = !self.anim_paused;
+                if !self.anim_paused && self.renderer.frame_index(self.id_at(self.folder.index)) == 0 {
+                    self.pp_back = false;
+                }
                 self.sync_anim();
             }
             Some(MediaKind::Slideshow) => self.stop_slideshow(true),
@@ -516,6 +536,24 @@ impl App {
         invalidate(self.hwnd);
     }
 
+    /// RAW files: the camera's own look (its embedded JPEG) or the sensor data; every RAW is decoded again.
+    pub fn toggle_raw_look(&mut self) {
+        let mut s = self.settings.clone();
+        s.raw_mode = s.raw_mode.flipped();
+        let text = s.raw_mode.look_name();
+        self.apply_settings(s);
+        self.toast(text);
+    }
+
+    /// Ping-pong: an animation or sequence plays forward, then backward, and so on.
+    pub fn toggle_pingpong(&mut self) {
+        self.settings.more.play_pingpong = !self.settings.more.play_pingpong;
+        let _ = self.settings.save();
+        self.pp_back = false;
+        self.toast(if self.settings.more.play_pingpong { "Ping-pong on (forward, then backward)" } else { "Ping-pong off" });
+        invalidate(self.hwnd);
+    }
+
     pub fn toggle_mute(&mut self) {
         self.settings.more.muted = !self.settings.more.muted;
         let _ = self.settings.save();
@@ -558,13 +596,31 @@ impl App {
             kill_timer(self.hwnd, TIMER_SEQ);
             return;
         };
-        if self.folder.index >= run.end && !self.settings.more.play_loop {
+        let (i, looping) = (self.folder.index, self.settings.more.play_loop);
+        if self.settings.more.play_pingpong && run.end > run.start {
+            // Forward to the last frame, then back to the first; with loop off the play ends there (one trip).
+            if !self.pp_back && i >= run.end {
+                self.pp_back = true;
+            } else if self.pp_back && i <= run.start {
+                if !looping {
+                    self.pp_back = false;
+                    self.seq_playing = false;
+                    kill_timer(self.hwnd, TIMER_SEQ);
+                    invalidate(self.hwnd);
+                    return;
+                }
+                self.pp_back = false;
+            }
+            self.goto_frame(if self.pp_back { i - 1 } else { i + 1 });
+            return;
+        }
+        if i >= run.end && !looping {
             self.seq_playing = false;
             kill_timer(self.hwnd, TIMER_SEQ);
             invalidate(self.hwnd);
             return;
         }
-        let next = if self.folder.index >= run.end { run.start } else { self.folder.index + 1 };
+        let next = if i >= run.end { run.start } else { i + 1 };
         self.goto_frame(next);
     }
 }

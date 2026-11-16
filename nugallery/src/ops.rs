@@ -654,6 +654,24 @@ impl App {
         }
     }
 
+    /// RAW files: the camera's own look (its embedded JPEG) <-> the sensor data. The picture in the details panel is made
+    /// again; thumbnails only when they are developed from the sensor data too (Settings > Camera RAW).
+    pub fn toggle_raw_look(&mut self) {
+        self.settings.raw_mode = self.settings.raw_mode.flipped();
+        let _ = self.settings.save();
+        nv_codecs::set_raw_mode(self.settings.raw_mode);
+        self.hist.clear();
+        self.pv_drop_textures();
+        self.preview_id = None;
+        self.info_for = None;
+        if self.settings.raw_thumbs {
+            self.rebuild_thumbs();
+        }
+        self.load_info();
+        self.toast(self.settings.raw_mode.look_name());
+        nv_win::invalidate(self.hwnd);
+    }
+
     /// Make the thumbnails of the files in this folder again.
     pub fn rebuild_thumbs(&mut self) {
         for e in self.listing.all.iter().filter(|e| e.has_thumb()) {

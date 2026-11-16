@@ -297,6 +297,8 @@ pub struct Decoded {
     /// The picture was too big to hold at full size (it was reduced for the GPU), so it can't be rewritten.
     pub reduced_from: Option<(u32, u32)>,
     pub ms: f64,
+    /// A RAW file: what the camera recorded (as-shot white balance, ISO ...), read from the file.
+    pub camera: Option<String>,
 }
 
 pub fn decode(path: &Path) -> Result<Decoded, String> {
@@ -304,7 +306,8 @@ pub fn decode(path: &Path) -> Result<Decoded, String> {
     let img = nv_codecs::decode_file_first_frame(path)?;
     let reduced_from = img.reduced_from;
     let image = img.finish_for_cpu();
-    Ok(Decoded { image, reduced_from, ms: t.elapsed().as_secs_f64() * 1000.0 })
+    let camera = nv_codecs::is_raw_ext(&path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default()).then(|| nv_codecs::camera_data(path)).flatten().map(|c| c.summary());
+    Ok(Decoded { image, reduced_from, ms: t.elapsed().as_secs_f64() * 1000.0, camera })
 }
 
 /// Name for dialogs and the title.
