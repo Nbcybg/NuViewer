@@ -242,6 +242,8 @@ a slideshow, an animated GIF/APNG/WebP (play/pause, frame stepping, seek, speed)
 seek, frames per second). It is built so video and music can use the same bar later (play/pause, seek, time, speed,
 volume); there is no video or audio decoder yet.
 
+- **0.3.1:** more clipart and legacy formats (PCD, DCX, CLP, CIN, DPX, PDN, WAL, WAD, CPT, PS, HP-GL, CGM, flat DXF); the full list of what opens, what NuEditor can edit and each format's name is in `docs/formats.csv`.
+
 ## New in 0.3.0
 
 Details: `docs/session16.md`, `docs/session17.md`, `CHANGELOG.md`.

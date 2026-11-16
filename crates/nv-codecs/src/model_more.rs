@@ -1176,7 +1176,11 @@ pub fn decode(path: &Path, ext: &str, thumb: bool) -> Result<crate::Image, Strin
         "amf" => parse_amf(path, &bytes)?,
         "dae" => parse_dae(&bytes)?,
         "las" => parse_las(&bytes)?,
-        "dxf" => parse_dxf(&bytes)?,
+        // A drawing without faces (plans, clipart: lines and curves) is drawn flat instead.
+        "dxf" => match parse_dxf(&bytes) {
+            Ok(m) => m,
+            Err(e) => return crate::vector2d::dxf_2d(&bytes).and_then(|d| d.render(thumb)).map_err(|_| e),
+        },
         "lwo" | "lwo2" => parse_lwo(&bytes)?,
         "usda" => parse_usda(&String::from_utf8_lossy(&bytes))?,
         "usdz" => parse_usdz(path)?,

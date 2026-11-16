@@ -2,6 +2,17 @@
 
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
+## 0.3.1 - 2026-11-17
+
+### Added
+- **More clipart / legacy formats:** Kodak Photo CD `.pcd` (base 768 x 512), multi-page PCX `.dcx`, Windows Clipboard files `.clp`, Cineon `.cin` and SMPTE `.dpx` film frames,
+  Paint.NET `.pdn` (stored preview), Quake 2 `.wal` textures, `.wad` texture archives (Half-Life / Quake / Doom: a contact sheet), Corel PHOTO-PAINT `.cpt` (card),
+  PostScript `.ps` (like EPS), vector drawings: HP-GL plots `.hpgl .hgl .hpg .plt`, binary CGM `.cgm`, and flat 2D `.dxf` drawings (lines, polylines, circles, arcs, blocks).
+  Already supported and checked against the request: BMP, WMF, EMF, DIB, TIF, SRW, SRF, RAW, RW2, RWL, PBM, PGM, SND, AU, DWG (through a converter).
+- **`docs/formats.csv`:** every file type NuViewer opens (272), with its full format name, type, how it is shown, whether NuEditor can edit it, and what reads it.
+  Made from `crates/nv-codecs/src/formats.rs`; a test fails when a decoder gets an extension that has no row.
+- `.lip` is documented as an old Clip Studio file (the picture inside is shown when one can be found; no sample file to verify against).
+
 ## 0.3.0 - 2026-11-17
 
 Details, measurements and what was not verified: `docs/session17.md`.

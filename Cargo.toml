@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/nv-text", "crates/nv-core", "crates/nv-codecs", "crates/nv-render", "crates/nv-win", "crates/nv-editor", "crates/nv-media", "nuviewer", "nugallery", "nueditor", "nuimporter", "nuquick", "setup"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 
 [workspace.dependencies]
