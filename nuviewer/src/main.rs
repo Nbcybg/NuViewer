@@ -3,10 +3,12 @@
 mod actions;
 mod colour;
 mod controls;
+mod display;
 mod editor_ui;
 mod gallery;
 mod hud;
 mod loading;
+mod media;
 mod menubar;
 mod model3d;
 mod mouse;
@@ -15,6 +17,7 @@ mod quick_agent;
 mod order;
 mod read;
 mod rotate;
+mod settings_more;
 mod settings_ui;
 mod sidebar;
 mod strip;
@@ -49,6 +52,7 @@ const TIMER_UI: u32 = 7;
 const TIMER_UPLOAD: u32 = 8;
 /// Redraws the loading panel / disk readout.
 const TIMER_LOAD: u32 = 9;
+const TIMER_MEDIA: u32 = 10;
 /// Fullscreen: how often the pointer is checked against the bottom screen edge (taskbar reveal).
 const EDGE_POLL_MS: u32 = 80;
 /// In fullscreen the pointer disappears after this long without moving.
@@ -380,6 +384,10 @@ struct App {
     editor: editor_ui::Editor,
     /// Dragging the playback seek bar.
     seek_drag: bool,
+    /// Dim, canvas picture / blur, 360 view (see `display.rs`).
+    disp: display::Display,
+    /// The video / sound player for the file on screen (see `media.rs`).
+    media: media::Media,
     /// The next navigation keeps the zoom (stepping through a sequence).
     keep_view_once: bool,
     /// Fullscreen: the pointer touched the bottom edge, so the Windows taskbar is being shown.
@@ -512,7 +520,7 @@ impl App {
     /// kept by the renderer even if unwanted, so call this again once a new image has been shown.
     fn evict(&mut self) {
         let want_ids = self.wanted_ids();
-        self.renderer.retain(|id| want_ids.contains(&id));
+        self.renderer.retain(|id| id == display::BG_ID || want_ids.contains(&id));
         let r = &self.renderer;
         self.meta.retain(|id, _| r.has(*id));
     }
@@ -541,6 +549,13 @@ impl App {
     fn on_timer(&mut self) {
         if self.mode == Mode::Viewer {
             if let Some(id) = self.renderer.current() {
+                let last = self.renderer.frame_count(id).saturating_sub(1);
+                if !self.anim_paused && !self.settings.more.play_loop && self.renderer.frame_index(id) >= last {
+                    self.anim_paused = true; // loop off: stay on the last frame
+                    kill_timer(self.hwnd, TIMER_ANIM);
+                    invalidate(self.hwnd);
+                    return;
+                }
                 if let (false, Some(ms)) = (self.anim_paused, self.renderer.advance_frame(id)) {
                     set_timer(self.hwnd, TIMER_ANIM, self.scaled_delay(ms));
                     set_title(self.hwnd, &self.title());
@@ -596,6 +611,7 @@ impl App {
         self.loader.request(todo);
         self.sync_anim();
         self.sync_loading();
+        self.media_sync();
         set_title(self.hwnd, &self.title());
         self.strip_follow(); // the film strip keeps the current picture in view
         invalidate(self.hwnd);
@@ -643,7 +659,7 @@ impl App {
             self.anim_paused = false;
         }
         if self.slide.on {
-            set_timer(self.hwnd, TIMER_SLIDE, (self.slide.secs * 1000.0) as u32); // manual navigation restarts the interval
+            set_timer(self.hwnd, TIMER_SLIDE, self.slide_ms()); // manual navigation restarts the interval
         }
         self.refresh();
     }
@@ -788,6 +804,9 @@ impl App {
     /// Drain finished decodes, uploading to the GPU within a small time slice.
     fn on_user(&mut self) {
         let t0 = Instant::now();
+        self.poll_background();
+        self.media_pump();
+        self.media_sync();
         let mut got_thumb = false;
         let mut slice_expired = false;
         while let Some(t) = self.next_thumb() {
@@ -906,8 +925,17 @@ impl App {
         let placeholder = if dst.is_none() { self.placeholder(win) } else { None };
         let model_id = if self.is_model() { Some(self.id_at(self.folder.index)) } else { None };
         let spread = if model_id.is_none() { self.spread_view() } else { None };
+        self.poll_background();
+        self.maybe_hint_pano();
         if self.renderer.begin(clear_color()) {
-            if let Some(mid) = model_id {
+            if self.pano_active() && model_id.is_none() && self.draw_pano_view() {
+                // the 360 view fills the window by itself
+            } else {
+                self.draw_background(dst);
+            }
+            if self.pano_active() && model_id.is_none() {
+                // already drawn above
+            } else if let Some(mid) = model_id {
                 let _ = self.renderer.draw_mesh(mid, &self.cam, &self.settings.model);
             } else if let (Some(sv), Some(d)) = (&spread, dst) {
                 self.draw_spread(sv, d, nearest);
@@ -924,6 +952,7 @@ impl App {
             } else if let Some((id, rect)) = placeholder {
                 let _ = self.renderer.draw_thumb(id, rect);
             }
+            self.draw_dim();
             self.draw_loading();
             self.draw_error();
             if let Some((a, b)) = self.view.area {
@@ -957,6 +986,7 @@ impl App {
             self.sidebar_hover(*x, *y, *left_down);
             self.strip_hover(*x, *y, *left_down);
             self.editor_hover(*x, *y);
+            self.controls_hover(*y);
             // Not while a button is held (a hold-zoom drag, a rubber band): the bar must not jump up over what is being dragged.
             if !*left_down {
                 self.menubar_hover(*x, *y);
@@ -997,6 +1027,7 @@ impl App {
             Event::Timer(TIMER_ANIM) => self.on_timer(),
             Event::Timer(TIMER_TOAST) => self.on_toast_timer(),
             Event::Timer(TIMER_SLIDE) => self.slideshow_tick(),
+            Event::Timer(TIMER_MEDIA) => self.media_timer(),
             Event::Timer(TIMER_CURSOR) => {
                 if nv_win::is_fullscreen() {
                     nv_win::set_cursor_hidden(true);
@@ -1066,6 +1097,10 @@ impl App {
                 if self.view.held.is_some() || self.view.area.is_some() {
                     return;
                 }
+                if self.pano_active() {
+                    self.pano_wheel(delta as f32 / 120.0); // the wheel zooms the 360 view
+                    return;
+                }
                 if self.is_model() {
                     self.cam.zoom_by(delta as f32 / 120.0); // the wheel zooms a 3D model instead of turning pages
                     invalidate(self.hwnd);
@@ -1093,8 +1128,18 @@ impl App {
                     self.wheel_step(delta);
                 }
             }
-            // A quick second click arrives as DoubleClick: for these gestures it is just another press.
-            Event::MouseDown { x, y, ctrl } | Event::DoubleClick { x, y, ctrl } => {
+            // A double click on the picture opens the gallery (the first click of it already did its hold-zoom and let go).
+            Event::DoubleClick { x, y, ctrl } => {
+                if !self.menubar_press(x, y) && !self.sidebar_press(x, y) && !self.strip_press(x, y) && !self.editor_press(x, y) && !self.controls_press(x, y) {
+                    if ctrl || self.is_model() || self.pano_active() {
+                        self.viewer_press(x, y, ctrl); // on a 3D model / 360 view / with Ctrl held it is just another press
+                    } else {
+                        self.viewer_release();
+                        self.perform(nv_core::keys::Action::Gallery);
+                    }
+                }
+            }
+            Event::MouseDown { x, y, ctrl } => {
                 if !self.menubar_press(x, y) && !self.sidebar_press(x, y) && !self.strip_press(x, y) && !self.editor_press(x, y) && !self.controls_press(x, y) {
                     self.viewer_press(x, y, ctrl);
                 }
@@ -1191,6 +1236,8 @@ impl App {
             read: read::Read::new(),
             editor: editor_ui::Editor::new(),
             seek_drag: false,
+            disp: display::Display::new(),
+            media: media::Media::new(),
             keep_view_once: false,
             taskbar_shown: false,
             edge_ticks: 0,
@@ -1479,6 +1526,8 @@ enum Shell {
 
 fn main() {
     nv_win::crash::install();
+    nv_core::ffmpeg::configure(&Settings::load().more.ffmpeg);
+    nv_core::posters::register(); // video frames and sound waveforms for the decoder (Media Foundation loads on first use)
     // Flags may appear anywhere; the first argument that isn't a flag is the file or folder to open.
     let mut args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     // `--shuffle <seed>` (from the gallery): walk the folder in the same random order the gallery shows.
@@ -1552,6 +1601,8 @@ fn main() {
     std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_secs(5));
         nv_core::thumbs::prune_cache();
+        nv_core::archive_tools::prune_cache(1024 * 1024 * 1024);
+        nv_core::ffmpeg::prune_proxies(2 * 1024 * 1024 * 1024);
         nv_editor::save::prune_backups(&rotate::backup_dir(), std::time::Duration::from_secs(7 * 24 * 3600));
     });
 

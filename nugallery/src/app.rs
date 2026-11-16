@@ -46,6 +46,8 @@ pub enum Msg {
     FolderSize { gen: u64, bytes: u64, files: u64, folders: u64, done: bool },
     JobProgress(String),
     JobDone(JobResult),
+    /// An archive was unpacked (or the password was wrong): see `tools.rs`.
+    Archive(Box<crate::tools::ArchiveDone>),
     /// The volume label of a drive, read on a worker thread (a sleeping disk can take a while to answer).
     DriveLabel { root: PathBuf, label: String },
     /// The folder tree's first rows (Quick access, the drives), built off the UI thread.
@@ -182,6 +184,10 @@ pub struct App {
     pub rubber: Option<Rubber>,
     pub last_mouse: (i32, i32),
     pub job: Option<Job>,
+    /// The archive shown as a folder, if one is (see `tools.rs`).
+    pub archive: Option<crate::tools::ArchiveView>,
+    /// The result of an unpacking, handled once its job has been cleared (a retry needs a free job slot).
+    pub archive_pending: Option<Box<crate::tools::ArchiveDone>>,
     pub job_text: String,
     pub timing: Timing,
     pub shuffle_seed: Option<u64>,
@@ -291,6 +297,8 @@ impl App {
             rubber: None,
             last_mouse: (i32::MIN, i32::MIN),
             job: None,
+            archive: None,
+            archive_pending: None,
             job_text: String::new(),
             timing: Timing { started: Some(started), ..Default::default() },
             shuffle_seed: None,
@@ -409,7 +417,8 @@ impl App {
     // ---- title / toast -----------------------------------------------------------------------------
 
     pub fn title(&self) -> String {
-        let dir = self.listing.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| self.listing.dir.display().to_string());
+        let shown = self.display_dir();
+        let dir = shown.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| shown.display().to_string());
         let n = self.listing.len();
         let selected = self.sel.count(&self.listing);
         let sel = match selected {
@@ -521,7 +530,11 @@ impl App {
         }
         self.clamp_scroll();
         self.thumb_failed.clear();
-        self.persist.dir = Some(dir.clone());
+        self.archive_check();
+        // An archive's cache folder is not a place to start the next run in.
+        if self.archive.is_none() {
+            self.persist.dir = Some(dir.clone());
+        }
         self.persist.save(); // the next start (also from nuviewer.exe alone) opens this folder, even if we are killed
         if !(keep_view && same) {
             self.folder_size = FolderSize { gen: self.folder_size.gen + 1, ..Default::default() };
@@ -572,6 +585,9 @@ impl App {
     }
 
     pub fn go_up(&mut self) {
+        if self.archive_up() {
+            return;
+        }
         let from = self.listing.dir.clone();
         if let Some(parent) = from.parent().map(Path::to_path_buf).filter(|p| !p.as_os_str().is_empty()) {
             self.go(parent, vec![from], true);
@@ -1057,12 +1073,18 @@ impl App {
                     self.job_text = text;
                     invalidate(self.hwnd);
                 }
+                Msg::Archive(d) => self.archive_pending = Some(d),
                 Msg::JobDone(r) => {
                     self.job = None;
                     self.job_text.clear();
-                    self.toast(r.message);
+                    if !r.message.is_empty() {
+                        self.toast(r.message);
+                    }
                     if r.refresh {
                         self.refresh(r.select);
+                    }
+                    if let Some(d) = self.archive_pending.take() {
+                        self.archive_done(*d);
                     }
                 }
             }
@@ -1580,6 +1602,8 @@ impl App {
             0x4E if ctrl => self.new_folder(),
             0x46 if ctrl => self.focus_search(),
             0x4C if ctrl => self.focus_path_box(),
+            0x50 if ctrl && shift => self.make_pdf(),       // Ctrl+Shift+P: a PDF of the selected pictures / folder
+            0x45 if ctrl && shift => self.extract_selected(), // Ctrl+Shift+E: unpack the selected archive
             0x50 if ctrl => self.print_selected(),
             0x42 if ctrl => {
                 self.panels.pin_left = !self.panels.pin_left;
@@ -1607,6 +1631,8 @@ impl App {
             0xFFF5 => self.compress_selected(),
             0xFFF6 => self.quick_convert(crate::menus::Preset::Png),
             0xFFF7 => self.quick_edit(crate::menus::QuickOp::RotateRight),
+            0xFFF8 => self.extract_selected(),
+            0xFFF9 => self.make_pdf(),
             0x52 if ctrl => self.toggle_shuffle(),
             0x4A if ctrl => self.set_sort(self.listing.order.key.next()),
             0x31 if ctrl => self.set_mode(ViewMode::Thumbs),

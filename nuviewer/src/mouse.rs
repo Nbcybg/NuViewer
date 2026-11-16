@@ -74,6 +74,10 @@ impl App {
         if self.rename.is_some() || self.view.held.is_some() || self.view.area.is_some() {
             return;
         }
+        if self.pano_active() {
+            self.disp.pano_last = Some((x, y)); // dragging looks around the 360 picture
+            return;
+        }
         if self.is_model() {
             self.orbit_last = Some((x, y)); // dragging turns the model; with Shift held it slides it
             self.orbit_pan = nv_win::modifiers().shift;
@@ -102,6 +106,14 @@ impl App {
         }
         if self.seek_drag {
             self.seek_to(x);
+            return;
+        }
+        if self.media.vol_drag {
+            self.set_volume_at(x);
+            return;
+        }
+        if self.disp.pano_last.is_some() {
+            self.pano_drag(x, y);
             return;
         }
         if let Some((lx, ly)) = self.orbit_last {
@@ -138,7 +150,11 @@ impl App {
     pub fn viewer_release(&mut self) {
         self.view.drag_last = None;
         self.orbit_last = None;
+        self.disp.pano_last = None;
         self.seek_drag = false;
+        if std::mem::take(&mut self.media.vol_drag) {
+            let _ = self.settings.save(); // the volume the user dragged to is kept
+        }
         if let Some((fit, zoom, pan)) = self.view.held.take() {
             self.view.fit = fit;
             self.view.zoom = zoom;
@@ -301,6 +317,9 @@ impl App {
                 checked(self.action_entry(Action::Info, "Info / EXIF").enabled(has), self.hud.show_info),
                 checked(self.action_entry(Action::FilmStrip, "Film strip").enabled(viewer && many), self.strip.pinned),
                 checked(self.action_entry(Action::ReadMode, "Read mode (two pages)").enabled(viewer && many), self.read.on),
+                checked(self.action_entry(Action::ReadDirection, "Japanese reading (right to left)").enabled(viewer), self.settings.read_rtl),
+                checked(self.action_entry(Action::Dim, "Dim the screen"), self.disp.dim),
+                checked(self.action_entry(Action::Pano, "360 view").enabled(viewer), self.disp.pano.is_some()),
                 checked(self.action_entry(Action::ToggleSidebar, "Viewer controls").enabled(viewer), self.sidebar.pinned),
                 checked(self.action_entry(Action::ToggleSequences, "Fold image sequences"), self.settings.sequences),
                 Entry::Separator,
@@ -375,6 +394,9 @@ impl App {
             checked(self.action_entry(Action::ToggleSequences, "Fold image sequences"), self.settings.sequences),
             checked(self.action_entry(Action::FilmStrip, "Film strip").enabled(viewer && many), self.strip.pinned),
             checked(self.action_entry(Action::ReadMode, "Read mode (two pages)").enabled(viewer && many), self.read.on),
+            checked(self.action_entry(Action::ReadDirection, "Japanese reading (right to left)").enabled(viewer), self.settings.read_rtl),
+            checked(self.action_entry(Action::Dim, "Dim the screen"), self.disp.dim),
+            checked(self.action_entry(Action::Pano, "360 view").enabled(viewer), self.disp.pano.is_some()),
             sort_menu,
             checked(self.action_entry(Action::Shuffle, "Shuffle").enabled(many), order.shuffle.is_some()),
             checked(self.action_entry(Action::Info, "Info / EXIF").enabled(has_file), self.hud.show_info),

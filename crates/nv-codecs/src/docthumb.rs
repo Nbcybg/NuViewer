@@ -17,6 +17,8 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 pub const ARCHIVE_EXTS: &[&str] = &["zip", "cbz", "epub"];
+/// Archives that get a card (NuGallery opens them as folders through 7-Zip or Windows' tar).
+pub const OTHER_ARCHIVE_EXTS: &[&str] = &["7z", "cb7", "rar", "cbr", "tar", "tgz", "gz", "bz2", "xz", "zst"];
 pub const OFFICE_EXTS: &[&str] = &["docx", "docm", "dotx", "xlsx", "xlsm", "xltx", "pptx", "pptm", "potx", "ppsx"];
 pub const OPENDOC_EXTS: &[&str] = &["odt", "ods", "odp", "odg", "ott", "ots", "otp"];
 pub const AFFINITY_EXTS: &[&str] = &["afphoto", "afdesign", "afpub", "aftemplate"];
@@ -26,7 +28,7 @@ pub const TEXT_EXTS: &[&str] = &["txt", "md", "log", "csv"];
 pub fn is_document_ext(ext: &str) -> bool {
     let e = ext.to_ascii_lowercase();
     let e = e.as_str();
-    ARCHIVE_EXTS.contains(&e) || OFFICE_EXTS.contains(&e) || OPENDOC_EXTS.contains(&e) || AFFINITY_EXTS.contains(&e) || TEXT_EXTS.contains(&e)
+    ARCHIVE_EXTS.contains(&e) || OTHER_ARCHIVE_EXTS.contains(&e) || OFFICE_EXTS.contains(&e) || OPENDOC_EXTS.contains(&e) || AFFINITY_EXTS.contains(&e) || TEXT_EXTS.contains(&e)
 }
 
 // ------------------------------------------------------------------------------------------------ the ZIP reader

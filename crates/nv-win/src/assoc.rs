@@ -48,8 +48,12 @@ pub const FORMATS: &[Format] = &[
     f("STL", &["stl"], false),
     f("OBJ", &["obj"], false),
     f("PLY", &["ply"], false),
-    f("glTF", &["glb", "gltf"], false),
+    f("glTF / VRM", &["glb", "gltf", "vrm"], false),
     f("FBX", &["fbx"], false),
+    f("Blender", &["blend", "blend1"], false),
+    f("Video", &["mp4", "m4v", "mov", "mkv", "avi", "wmv", "webm", "mpg", "mpeg", "mpe", "ts", "mts", "m2ts", "3gp", "flv", "ogv"], false),
+    f("Sound (waveform)", &["wav", "mp3", "flac", "aac", "m4a", "ogg", "oga", "opus", "wma", "aif", "aiff"], false),
+    f("RED / MXF / BRAW", &["r3d", "mxf", "braw"], false),
     f("Canon RAW", &["cr2", "cr3", "crw"], true),
     f("Nikon RAW", &["nef", "nrw"], true),
     f("Sony RAW", &["arw", "sr2", "srf"], true),
@@ -66,8 +70,9 @@ pub const FORMATS: &[Format] = &[
 pub const GROUPS: &[(&str, std::ops::Range<usize>)] = &[
     ("Pictures", 0..21),
     ("Documents and vector art", 21..25),
-    ("3D models", 25..30),
-    ("Camera RAW", 30..40),
+    ("3D models", 25..31),
+    ("Video and sound", 31..34),
+    ("Camera RAW", 34..44),
 ];
 
 const ROW_HEIGHT: i32 = 20;
@@ -104,15 +109,19 @@ pub fn default_picks() -> Vec<bool> {
 /// Returns the y just below the last group. Check box ids are private; use `read_picks` / `handle_select`.
 pub fn build_checklist(form: &Form, x: i32, y: i32, width: i32, picked: &[bool]) -> i32 {
     const ROW: i32 = ROW_HEIGHT;
-    let col_w = (width - 36) / 2;
+    // A wide list (the Settings page) takes three columns, a narrow one (setup, the chooser) two.
+    let cols: i32 = if width >= 640 { 3 } else { 2 };
+    let col_w = (width - 36) / cols;
     let mut top = y;
     for (title, range) in GROUPS.iter().cloned() {
-        let rows = (range.len() as i32 + 1) / 2;
+        let rows = (range.len() as i32 + cols - 1) / cols;
         let height = rows * ROW + 30;
         form.group(x, top, width, height, title);
         for (n, i) in range.enumerate() {
-            let (col, row) = ((n as i32) % 2, (n as i32) / 2);
-            let label = format!("{}   .{}", FORMATS[i].name, FORMATS[i].exts.join(" ."));
+            let (col, row) = ((n as i32) % cols, (n as i32) / cols);
+            let shown: Vec<&str> = FORMATS[i].exts.iter().take(if cols == 3 { 3 } else { 4 }).copied().collect();
+            let more = if FORMATS[i].exts.len() > shown.len() { " …" } else { "" };
+            let label = format!("{}   .{}{more}", FORMATS[i].name, shown.join(" ."));
             form.check(ID_FORMAT_BASE + i as u16, x + 14 + col * (col_w + 8), top + 22 + row * ROW, col_w, ROW - 2, &label, picked.get(i).copied().unwrap_or(false));
         }
         top += height + 8;

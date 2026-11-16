@@ -381,7 +381,7 @@ impl App {
         let pin = self.panels.pin_top;
         let key_label = self.listing.order.key.label();
         let show_label = if self.listing.show == crate::model::Show::Media { "Show".to_string() } else { "Show •".to_string() };
-        let path_text = self.listing.dir.display().to_string();
+        let path_text = self.display_dir().display().to_string();
         let search_text = self.listing.search.clone();
         let Some(r) = self.renderer.as_mut() else { return };
         let _ = r.fill_rect(top, rgb(pal::PANEL, 1.0));
@@ -519,7 +519,7 @@ fn help_lines() -> Vec<String> {
         "        1 2 3 4 5: thumbnail size  ·  `: reset size  ·  Ctrl+1 / 2 / 3: thumbnails / details / list  ·  Ctrl+J: sort  ·  Ctrl+R: shuffle",
         "        F2 rename  ·  Del Recycle Bin (asks first)  ·  Shift+Del delete for good  ·  Ctrl+Z undo a delete / move / rename / copy  ·  Ctrl+N new folder  ·  F5 refresh",
         "        Alt or F10 (or the pointer on the top edge): menu bar  ·  Alt+F, Alt+E, Alt+V, Alt+T, Alt+H open a menu  ·  Ctrl+G group image sequences",
-        "        Ctrl+C copy file  ·  Ctrl+X cut  ·  Ctrl+V paste  ·  Ctrl+Shift+C copy path  ·  F6 move to  ·  F7 copy to  ·  Ctrl+P print",
+        "        Ctrl+C copy file  ·  Ctrl+X cut  ·  Ctrl+V paste  ·  Ctrl+Shift+C copy path  ·  F6 move to  ·  F7 copy to  ·  Ctrl+P print  ·  Ctrl+Shift+P make a PDF  ·  Ctrl+Shift+E unpack an archive",
         "        Ctrl+F search  ·  Ctrl+L address bar  ·  F11 fullscreen  ·  F1 this help  ·  Alt+F4 exit",
         "Many files selected: right click > Batch (rename, convert, change time stamp, remove metadata) and Compress",
     ]

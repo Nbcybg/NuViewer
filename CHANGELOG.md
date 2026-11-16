@@ -3,6 +3,17 @@
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
 ### Added
+- **Viewer:** Western / Japanese reading is one switch (Ctrl+B, View menu, right-click menu); in Japanese the Left arrow turns forward. Double click opens
+  the gallery. **Dim** (Shift+D, how much in Settings). **Canvas:** plain colour (presets, grey slider, hex), the picture itself blurred, or a picture file.
+  **360 view** (Shift+P): drag looks around, wheel zooms; a 2:1 picture offers it.
+- **One playback bar** for video, sound, animation, image sequence and slideshow: play, step, seek track with a picture of the spot under the pointer,
+  speed 1x / 2x / 4x / 0.5x, loop, volume. **Video and sound play** (Media Foundation + waveOut, loaded only when a media file is opened); a WAV is shown
+  as its waveform; R3D / MXF / BRAW are recognised (proxy file when there is one); video Windows can't decode (10-bit camera files) gets a picture and a
+  cached playable copy from ffmpeg if it is installed. See `docs/media.md`.
+- **Formats:** VRM avatars (as glTF), Blender `.blend` (its stored preview picture), video, sound.
+- **NuQuick:** resize the preview from its edges and corners; videos and sounds preview too.
+- **NuGallery:** make a **PDF** from the selected pictures / folders; **compress** (zip, 7z with 7-Zip, tar.gz) and **unpack**; an **archive opens as a folder**
+  (zip / cbz natively, 7z / rar / tar with 7-Zip or Windows' tar), password asked for when needed. Settings: "Screen && play" and "Archives && PDF" tabs.
 - **NuQuick:** the preview can be dragged and remembers where it was left; folders and other files get an info card (icon / thumbnail, kind, size,
   dates, where) instead of nothing.
 - **NuGallery:** "Group image sequences" is in the right-click menu too; the menu bar now pushes the toolbar and the side panels down while it shows

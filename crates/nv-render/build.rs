@@ -11,6 +11,7 @@ fn main() {
         ("shaders/quad.hlsl", "ps\0", "ps_4_0\0", "quad_ps.cso"),
         ("shaders/mesh.hlsl", "vs\0", "vs_4_0\0", "mesh_vs.cso"),
         ("shaders/mesh.hlsl", "ps\0", "ps_4_0\0", "mesh_ps.cso"),
+        ("shaders/pano.hlsl", "ps\0", "ps_4_0\0", "pano_ps.cso"),
     ];
     for (file, entry, target, name) in jobs {
         println!("cargo:rerun-if-changed={file}");

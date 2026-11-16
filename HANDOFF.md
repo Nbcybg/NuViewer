@@ -499,6 +499,36 @@ turned into a build). Design, numbers, switches and the not-verified list are in
 - Installer and `tools/package.ps1` now carry `nuquick.exe` (installer removes the Run entry and quits the agent on uninstall); the full
   package build was not run. Nothing committed (the user did not ask).
 
+### Session 14 (2026-11-16): the user's long list (reading style, bar, dim, canvas, 360, archives, PDF, media)
+
+New code is in new files on purpose (nothing grew `main.rs` / `app.rs` beyond a few lines): `nuviewer/src/{display,media,controls,settings_more}.rs`,
+`crates/nv-media`, `nv-core/src/{prefs,archive_tools,pdf_make,ffmpeg,posters}.rs`, `nv-codecs/src/{media,wave,blend,jpegmeta}.rs`,
+`nugallery/src/tools.rs`, `nv-render/src/extras.rs` + `shaders/pano.hlsl`. Design of the media part: `docs/media.md`.
+- **Viewer**: Western / Japanese reading is one toggle (Ctrl+B, View menu, right-click menu, Settings) and in Japanese the Left arrow turns
+  forward; **double click** = gallery (3D / 360 / Ctrl keep their old press); **Dim** (Shift+D, percent in Settings); **canvas** = colour
+  (presets, grey slider, hex) / the picture itself blurred / a picture file, darkened by a percent (one draw from a small mip, nothing is drawn
+  when the picture fills the window); **360 view** (Shift+P, drag looks, wheel zooms, a 2:1 picture >= 2000 px offers it).
+- **One bar** for video, sound, animation, image sequence and slideshow (`controls.rs`): play, step (video: 10 s), seek track with a **picture of
+  the spot under the pointer** (video: its own reader, animation: the frame, sequence / slideshow: the neighbour picture), speed 1x/2x/4x/0.5x
+  (key Shift+.), loop (Shift+L; animation, sequence, slideshow and video all honour it), sound (Shift+M) and volume where there is sound. Slideshow is
+  seekable now (the track is the position in the folder, a thin line under it is the time left on the picture).
+- **Video / sound** (`nv-media`): Media Foundation + waveOut bound late (no start-up cost anywhere); H.264/AAC verified on a generated file
+  (probe 27 ms, poster 111 ms incl. loading MF, open 2 ms, first frame 66 ms, seek, scrub preview 34 ms). WAV = native waveform picture; other
+  sound = decoded peaks. Space plays / pauses a media file, Shift+Left/Right seek 5 s. Windows can't decode the user's Fuji X-T4 MOV (10-bit 4:2:2):
+  ffmpeg (installed here, WinGet) gives the picture and a cached 720p proxy that is played instead. R3D / MXF / BRAW: recognised, proxy lookup,
+  else a clear message. **Audio could not be heard** (the tool session has no waveOut device): see docs/media.md.
+- **Formats**: VRM opens as glTF; Blender .blend shows its stored preview picture (plain / gzip / zstd); video, sound, R3D/MXF/BRAW are in the
+  file-type chooser (3 columns now) and in every program's folder lists.
+- **NuQuick**: the window can be resized from its edges and corners (the factor is kept for the next pictures); videos / sounds preview too.
+- **NuGallery** (`tools.rs`): *Make a PDF* (selected pictures / folders / this folder; JPEGs go in byte for byte, others lossless or JPEG; Windows reads
+  the result - unit test), *Compress* (format and level from Settings; zip is our own writer, 7z via 7-Zip, tar.gz via Windows tar), *Unpack*, and an
+  **archive opens as a folder** (Space / double click): pictures are unpacked into `%LOCALAPPDATA%/NuViewer/arc` (1 GB cache, pruned LRU), Backspace
+  leads back to the archive's folder; zip/cbz are read natively (ZIP64, ZipCrypto passwords), 7z / rar / tar / AES zips need 7-Zip (else Windows' tar).
+  Password dialog, asked again when wrong. Keys: Ctrl+Shift+P PDF, Ctrl+Shift+E unpack.
+- **Settings**: two new tabs "Screen & play" and "Archives & PDF" (`settings_more.rs`), slider control added to `nv_win::ui::Form`.
+- Tests added: unit (prefs, archive_tools incl. ZipCrypto, pdf_make incl. a Windows PDF render, wave, blend, media, jpegmeta) and
+  `tools/test/e2e-session14.ps1`, `tools/test/e2e-gallery-archives.ps1`.
+
 ## 2. Build, test, run
 
 ```powershell

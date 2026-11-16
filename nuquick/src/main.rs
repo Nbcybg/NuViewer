@@ -596,6 +596,7 @@ fn quit_running() -> i32 {
 }
 
 fn main() {
+    nv_core::posters::register(); // a video's frame / a sound's waveform; Media Foundation loads only when one is previewed
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match args.first().map(|s| s.as_str()) {
         Some("--preview") => run_preview(args.get(1).map(|s| s.as_str()).unwrap_or(""), args.iter().any(|a| a == "--timing")),

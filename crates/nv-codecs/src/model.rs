@@ -658,7 +658,8 @@ fn shrink_for_preview(t: &ModelTexture, limit: u32) -> (u32, u32, Vec<u8>) {
 // ---- entry point ---------------------------------------------------------------------------------
 
 /// Extensions handled here.
-pub const EXTS: &[&str] = &["stl", "obj", "ply", "glb", "gltf", "fbx"];
+/// `vrm` (VRoid / VRM avatars) is a glTF binary with extra data: it opens as a GLB.
+pub const EXTS: &[&str] = &["stl", "obj", "ply", "glb", "gltf", "vrm", "fbx"];
 
 pub fn decode(path: &Path, thumb: bool) -> Result<Image, String> {
     let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).unwrap_or_default();
@@ -667,7 +668,7 @@ pub fn decode(path: &Path, thumb: bool) -> Result<Image, String> {
         "stl" => parse_stl(&bytes)?,
         "obj" => parse_obj(&bytes, path.parent())?,
         "ply" => parse_ply(&bytes, path.parent())?,
-        "glb" | "gltf" => parse_gltf(&bytes, path.parent())?,
+        "glb" | "gltf" | "vrm" => parse_gltf(&bytes, path.parent())?,
         "fbx" => parse_fbx(&bytes, path.parent())?,
         _ => return Err(format!("unsupported 3D format: .{ext}")),
     };

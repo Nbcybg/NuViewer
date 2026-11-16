@@ -72,6 +72,16 @@ fewer / more columns), **Ctrl+0** resets. Deleting asks first (Settings > Viewer
 moved, renamed or copied file in the viewer and in the gallery. **F1** is the help page of each program; the credits (author and the
 open-source libraries NuViewer stands on) are at the bottom of it.
 
+## Video, sound, 360, dim and the canvas
+
+- **Video and sound** play in the viewer (Space / P, Shift+Left / Right seek 5 s). The bar at the bottom edge is the same for video, sound, GIF / APNG / WebP,
+  image sequences and slideshows: play, step, a seek track that shows a picture of the spot under the pointer, speed (1x 2x 4x 0.5x), loop (Shift+L),
+  sound (Shift+M) and volume. A WAV is shown as its waveform. Video Windows has no decoder for (10-bit 4:2:2 camera files, MXF) is played through a copy that
+  ffmpeg makes in the background, if ffmpeg is installed (Settings > Archives && PDF). R3D / MXF / BRAW play through a proxy file with the same name when one exists.
+- **360 view:** Shift+P on a picture twice as wide as it is high (drag looks around, wheel zooms).
+- **Dim:** Shift+D darkens the screen (how much: Settings > Screen && play). **Canvas:** a colour, the picture itself blurred, or a picture file of your own.
+- **Reading style:** Ctrl+B switches Western (left to right) and Japanese (right to left) reading in read mode.
+
 ## NuQuick (Space-bar preview in Explorer)
 
 `nuquick.exe` sits in the background (tray icon, ~2 MB, no CPU) and shows the picture selected in Explorer or on the desktop when you press
@@ -111,6 +121,12 @@ opens; it remembers the last folder, view and pinned panels. It starts fullscree
   gallery; with no gallery running, closing the viewer ends the program.
 - The viewer follows the gallery's order (sort is shared; shuffle is passed along), and closing it returns to the gallery with
   the last picture seen selected.
+
+### Archives and PDF
+
+Space or a double click on an archive opens it as a folder (zip / cbz natively; 7z, rar, tar and AES zips through 7-Zip, else Windows' tar); a password is asked
+for when needed and the pictures are unpacked into a cache (`%LOCALAPPDATA%/NuViewer/arc`, 1 GB, cleaned by itself). Right-click > Compress (format and level in
+Settings), Unpack here (Ctrl+Shift+E), **Make a PDF** (Ctrl+Shift+P): the selected pictures, the selected folders, or this folder; JPEGs go in untouched.
 
 ## NuEditor (the editor)
 

@@ -275,6 +275,8 @@ impl App {
             if !slideshow {
                 self.go(path, Vec::new(), true);
             }
+        } else if nv_core::archive_tools::is_archive(&path) && !slideshow {
+            self.open_archive(path, None);
         } else if viewable {
             self.launch_viewer(&path, slideshow);
         } else if let Err(err) = files::open_default(self.hwnd, &path) {
@@ -699,36 +701,6 @@ impl App {
             wake();
         });
         nv_win::invalidate(self.hwnd);
-    }
-
-    pub fn compress_selected(&mut self) {
-        let paths = self.picked_paths();
-        if paths.is_empty() {
-            return;
-        }
-        let dir = self.listing.dir.clone();
-        let stem = if paths.len() == 1 {
-            paths[0].file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Archive".into())
-        } else {
-            dir.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Archive".into())
-        };
-        let dest = fileops::unique_path(&dir, std::ffi::OsStr::new(&format!("{stem}.zip")));
-        let offset = nv_win::utc_offset_minutes();
-        self.spawn_job("Compressing", move |progress| {
-            let entries = nv_core::archive::collect(&paths);
-            if entries.is_empty() {
-                return JobResult { message: "Nothing to compress".into(), refresh: false, select: Vec::new() };
-            }
-            let total = entries.len();
-            match nv_core::archive::write_zip(&dest, &entries, offset, &mut |done, _| progress(format!("{done} / {total} files"))) {
-                Ok(()) => {
-                    let size = std::fs::metadata(&dest).map(|m| crate::draw::fmt_bytes(m.len())).unwrap_or_default();
-                    JobResult { message: format!("Created {} ({size})", dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()), refresh: true, select: vec![dest.clone()] }
-                }
-                Err(e) if e == "cancelled" => JobResult { message: "Compress cancelled".into(), refresh: true, select: Vec::new() },
-                Err(e) => JobResult { message: format!("Couldn't compress: {e}"), refresh: true, select: Vec::new() },
-            }
-        });
     }
 
     pub fn quick_convert(&mut self, p: Preset) {

@@ -218,6 +218,8 @@ struct ViewState {
     /// Where the user left the window (its centre), kept for the next time and for the next run.
     center: Option<(i32, i32)>,
     drag: Option<Drag>,
+    /// How much bigger (or smaller) than its picture the user made the window by dragging an edge: kept for the next pictures.
+    user_scale: Option<f32>,
 }
 
 #[derive(Clone, Copy)]
@@ -228,7 +230,7 @@ struct Drag {
 }
 
 thread_local! {
-    static VIEW: RefCell<ViewState> = const { RefCell::new(ViewState { hwnd: HWND(std::ptr::null_mut()), cur: None, standalone: false, font: HFONT(std::ptr::null_mut()), font_big: HFONT(std::ptr::null_mut()), scale: 1.0, placed: (0, 0, 0, 0), center: None, drag: None }) };
+    static VIEW: RefCell<ViewState> = const { RefCell::new(ViewState { hwnd: HWND(std::ptr::null_mut()), cur: None, standalone: false, font: HFONT(std::ptr::null_mut()), font_big: HFONT(std::ptr::null_mut()), scale: 1.0, placed: (0, 0, 0, 0), center: None, drag: None, user_scale: None }) };
 }
 
 const CLASS: PCWSTR = w!("NuQuickView");
@@ -262,6 +264,52 @@ unsafe extern "system" fn view_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
         }
         // Never take the focus from Explorer: its arrow keys must keep working while the preview is up.
         WM_MOUSEACTIVATE if !VIEW.with(|v| v.borrow().standalone) => LRESULT(MA_NOACTIVATE as isize),
+        // Borderless but resizable: the edges and corners answer as the frame of a window would.
+        WM_NCCALCSIZE if wp.0 != 0 => LRESULT(0), // the whole window is client area
+        WM_NCHITTEST => {
+            let (sx, sy) = (lp.0 as i16 as i32, (lp.0 >> 16) as i16 as i32);
+            let mut r = RECT::default();
+            let _ = GetWindowRect(hwnd, &mut r);
+            let b = (7.0 * VIEW.with(|v| v.borrow().scale)).round() as i32;
+            let (l, t, rt, bt) = (sx - r.left < b, sy - r.top < b, r.right - sx <= b, r.bottom - sy <= b);
+            let code = match (l, rt, t, bt) {
+                (true, _, true, _) => HTTOPLEFT,
+                (_, true, true, _) => HTTOPRIGHT,
+                (true, _, _, true) => HTBOTTOMLEFT,
+                (_, true, _, true) => HTBOTTOMRIGHT,
+                (true, ..) => HTLEFT,
+                (_, true, ..) => HTRIGHT,
+                (_, _, true, _) => HTTOP,
+                (_, _, _, true) => HTBOTTOM,
+                _ => HTCLIENT,
+            };
+            LRESULT(code as isize)
+        }
+        WM_GETMINMAXINFO => {
+            let scale = VIEW.with(|v| v.borrow().scale);
+            let mmi = &mut *(lp.0 as *mut MINMAXINFO);
+            mmi.ptMinTrackSize = POINT { x: (260.0 * scale) as i32, y: (200.0 * scale) as i32 };
+            LRESULT(0)
+        }
+        WM_EXITSIZEMOVE => {
+            // Remember the shape the user chose, as a factor of the picture, and where the window now is.
+            let mut r = RECT::default();
+            let _ = GetWindowRect(hwnd, &mut r);
+            VIEW.with(|v| {
+                let mut v = v.borrow_mut();
+                let (w, h) = (r.right - r.left, r.bottom - r.top);
+                if let Some(p) = &v.cur {
+                    let k = (w as f32 / p.w.max(1) as f32).min((h - caption_h(v.scale)).max(1) as f32 / p.h.max(1) as f32);
+                    v.user_scale = Some(k.clamp(0.25, 8.0));
+                }
+                v.center = Some(((r.left + r.right) / 2, (r.top + r.bottom) / 2));
+                v.placed = (r.left, r.top, w, h);
+                if let Some(c) = v.center {
+                    save_center(c);
+                }
+            });
+            LRESULT(0)
+        }
         // Drag the window anywhere; a press and release without moving is a click and closes it.
         WM_LBUTTONDOWN => {
             let (cx, cy) = (lp.0 as i16 as i32, (lp.0 >> 16) as i16 as i32);
@@ -342,22 +390,40 @@ unsafe fn paint(hwnd: HWND, hdc: HDC) {
     let mut rc = RECT::default();
     let _ = GetClientRect(hwnd, &mut rc);
     let (cw, ch) = (rc.right, rc.bottom);
-    let x = ((cw - p.w) / 2).max(0);
+    // A picture is fitted into the window (which the user may have resized); an info card keeps its own layout.
+    let is_card = p.big.is_some() || !p.rows.is_empty();
+    let area_h = if is_card { p.h } else { (ch - caption_h(scale)).max(1) };
+    let (dw, dh) = if is_card || (cw == p.w && area_h == p.h) {
+        (p.w, p.h)
+    } else {
+        let k = (cw as f32 / p.w.max(1) as f32).min(area_h as f32 / p.h.max(1) as f32);
+        (((p.w as f32 * k).round() as i32).max(1), ((p.h as f32 * k).round() as i32).max(1))
+    };
+    let x = ((cw - dw) / 2).max(0);
+    let y = if is_card { 0 } else { ((area_h - dh) / 2).max(0) };
     let brush = CreateSolidBrush(COLORREF(0x002A2A2A));
     let fill = |l: i32, t: i32, r: i32, b: i32| {
         if r > l && b > t {
             FillRect(hdc, &RECT { left: l, top: t, right: r, bottom: b }, brush);
         }
     };
-    fill(0, 0, x, p.h);
-    fill(x + p.w, 0, cw, p.h);
-    fill(0, p.h, cw, ch);
+    fill(0, 0, x, area_h);
+    fill(x + dw, 0, cw, area_h);
+    fill(0, 0, cw, y);
+    fill(0, y + dh, cw, area_h);
+    fill(0, area_h, cw, ch);
     let _ = DeleteObject(brush.into());
     let bmi = BITMAPINFO {
         bmiHeader: BITMAPINFOHEADER { biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32, biWidth: p.w, biHeight: -p.h, biPlanes: 1, biBitCount: 32, biCompression: 0, ..Default::default() },
         ..Default::default()
     };
-    SetDIBitsToDevice(hdc, x, 0, p.w as u32, p.h as u32, 0, 0, 0, p.h as u32, p.bgra.as_ptr() as *const _, &bmi, DIB_RGB_COLORS);
+    if (dw, dh) == (p.w, p.h) {
+        SetDIBitsToDevice(hdc, x, y, p.w as u32, p.h as u32, 0, 0, 0, p.h as u32, p.bgra.as_ptr() as *const _, &bmi, DIB_RGB_COLORS);
+    } else {
+        SetStretchBltMode(hdc, HALFTONE);
+        let _ = SetBrushOrgEx(hdc, 0, 0, None);
+        StretchDIBits(hdc, x, y, dw, dh, 0, 0, p.w, p.h, Some(p.bgra.as_ptr() as *const _), &bmi, DIB_RGB_COLORS, SRCCOPY);
+    }
     SetBkMode(hdc, TRANSPARENT);
     if let Some(big) = &p.big {
         let old = SelectObject(hdc, font_big.into());
@@ -389,12 +455,12 @@ unsafe fn paint(hwnd: HWND, hdc: HDC) {
     let pad = (12.0 * scale) as i32;
     let mut name: Vec<u16> = p.name.encode_utf16().collect();
     let mut info: Vec<u16> = p.info.encode_utf16().collect();
-    let mut irc = RECT { left: pad, top: p.h, right: cw - pad, bottom: ch };
+    let mut irc = RECT { left: pad, top: area_h, right: cw - pad, bottom: ch };
     SetTextColor(hdc, COLORREF(0x00909090));
     DrawTextW(hdc, &mut info, &mut irc, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
     let mut size = SIZE::default();
     let _ = GetTextExtentPoint32W(hdc, &info, &mut size);
-    let mut nrc = RECT { left: pad, top: p.h, right: (cw - pad - size.cx - pad).max(pad + 40), bottom: ch };
+    let mut nrc = RECT { left: pad, top: area_h, right: (cw - pad - size.cx - pad).max(pad + 40), bottom: ch };
     SetTextColor(hdc, COLORREF(0x00E8E8E8));
     DrawTextW(hdc, &mut name, &mut nrc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
     SelectObject(hdc, old);
@@ -421,7 +487,7 @@ unsafe fn ensure_window(standalone: bool) -> HWND {
     };
     RegisterClassExW(&wc);
     let ex = if standalone { WS_EX_TOPMOST } else { WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW };
-    let hwnd = CreateWindowExW(ex, CLASS, w!("NuQuick"), WS_POPUP, 0, 0, 100, 100, None, None, Some(hinst.into()), None).unwrap_or_default();
+    let hwnd = CreateWindowExW(ex, CLASS, w!("NuQuick"), WS_POPUP | WS_THICKFRAME, 0, 0, 100, 100, None, None, Some(hinst.into()), None).unwrap_or_default();
     let scale = GetDpiForSystem() as f32 / 96.0;
     let font = CreateFontW(-((13.0 * scale).round() as i32), 0, 0, 0, 400, 0, 0, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, 0, w!("Segoe UI"));
     let font_big = CreateFontW(-((56.0 * scale).round() as i32), 0, 0, 0, 600, 0, 0, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, 0, w!("Segoe UI"));
@@ -467,8 +533,10 @@ fn save_center((x, y): (i32, i32)) {
 /// on the work area of the screen `anchor` is on.
 unsafe fn geometry(p: &Preview, anchor: HWND, scale: f32) -> (i32, i32, i32, i32) {
     let cap = caption_h(scale);
-    let ww = p.w.max((420.0 * scale) as i32);
-    let wh = p.h + cap;
+    let is_card = p.big.is_some() || !p.rows.is_empty();
+    let k = if is_card { 1.0 } else { VIEW.with(|v| v.borrow().user_scale).unwrap_or(1.0) };
+    let ww = ((p.w as f32 * k).round() as i32).max((420.0 * scale) as i32);
+    let wh = (p.h as f32 * k).round() as i32 + cap;
     let remembered = VIEW.with(|v| v.borrow().center);
     let mon = match remembered {
         Some((cx, cy)) => MonitorFromPoint(POINT { x: cx, y: cy }, MONITOR_DEFAULTTONEAREST),

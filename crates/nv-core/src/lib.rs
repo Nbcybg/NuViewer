@@ -2,13 +2,18 @@
 
 pub mod about;
 pub mod archive;
+pub mod archive_tools;
 pub mod batch;
+pub mod ffmpeg;
 pub mod fileops;
 pub mod folder;
 pub mod gallery;
 pub mod keys;
 pub mod loader;
 pub mod pair;
+pub mod pdf_make;
+pub mod posters;
+pub mod prefs;
 pub mod sequence;
 pub mod settings;
 pub mod spread;

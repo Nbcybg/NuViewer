@@ -6,6 +6,7 @@ use nv_core::keys::{self, ACTIONS};
 use nv_codecs::model::{LightMode, Shading, UpAxis};
 use nv_codecs::{Intent, RawMode};
 use nv_core::settings::{CmykChoice, EditorFormat, EditorSave, External, HoldZoom, ProfileChoice, RotateSave, Settings, WheelAction};
+use super::settings_more as more;
 use nv_win::ui::{Form, ID_CANCEL, ID_OK, SELECTION_CHANGED};
 
 // Page tabs.
@@ -205,10 +206,12 @@ pub fn edit(current: &Settings) -> Option<Settings> {
     // Tabs (always visible).
     form.begin_page(0);
     let mut tab_x = 12;
-    for (i, (id, name, width)) in [(TAB_VIEWER, "Viewer", 64), (TAB_COLOUR, "Colour", 64), (TAB_PRINT, "CMYK && RAW", 100), (TAB_3D, "3D", 40), (TAB_TYPES, "File types", 80), (TAB_EXTERNAL, "External programs", 128), (TAB_INPUT, "Mouse && keyboard", 138), (TAB_EDITOR, "NuEditor", 76), (TAB_QUICK, "Space preview", 104)].iter().enumerate() {
+    let [screen, tools] = more::tabs();
+    for (i, (id, name, width)) in [(TAB_VIEWER, "Viewer", 56), (screen.0, screen.1, screen.2), (TAB_COLOUR, "Colour", 56), (TAB_PRINT, "CMYK && RAW", 92), (TAB_3D, "3D", 34), (TAB_TYPES, "File types", 72), (TAB_EXTERNAL, "External programs", 120), (TAB_INPUT, "Mouse && keyboard", 130), (TAB_EDITOR, "NuEditor", 66), (TAB_QUICK, "Space preview", 98), (tools.0, tools.1, tools.2)].iter().enumerate() {
         form.tab(*id, tab_x, 10, *width, 30, name, i == 0, i == 0);
-        tab_x += *width + 4;
+        tab_x += *width + 3;
     }
+    more::build(&form, c);
 
     // ---- page 1: Viewer ----
     form.begin_page(1);
@@ -454,6 +457,9 @@ pub fn edit(current: &Settings) -> Option<Settings> {
                 form.combo_set(D_TURN_Z, 0);
             }
             TAB_TYPES => form.show_page(2),
+            more::TAB_SCREEN => form.show_page(more::PAGE_SCREEN),
+            more::TAB_TOOLS => form.show_page(more::PAGE_TOOLS),
+            x if more::click(form, x, &cur) => {}
             TAB_EXTERNAL => form.show_page(3),
             TAB_INPUT => form.show_page(4),
             TAB_EDITOR => form.show_page(8),
@@ -618,6 +624,7 @@ pub fn edit(current: &Settings) -> Option<Settings> {
                 s.film_strip = form.is_checked(M_STRIP);
                 s.read_start = parse_percent(&form.text(M_READ_START), 1, 9999, cur.read_start);
                 s.read_rtl = form.is_checked(M_READ_RTL);
+                more::read(form, &mut s);
                 result = Some(s);
                 return true;
             }

@@ -10,6 +10,12 @@ impl App {
     pub fn on_key(&mut self, k: u32) {
         let m = nv_win::modifiers();
         match self.keymap.lookup(k, m.ctrl, m.shift, m.alt) {
+            // Japanese reading style: the page after this one is on the left, so Left turns forward and Right turns back.
+            // A video or a sound on screen: Space plays / pauses it, Shift+arrows seek.
+            Some(Action::Next) if k == 0x20 && self.media_current() => self.perform(Action::PlayPause),
+            None if m.shift && !m.ctrl && (k == VK_LEFT || k == VK_RIGHT) && self.media_nudge(k == VK_RIGHT) => {}
+            Some(Action::Next) if k == VK_RIGHT && self.japanese_arrows() => self.perform(Action::Prev),
+            Some(Action::Prev) if k == VK_LEFT && self.japanese_arrows() => self.perform(Action::Next),
             Some(a) => self.perform(a),
             None if self.mode == Mode::Gallery => self.gallery_key(k),
             None => {}
@@ -126,6 +132,11 @@ impl App {
             Action::ReadMode if !gallery => self.toggle_read(),
             Action::ReadStartHere if !gallery => self.read_start_here(),
             Action::ReadDirection => self.toggle_read_direction(),
+            Action::Dim => self.toggle_dim(),
+            Action::Pano if !gallery => self.toggle_pano(),
+            Action::MediaLoop => self.toggle_loop(),
+            Action::MediaMute => self.toggle_mute(),
+            Action::MediaSpeed => self.cycle_speed(),
             Action::SpeedUp => self.adjust_playback(1),
             Action::SpeedDown => self.adjust_playback(-1),
             Action::PlayPause => self.toggle_play(),
@@ -177,6 +188,8 @@ impl App {
             Action::Back => {
                 if self.view.area.take().is_some() {
                     invalidate(self.hwnd); // cancel a Ctrl+drag selection in progress
+                } else if self.disp.pano.take().is_some() {
+                    invalidate(self.hwnd); // leave the 360 view
                 } else if self.editor.open {
                     self.toggle_editor();
                 } else if self.hud.show_help || self.hud.show_info {

@@ -509,7 +509,7 @@ impl App {
         self.slide.since = Instant::now();
         set_timer(self.hwnd, TIMER_UI, 250); // keeps the playback bar's progress moving
         self.pick_next();
-        set_timer(self.hwnd, TIMER_SLIDE, (self.slide.secs * 1000.0) as u32);
+        set_timer(self.hwnd, TIMER_SLIDE, self.slide_ms());
         self.refresh(); // include the upcoming image in the prefetch set
         self.toast(format!("Slideshow {:.0} s — S/Esc stop · +/- speed · R shuffle the order", self.slide.secs));
     }
@@ -532,7 +532,7 @@ impl App {
         let next = (cur + step).clamp(0, SLIDE_STEPS_S.len() as i32 - 1) as usize;
         self.slide.secs = SLIDE_STEPS_S[next];
         if self.slide.on {
-            set_timer(self.hwnd, TIMER_SLIDE, (self.slide.secs * 1000.0) as u32);
+            set_timer(self.hwnd, TIMER_SLIDE, self.slide_ms());
         }
         self.toast(format!("Slideshow interval {:.0} s", self.slide.secs));
     }
@@ -556,6 +556,10 @@ impl App {
             let (start, len) = self.current_spread();
             (start + len) % n
         });
+        if to <= self.folder.index && !self.settings.more.play_loop {
+            self.stop_slideshow(true); // loop off: the slideshow ends after the last picture
+            return;
+        }
         self.slide.since = Instant::now();
         self.navigate_with_dir(to, 1);
         self.pick_next();

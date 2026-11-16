@@ -124,7 +124,7 @@ pub fn classify(message: &str, ext: &str) -> u16 {
         3002
     } else if has(&["read:", "read error", "i/o error", "the device is not ready", "network"]) {
         1003
-    } else if matches!(ext, "pdf" | "ai" | "eps" | "svg" | "svgz" | "emf" | "wmf" | "swf" | "obj" | "stl" | "ply" | "gltf" | "glb" | "fbx") {
+    } else if matches!(ext, "pdf" | "ai" | "eps" | "svg" | "svgz" | "emf" | "wmf" | "swf" | "obj" | "stl" | "ply" | "gltf" | "glb" | "vrm" | "fbx") {
         3003
     } else {
         3000

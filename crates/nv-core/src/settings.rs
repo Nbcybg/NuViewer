@@ -279,6 +279,8 @@ pub struct Settings {
     /// How 3D models are shaded, lit and projected.
     pub model: ModelStyle,
     pub external: Vec<External>,
+    /// Screen, playback, archive and PDF settings (see `prefs`).
+    pub more: crate::prefs::Prefs,
     /// Keyboard overrides: action id -> "Key, Key" (see `keys`).
     pub keys: HashMap<String, String>,
 }
@@ -330,6 +332,7 @@ impl Default for Settings {
             read_start: 2,
             model: ModelStyle::default(),
             external: Vec::new(),
+            more: Default::default(),
             keys: HashMap::new(),
         }
     }
@@ -470,6 +473,7 @@ impl Settings {
                 "model_normal_map" => s.model.normal_map = parse_bool(v).unwrap_or(s.model.normal_map),
                 "model_wireframe" => s.model.wireframe = parse_bool(v).unwrap_or(s.model.wireframe),
                 "model_shadow" => s.model.shadow = parse_bool(v).unwrap_or(s.model.shadow),
+                _ if s.more.apply(&k, v) => {}
                 _ => {
                     if let Some(rest) = k.strip_prefix("key.") {
                         s.keys.insert(rest.to_string(), v.to_string());
@@ -569,6 +573,7 @@ impl Settings {
             b(m.wireframe),
             b(m.shadow)
         );
+        out += &self.more.serialize();
         for (i, e) in self.external.iter().enumerate() {
             out += &format!("external.{i}.name = {}\nexternal.{i}.command = {}\n", e.name, e.command);
         }

@@ -220,8 +220,8 @@ impl App {
         }
         self.read_changed();
         if self.read.on {
-            let dir = if self.settings.read_rtl { "right to left" } else { "left to right" };
-            self.toast(format!("Read mode — {dir}. Shift+B: pairs start at this page · Ctrl+B: other direction · B: off"));
+            let dir = if self.settings.read_rtl { "Japanese, right to left" } else { "Western, left to right" };
+            self.toast(format!("Read mode — {dir}. Shift+B: pairs start at this page · Ctrl+B: Western / Japanese · B: off"));
         } else {
             self.toast("Read mode off");
         }
@@ -245,12 +245,23 @@ impl App {
         self.toast(format!("Pairs start at page {} — earlier pages stand alone", page + 1));
     }
 
-    /// `Ctrl+B`: which side the first page of a pair is on.
+    /// `Ctrl+B`: Western (left to right) or Japanese (right to left) reading. Japanese puts the first page of a pair on
+    /// the right and makes the Left arrow turn forward; it applies to read mode.
     pub fn toggle_read_direction(&mut self) {
         self.settings.read_rtl = !self.settings.read_rtl;
         let _ = self.settings.save();
-        self.toast(if self.settings.read_rtl { "Right to left: the first page of a pair is on the right" } else { "Left to right: the first page of a pair is on the left" });
+        self.read.invalidate();
+        self.toast(if self.settings.read_rtl {
+            "Japanese reading — right to left: the first page of a pair is on the right, Left arrow = next page"
+        } else {
+            "Western reading — left to right: the first page of a pair is on the left, Right arrow = next page"
+        });
         invalidate(self.hwnd);
+    }
+
+    /// In read mode with Japanese reading the arrows are the other way round.
+    pub fn japanese_arrows(&self) -> bool {
+        self.read.on && self.settings.read_rtl && self.mode == Mode::Viewer
     }
 
     /// The pairing changed: new view, new prefetch.

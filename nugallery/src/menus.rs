@@ -95,6 +95,8 @@ pub enum Cmd {
     Rename,
     Delete,
     Compress,
+    Extract,
+    MakePdf,
     Convert(Preset),
     BatchRename,
     BatchConvert,
@@ -203,9 +205,10 @@ impl App {
         menu.push(b.item(Cmd::Rename, "Rename\tF2").enabled(has && !many));
         menu.push(b.item(Cmd::Delete, "Delete\tDel").enabled(has));
         menu.push(b.item(Cmd::Undo, format!("{}\tCtrl+Z", self.undo_label())).enabled(!self.undo.is_empty()));
-        if many {
-            menu.push(b.item(Cmd::Compress, "Compress (.zip)"));
-        }
+        let any_archive = picked.iter().any(|e| nv_core::archive_tools::is_archive(&e.path));
+        menu.push(b.item(Cmd::Compress, "Compress…").enabled(has));
+        menu.push(b.item(Cmd::Extract, "Unpack here").enabled(any_archive));
+        menu.push(b.item(Cmd::MakePdf, "Make a PDF").enabled(true));
         let convert: Vec<Item> = [Preset::JpegHigh, Preset::JpegSmall, Preset::Png, Preset::Webp, Preset::Bmp, Preset::Resize(1920), Preset::Resize(1280), Preset::Resize(800)]
             .iter()
             .map(|&p| b.item(Cmd::Convert(p), p.label()))
@@ -369,7 +372,10 @@ impl App {
             3 => {
                 let batch = vec![b.item(Cmd::BatchRename, "Rename…"), b.item(Cmd::BatchConvert, "Convert…"), b.item(Cmd::BatchTimes, "Change time stamp…"), b.item(Cmd::BatchStrip, "Remove metadata…")];
                 m.push(Item::Submenu { text: "Batch (selected files)".into(), items: batch, enabled: has });
-                m.push(b.item(Cmd::Compress, "Compress selected (.zip)").enabled(has));
+                let any_archive = picked.iter().any(|e| nv_core::archive_tools::is_archive(&e.path));
+                m.push(b.item(Cmd::Compress, "Compress selected…").enabled(has));
+                m.push(b.item(Cmd::Extract, "Unpack the selected archive").enabled(any_archive));
+                m.push(b.item(Cmd::MakePdf, "Make a PDF of the selected pictures or folder"));
                 let convert: Vec<Item> = [Preset::JpegHigh, Preset::JpegSmall, Preset::Png, Preset::Webp, Preset::Bmp, Preset::Resize(1920), Preset::Resize(1280), Preset::Resize(800)].iter().map(|&p| b.item(Cmd::Convert(p), p.label())).collect();
                 m.push(Item::Submenu { text: "Quick convert".into(), items: convert, enabled: any_pic });
                 let quick: Vec<Item> = [QuickOp::RotateLeft, QuickOp::RotateRight, QuickOp::FlipH, QuickOp::FlipV].iter().map(|&q| b.item(Cmd::Quick(q), q.label())).collect();
@@ -491,6 +497,8 @@ impl App {
             Cmd::Rename => self.start_rename(),
             Cmd::Delete => self.delete_selected(false),
             Cmd::Compress => self.compress_selected(),
+            Cmd::Extract => self.extract_selected(),
+            Cmd::MakePdf => self.make_pdf(),
             Cmd::Convert(p) => self.quick_convert(p),
             Cmd::BatchRename => self.batch_rename(),
             Cmd::BatchConvert => self.batch_convert(),

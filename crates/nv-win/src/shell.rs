@@ -316,6 +316,11 @@ pub fn pick_profile(hwnd: HWND, current: Option<&Path>) -> Option<PathBuf> {
     pick_file(hwnd, "Colour profiles (*.icc;*.icm)\0*.icc;*.icm\0All files\0*.*\0\0", current)
 }
 
+/// The system "Open" dialog for a picture (the canvas background).
+pub fn pick_picture(hwnd: HWND) -> Option<PathBuf> {
+    pick_file(hwnd, "Pictures\0*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif;*.tif;*.tiff;*.avif;*.heic\0All files\0*.*\0\0", None)
+}
+
 /// The system "Open" dialog. `filter` is the usual NUL-separated description / pattern list ending in a double NUL.
 fn pick_file(hwnd: HWND, filter: &str, start_in: Option<&Path>) -> Option<PathBuf> {
     use windows::Win32::UI::Controls::Dialogs::{GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_PATHMUSTEXIST, OPENFILENAMEW};

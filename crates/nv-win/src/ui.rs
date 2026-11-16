@@ -35,6 +35,8 @@ pub struct Form {
 
 /// A list box or combo box reports a changed selection to the handler as `id | SELECTION_CHANGED`.
 pub const SELECTION_CHANGED: u16 = 0x4000;
+/// A slider that was moved is reported as `id | SLIDER_MOVED` (control ids stay below 0x2000).
+pub const SLIDER_MOVED: u16 = 0x2000;
 
 struct Ctx {
     form: *const Form,
@@ -265,8 +267,39 @@ impl Form {
         }
     }
 
+    /// A horizontal slider from `lo` to `hi`. Moving it reports `id | SLIDER_MOVED` to the handler.
+    pub fn slider(&self, id: u16, x: i32, y: i32, w: i32, h: i32, lo: i32, hi: i32, value: i32) {
+        unsafe {
+            let icc = windows::Win32::UI::Controls::INITCOMMONCONTROLSEX { dwSize: std::mem::size_of::<windows::Win32::UI::Controls::INITCOMMONCONTROLSEX>() as u32, dwICC: windows::Win32::UI::Controls::ICC_BAR_CLASSES };
+            let _ = windows::Win32::UI::Controls::InitCommonControlsEx(&icc);
+        }
+        let c = self.child(w!("msctls_trackbar32"), "", WS_TABSTOP | WINDOW_STYLE(0x0010 /* TBS_NOTICKS */), WINDOW_EX_STYLE(0), id, x, y, w, h);
+        unsafe {
+            SendMessageW(c, 0x0407 /* TBM_SETRANGEMIN */, Some(WPARAM(0)), Some(LPARAM(lo as isize)));
+            SendMessageW(c, 0x0408 /* TBM_SETRANGEMAX */, Some(WPARAM(1)), Some(LPARAM(hi as isize)));
+            SendMessageW(c, 0x0405 /* TBM_SETPOS */, Some(WPARAM(1)), Some(LPARAM(value as isize)));
+        }
+    }
+
+    pub fn slider_value(&self, id: u16) -> i32 {
+        self.item(id).map(|c| unsafe { SendMessageW(c, 0x0400 /* TBM_GETPOS */, None, None).0 as i32 }).unwrap_or(0)
+    }
+
+    pub fn slider_set(&self, id: u16, value: i32) {
+        if let Some(c) = self.item(id) {
+            unsafe {
+                SendMessageW(c, 0x0405, Some(WPARAM(1)), Some(LPARAM(value as isize)));
+            }
+        }
+    }
+
     pub fn edit(&self, id: u16, x: i32, y: i32, w: i32, h: i32, text: &str) {
         self.child(w!("EDIT"), text, WS_TABSTOP | WINDOW_STYLE(ES_AUTOHSCROLL as u32), WS_EX_CLIENTEDGE, id, x, y, w, h);
+    }
+
+    /// An edit box that shows dots instead of what is typed.
+    pub fn password(&self, id: u16, x: i32, y: i32, w: i32, h: i32) {
+        self.child(w!("EDIT"), "", WS_TABSTOP | WINDOW_STYLE((ES_AUTOHSCROLL | ES_PASSWORD) as u32), WS_EX_CLIENTEDGE, id, x, y, w, h);
     }
 
     pub fn button(&self, id: u16, x: i32, y: i32, w: i32, h: i32, text: &str, default: bool) {
@@ -366,6 +399,20 @@ unsafe extern "system" fn form_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
                 if let Some(c) = ctx.as_mut() {
                     let handler = &mut *c.handler;
                     if handler(&*c.form, id) {
+                        c.done = true;
+                        (*c.form).close();
+                    }
+                }
+            }
+            LRESULT(0)
+        }
+        WM_HSCROLL => {
+            // A slider moved: lp is the slider's window.
+            let id = GetDlgCtrlID(HWND(lp.0 as *mut c_void)) as u16;
+            if let Some(c) = ctx.as_mut() {
+                if id != 0 {
+                    let handler = &mut *c.handler;
+                    if handler(&*c.form, id | SLIDER_MOVED) {
                         c.done = true;
                         (*c.form).close();
                     }

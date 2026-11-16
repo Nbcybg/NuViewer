@@ -1,6 +1,7 @@
 //! Direct3D 11 renderer: flip-model swapchain, sRGB-correct sampling, per-image mip chains,
 //! Catmull-Rom resampling in the pixel shader, and a keyed GPU texture cache.
 
+mod extras;
 mod mesh;
 
 pub use nv_codecs::model::{LightMode, ModelStyle, Orbit, Shading, UpAxis};
@@ -33,6 +34,8 @@ struct Texture {
     bytes: usize,
     /// EXIF orientation 1..=8 applied by the shader when drawing (1 = upright). Pixels stay as decoded.
     orientation: u8,
+    /// A video frame texture (BGRA, updated in place by `upload_video`).
+    video: bool,
 }
 
 impl Texture {
@@ -69,6 +72,8 @@ pub struct Renderer {
     size: (u32, u32),
     /// 3D model pipeline, created when the first model is uploaded.
     mesh: Option<mesh::MeshPipeline>,
+    /// 360 view pipeline, created when the first panorama is drawn.
+    pano: Option<extras::PanoPipeline>,
     /// A big picture being copied to the GPU a slice at a time (see `begin_upload`).
     pending: Option<PendingUpload>,
     /// Dedicated video memory of the adapter, bytes (0 = unknown).
@@ -250,6 +255,7 @@ impl Renderer {
                 current: None,
                 size: (width.max(1), height.max(1)),
                 mesh: None,
+                pano: None,
                 pending: None,
                 vram,
             };
@@ -318,7 +324,7 @@ impl Renderer {
         unsafe { self.ctx.Flush() };
         let bytes = (img.width as usize * img.height as usize * 4) * 4 / 3 * frames.len();
         let orientation = if img.orientation >= 2 && img.orientation <= 8 && img.extra_frames.is_empty() { img.orientation } else { 1 };
-        self.textures.insert(id, Texture { frames, delays, frame: 0, width: img.width, height: img.height, mips, bytes, orientation });
+        self.textures.insert(id, Texture { frames, delays, frame: 0, width: img.width, height: img.height, mips, bytes, orientation, video: false });
         Ok(())
     }
 
@@ -381,7 +387,7 @@ impl Renderer {
                 };
                 let bytes = (img.width as usize * img.height as usize * 4) * 4 / 3 * done.len();
                 let orientation = if (2..=8).contains(&img.orientation) && img.extra_frames.is_empty() { img.orientation } else { 1 };
-                self.textures.insert(id, Texture { frames: done, delays, frame: 0, width: img.width, height: img.height, mips, bytes, orientation });
+                self.textures.insert(id, Texture { frames: done, delays, frame: 0, width: img.width, height: img.height, mips, bytes, orientation, video: false });
                 return Ok(Some(UploadDone { id, img, tag }));
             }
             if t0.elapsed() >= budget {
@@ -598,7 +604,7 @@ impl Renderer {
     pub fn upload_thumb(&mut self, id: u64, img: &Image) -> Result<(), String> {
         let (_tex, srv) = upload_immutable(&self.device, img.width, img.height, &img.rgba)?;
         let bytes = img.width as usize * img.height as usize * 4;
-        self.thumbs.insert(id, Texture { frames: vec![srv], delays: Vec::new(), frame: 0, width: img.width, height: img.height, mips: 1, bytes, orientation: 1 });
+        self.thumbs.insert(id, Texture { frames: vec![srv], delays: Vec::new(), frame: 0, width: img.width, height: img.height, mips: 1, bytes, orientation: 1, video: false });
         Ok(())
     }
 
@@ -619,7 +625,7 @@ impl Renderer {
     pub fn upload_overlay(&mut self, id: u64, img: &Image) -> Result<(), String> {
         let (_tex, srv) = upload_immutable(&self.device, img.width, img.height, &img.rgba)?;
         let bytes = img.width as usize * img.height as usize * 4;
-        self.overlays.insert(id, Texture { frames: vec![srv], delays: Vec::new(), frame: 0, width: img.width, height: img.height, mips: 1, bytes, orientation: 1 });
+        self.overlays.insert(id, Texture { frames: vec![srv], delays: Vec::new(), frame: 0, width: img.width, height: img.height, mips: 1, bytes, orientation: 1, video: false });
         Ok(())
     }
 

@@ -6,6 +6,7 @@
 
 use std::path::Path;
 
+mod blend;
 mod cmyk;
 mod develop;
 mod dicom;
@@ -21,11 +22,13 @@ mod icon;
 mod imgfmt;
 mod jp2;
 mod jpeg;
+mod jpegmeta;
 mod jxldec;
 pub mod model;
 #[cfg(windows)]
 mod metafile;
 pub mod metadata;
+pub mod media;
 pub mod metastrip;
 mod orient;
 mod pcx;
@@ -37,6 +40,7 @@ mod psdraw;
 pub mod progress;
 mod raw;
 pub mod resize;
+pub mod wave;
 pub mod stats;
 mod svgdec;
 mod swf;
@@ -304,9 +308,12 @@ const META_EXTS: &[&str] = &["emf", "wmf"];
 /// Encapsulated PostScript (Ghostscript if installed, else the preview inside the file).
 const EPS_EXTS: &[&str] = &["eps"];
 
+/// Blender files: the preview picture saved inside.
+const BLEND_EXTS: &[&str] = &["blend", "blend1"];
+
 /// Every extension we can open (lowercase, no dot): what the file-association registration lists.
 pub fn supported_extensions() -> Vec<&'static str> {
-    let mut v: Vec<&'static str> = NATIVE_EXTS.iter().chain(RAW_EXTS.iter()).chain(MORE_EXTS.iter()).chain(model::EXTS.iter()).chain(imgfmt::EXTS.iter()).copied().collect();
+    let mut v: Vec<&'static str> = NATIVE_EXTS.iter().chain(RAW_EXTS.iter()).chain(MORE_EXTS.iter()).chain(model::EXTS.iter()).chain(imgfmt::EXTS.iter()).chain(BLEND_EXTS.iter()).copied().collect();
     if cfg!(windows) {
         v.extend(WIC_EXTS);
         v.extend(DOC_EXTS);
@@ -314,6 +321,9 @@ pub fn supported_extensions() -> Vec<&'static str> {
         v.extend(EPS_EXTS);
     }
     v.extend(SVG_EXTS);
+    v.extend(media::VIDEO_EXTS);
+    v.extend(media::AUDIO_EXTS);
+    v.extend(media::PRO_EXTS);
     v
 }
 
@@ -325,7 +335,7 @@ pub fn is_raw_ext(ext: &str) -> bool {
 pub fn is_supported_ext(ext: &str) -> bool {
     let e = ext.to_ascii_lowercase();
     let e = e.as_str();
-    NATIVE_EXTS.contains(&e) || RAW_EXTS.contains(&e) || MORE_EXTS.contains(&e) || TRY_EXTS.contains(&e) || model::EXTS.contains(&e) || imgfmt::is_ext(e) || (cfg!(windows) && (WIC_EXTS.contains(&e) || DOC_EXTS.contains(&e) || META_EXTS.contains(&e) || EPS_EXTS.contains(&e))) || SVG_EXTS.contains(&e)
+    NATIVE_EXTS.contains(&e) || RAW_EXTS.contains(&e) || MORE_EXTS.contains(&e) || TRY_EXTS.contains(&e) || model::EXTS.contains(&e) || imgfmt::is_ext(e) || (cfg!(windows) && (WIC_EXTS.contains(&e) || DOC_EXTS.contains(&e) || META_EXTS.contains(&e) || EPS_EXTS.contains(&e))) || SVG_EXTS.contains(&e) || BLEND_EXTS.contains(&e) || media::media_kind(e).is_some()
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -496,6 +506,12 @@ fn decode_file_opts(path: &Path, first_only: bool, thumb: bool) -> Result<Image,
     // Archives, Office / OpenDocument files, Affinity files and text: the picture inside, or a card (never an error).
     if docthumb::is_document_ext(&ext) {
         return docthumb::decode(path, first_only);
+    }
+    if media::media_kind(&ext).is_some() {
+        return media::decode(path, first_only);
+    }
+    if BLEND_EXTS.contains(&ext.as_str()) {
+        return blend::decode(path);
     }
     if ext == "ico" {
         // Windows' own icon codec first; our reader for the odd files it refuses.
@@ -697,6 +713,18 @@ fn decode_wic(_path: &Path) -> Result<Image, String> {
 pub fn decode_jpeg(bytes: &[u8]) -> Result<Image, String> {
     jpeg::decode(bytes, None).map(Image::finish_for_cpu)
 }
+
+/// Encode packed RGB8 pixels as a baseline JPEG (what a PDF gets for pictures that can't go in as they are).
+pub fn encode_jpeg_rgb(rgb: &[u8], width: u32, height: u32, quality: u8) -> Result<Vec<u8>, String> {
+    if width == 0 || height == 0 || width > 65535 || height > 65535 || rgb.len() < (width * height * 3) as usize {
+        return Err("bad picture size for JPEG".into());
+    }
+    let mut out = Vec::new();
+    jpeg_encoder::Encoder::new(&mut out, quality.clamp(1, 100)).encode(rgb, width as u16, height as u16, jpeg_encoder::ColorType::Rgb).map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+pub use jpegmeta::{jpeg_info, JpegInfo};
 
 /// Encode a thumbnail as JPEG for the on-disk cache. Alpha is flattened over `bg`.
 pub fn encode_thumb_jpeg(img: &Image, bg: [u8; 3]) -> Result<Vec<u8>, String> {

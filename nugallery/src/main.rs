@@ -26,6 +26,7 @@ mod ops;
 mod panels;
 mod preview;
 mod state;
+mod tools;
 mod tree;
 mod undo;
 
@@ -53,6 +54,8 @@ fn default_dir(persist: &Persist) -> PathBuf {
 fn main() {
     let started = Instant::now();
     nv_win::crash::install();
+    nv_core::ffmpeg::configure(&nv_core::settings::Settings::load().more.ffmpeg);
+    nv_core::posters::register(); // video frames and sound waveforms for the thumbnails (loaded on first use)
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     let flag = |name: &str| args.iter().any(|a| a == name);
     let mut path_arg: Option<PathBuf> = None;
@@ -125,6 +128,7 @@ fn main() {
     std::thread::spawn(|| {
         std::thread::sleep(Duration::from_secs(8));
         nv_core::thumbs::prune_cache();
+        nv_core::archive_tools::prune_cache(1024 * 1024 * 1024);
         nv_editor::save::prune_backups(&ops::backup_dir(), Duration::from_secs(7 * 24 * 3600));
     });
 
