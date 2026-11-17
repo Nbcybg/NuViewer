@@ -51,11 +51,13 @@ pub struct Hud {
     pub size_cache: Option<(u64, String)>,
     /// The links of the credit lines on screen (rectangle, address): a click on one opens it.
     pub links: Vec<([f32; 4], String)>,
+    /// Where the rename box was drawn: (x of the text start, top, bottom of the text line, left, right of the box).
+    pub rename_geom: Option<(f32, f32, f32, f32, f32)>,
 }
 
 impl Hud {
     pub fn new() -> Self {
-        Hud { toast: None, show_info: false, show_help: false, info_rows: Vec::new(), info_for: None, used: HashSet::new(), size_cache: None, links: Vec::new() }
+        Hud { toast: None, show_info: false, show_help: false, info_rows: Vec::new(), info_for: None, used: HashSet::new(), size_cache: None, links: Vec::new(), rename_geom: None }
     }
 }
 
@@ -84,7 +86,7 @@ impl App {
         invalidate(self.hwnd);
     }
 
-    fn text_px(&self) -> i32 {
+    pub(crate) fn text_px(&self) -> i32 {
         (15.0 * self.gallery.dpi).round() as i32
     }
 
@@ -225,8 +227,8 @@ impl App {
 
         // Rename box.
         if let Some(r) = &self.rename {
-            let name: String = r.chars.iter().collect();
-            let (cursor, sel, error) = (r.cursor, r.sel, r.error.clone());
+            let name: String = r.ti.text();
+            let (cursor, sel, error) = (r.ti.cursor, r.ti.selection(), r.error.clone());
             let prefix = |n: usize| -> String { name.chars().take(n).collect() };
             let px = self.text_px();
             let pad = (7.0 * d).round();
@@ -240,6 +242,7 @@ impl App {
                 let _ = self.renderer.draw_overlay(hk, x, y, dim_c);
                 let ty = y + hh;
                 let tx = x + margin;
+                self.hud.rename_geom = Some((tx + pad, ty, ty + th, x, x + box_w));
                 if let Some((a, b)) = sel_x {
                     let _ = self.renderer.fill_rect([tx + pad + a, ty + pad * 0.6, tx + pad + b, ty + th - pad * 0.6], srgb(0x3D8BFF, 0.55));
                 }
@@ -272,6 +275,7 @@ impl App {
         self.draw_strip();
         self.draw_editor();
 
+        self.draw_pick();
         self.draw_menubar();
 
         // Toast (bottom-left).

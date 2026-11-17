@@ -240,6 +240,74 @@ pub fn toggle_fullscreen(hwnd: HWND) -> bool {
     now
 }
 
+static BORDERLESS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Is the window borderless (no title bar, no frame) while still a window (not fullscreen)?
+pub fn is_borderless() -> bool {
+    BORDERLESS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// A window without its title bar and frame, at the same place with the same client area. Its edges still resize it and Alt + drag
+/// moves it (`WM_NCHITTEST` below). Does nothing while fullscreen. Returns whether it is borderless now.
+/// The caller must resize its swapchain afterwards: the resulting WM_SIZE arrives while the handler is busy.
+pub fn toggle_borderless(hwnd: HWND) -> bool {
+    use windows::Win32::Foundation::{POINT, RECT};
+    use windows::Win32::Graphics::Gdi::ClientToScreen;
+    if is_fullscreen() {
+        return is_borderless();
+    }
+    unsafe {
+        if IsZoomed(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+        }
+        let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        let mut client = RECT::default();
+        let _ = GetClientRect(hwnd, &mut client);
+        let mut origin = POINT { x: 0, y: 0 };
+        let _ = ClientToScreen(hwnd, &mut origin);
+        let (cw, ch) = (client.right - client.left, client.bottom - client.top);
+        if !is_borderless() {
+            let bare = style & !((WS_CAPTION.0 | WS_THICKFRAME.0) as isize);
+            SetWindowLongPtrW(hwnd, GWL_STYLE, bare);
+            let _ = SetWindowPos(hwnd, None, origin.x, origin.y, cw, ch, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+            BORDERLESS.store(true, std::sync::atomic::Ordering::Relaxed);
+        } else {
+            let framed = style | (WS_CAPTION.0 | WS_THICKFRAME.0) as isize;
+            SetWindowLongPtrW(hwnd, GWL_STYLE, framed);
+            let mut r = RECT { left: origin.x, top: origin.y, right: origin.x + cw, bottom: origin.y + ch };
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            let _ = AdjustWindowRectEx(&mut r, WINDOW_STYLE(framed as u32), false, WINDOW_EX_STYLE(ex as u32));
+            let _ = SetWindowPos(hwnd, None, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+            BORDERLESS.store(false, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+    remember_window(hwnd);
+    is_borderless()
+}
+
+/// Where a point (screen pixels) is on a borderless window: a resize edge or corner, the caption (Alt held: drag to move), or None.
+fn borderless_hit(hwnd: HWND, x: i32, y: i32) -> Option<u32> {
+    let mut r = windows::Win32::Foundation::RECT::default();
+    unsafe {
+        let _ = GetWindowRect(hwnd, &mut r);
+    }
+    let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(hwnd) }.max(96) as i32;
+    let b = (6 * dpi / 96).max(4);
+    let (l, t, rt, bt) = (x - r.left < b, y - r.top < b, r.right - x <= b, r.bottom - y <= b);
+    Some(match (l, t, rt, bt) {
+        (true, true, _, _) => HTTOPLEFT,
+        (_, true, true, _) => HTTOPRIGHT,
+        (true, _, _, true) => HTBOTTOMLEFT,
+        (_, _, true, true) => HTBOTTOMRIGHT,
+        (true, ..) => HTLEFT,
+        (_, _, true, _) => HTRIGHT,
+        (_, true, ..) => HTTOP,
+        (.., true) => HTBOTTOM,
+        _ if modifiers().alt => HTCAPTION,
+        _ => return None,
+    })
+}
+
 fn toggle_fullscreen_now(hwnd: HWND) -> bool {
     use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
     unsafe {
@@ -677,6 +745,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_ERASEBKGND if state_ptr.is_null() => DefWindowProcW(hwnd, msg, wp, lp),
         WM_PAINT if state_ptr.is_null() => DefWindowProcW(hwnd, msg, wp, lp),
         WM_ERASEBKGND => LRESULT(1),
+        WM_NCHITTEST if is_borderless() && !is_fullscreen() => {
+            let (x, y) = ((lp.0 & 0xFFFF) as i16 as i32, ((lp.0 >> 16) & 0xFFFF) as i16 as i32);
+            match borderless_hit(hwnd, x, y) {
+                Some(code) => LRESULT(code as isize),
+                None => DefWindowProcW(hwnd, msg, wp, lp),
+            }
+        }
         WM_APP => {
             dispatch(Event::User);
             LRESULT(0)

@@ -63,6 +63,8 @@ pub enum Msg {
     Mesh { id: u64, mesh: Arc<nv_codecs::model::Mesh> },
     /// The sharper decode of the focused picture, made after the preview was zoomed.
     BigPreview { id: u64, img: nv_codecs::Image },
+    /// The picture read for the colour picker / palette.
+    PickLoaded { id: u64, data: Box<Option<nv_core::colours::PickData>> },
     /// The player of the focused video or sound is open (see `preview.rs`).
     PreviewPlayer { id: u64, result: Result<nv_media::Player, String> },
 }
@@ -271,6 +273,8 @@ pub struct App {
     pub undo: Vec<crate::undo::Step>,
     /// The preview's zoom / pan, animation and 3D view (see `preview.rs`).
     pub pv: crate::preview::Preview,
+    /// The colour picker / palette on the preview (nothing is read until one is switched on).
+    pub pick: crate::pick::Pick,
 }
 
 pub fn worker_threads() -> usize {
@@ -389,6 +393,7 @@ impl App {
             menubar: nv_win::menubar::MenuBar::new(&crate::menus::BAR_LABELS),
             undo: Vec::new(),
             pv: crate::preview::Preview::new(None),
+            pick: Default::default(),
         };
         app.start_tree();
         app.start_drive_labels();
@@ -1159,6 +1164,9 @@ impl App {
                 }
             }
             Event::MouseMove { x, y, left_down } => {
+                if self.pick.on {
+                    invalidate(self.hwnd); // the read-out follows the pointer
+                }
                 if !left_down && self.menubar.pointer(x, y, self.dpi) {
                     self.sync_menubar_inset();
                     invalidate(self.hwnd);
@@ -1274,6 +1282,7 @@ impl App {
                 Msg::AnimFrame { id, img, delay, total, label } => self.pv_frame(id, img, delay, total, label),
                 Msg::Mesh { id, mesh } => self.pv_mesh(id, mesh),
                 Msg::BigPreview { id, img } => self.pv_big(id, img),
+                Msg::PickLoaded { id, data } => self.pick_loaded(id, *data),
                 Msg::PreviewPlayer { id, result } => self.pv_media_ready(id, result),
                 Msg::DriveLabel { root, label } => {
                     self.tree.set_drive_label(&root, &label);
@@ -1797,6 +1806,8 @@ impl App {
             0x23 => self.move_cursor_to(usize::MAX),
             0x20 => self.open_selected(false),  // Space: view
             0x73 => self.launch_editor(),       // F4: edit in NuEditor
+            0x4B if ctrl && !alt => self.toggle_palette(), // Ctrl+K: palette of the previewed picture
+            0x4B if !ctrl && !alt && !shift => self.toggle_pick(), // K: pick a colour from the preview
             0x0D if alt => crate::draw::toggle_fullscreen(self),
             0x0D => self.move_cursor(1),        // Enter: next file
             0x08 => self.go_up(),               // Backspace: up one folder
@@ -1807,6 +1818,7 @@ impl App {
             0x74 => self.refresh(Vec::new()),   // F5
             0x75 => self.transfer_selected(true),  // F6
             0x76 => self.transfer_selected(false), // F7
+            0x7A if nv_win::modifiers().shift => crate::draw::toggle_borderless(self), // Shift+F11
             0x7A => crate::draw::toggle_fullscreen(self), // F11
             0x70 => {
                 self.help = !self.help;
@@ -1869,6 +1881,9 @@ impl App {
     }
 
     fn on_escape(&mut self) {
+        if self.pick_escape() {
+            return;
+        }
         if self.help {
             self.help = false;
         } else if let Some(j) = &self.job {
@@ -2092,6 +2107,9 @@ impl App {
         let (fx, fy) = (x as f32, y as f32);
         self.last_mouse = (x, y);
         self.tip_hide();
+        if (self.pick.on || self.pick.palette_on) && self.pick_press(fx, fy) {
+            return;
+        }
         if !self.chrome.left.map(|r| crate::gfx::contains(r, fx, fy)).unwrap_or(false) {
             self.tree_focus = false;
         }
@@ -2296,6 +2314,11 @@ impl App {
                 self.focus_search();
             }
         }
+        self.text_menu(x, y);
+    }
+
+    /// The Cut / Copy / Paste / Delete / Select all menu of the text box being edited (address, search, rename, new folder, a property field).
+    pub fn text_menu(&mut self, x: i32, y: i32) {
         let Some(a) = self.active.as_ref() else { return };
         let (has_sel, has_text) = (a.ti.selection().is_some(), !a.ti.chars.is_empty());
         let paste_ok = nv_win::files::clipboard_text(self.hwnd).is_some();
@@ -2338,7 +2361,6 @@ impl App {
             Btn::ViewThumbs => self.set_mode(ViewMode::Thumbs),
             Btn::ViewDetails => self.set_mode(ViewMode::Details),
             Btn::ViewList => self.set_mode(ViewMode::List),
-            Btn::Exit => self.exit(),
             Btn::PinTop => {
                 self.panels.pin_top = !self.panels.pin_top;
                 self.panels_changed();
@@ -2358,6 +2380,11 @@ impl App {
     fn on_right_click(&mut self, x: i32, y: i32) {
         self.last_mouse = (x, y);
         self.tip_hide();
+        // A rename, new-folder or property field is being edited: the right click is its text menu.
+        if matches!(self.active.as_ref().map(|a| &a.focus), Some(Focus::Rename(_) | Focus::NewFolder(_) | Focus::Meta(_))) {
+            self.text_menu(x, y);
+            return;
+        }
         if self.tree_row_at(x as f32, y as f32).is_some() {
             self.tree_right_click(x, y);
             return;

@@ -8,7 +8,7 @@
 use super::Mesh;
 use std::path::{Path, PathBuf};
 
-pub const NATIVE: &[&str] = &["3ds", "3mf", "amf", "dae", "las", "dxf", "lwo", "lwo2", "usda", "usdz", "ma", "unitypackage"];
+pub const NATIVE: &[&str] = &["3ds", "3mf", "amf", "dae", "las", "dxf", "lwo", "lwo2", "usda", "usdz", "ma", "unitypackage", "wrl", "vrml", "wrz"];
 /// Needs a converter (assimp, Blender, FreeCAD, ODA) that is not part of NuViewer; the file is listed and the message says which.
 pub const CONVERT: &[&str] = &["step", "stp", "iges", "igs", "abc", "usd", "usdc", "dwg"];
 /// Scene files of programs whose format is closed: the picture stored inside is shown when there is one.
@@ -1185,6 +1185,7 @@ pub fn decode(path: &Path, ext: &str, thumb: bool) -> Result<crate::Image, Strin
         "usda" => parse_usda(&String::from_utf8_lossy(&bytes))?,
         "usdz" => parse_usdz(path)?,
         "ma" => parse_ma(&bytes)?,
+        "wrl" | "vrml" | "wrz" => super::vrml::parse(&bytes)?,
         _ => return Err(format!("unsupported 3D format: .{ext}")),
     };
     Ok(super::preview_image(mesh, thumb))

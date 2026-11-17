@@ -115,6 +115,9 @@ pub enum Cmd {
     PinLeft,
     PinRight,
     Fullscreen,
+    Borderless,
+    PickColour,
+    Palette,
     Help,
     OpenFolderInExplorer,
     /// Open the file with a program Windows offers for it (`Handler::id`).
@@ -436,6 +439,7 @@ impl App {
                 m.push(b.checked(Cmd::PinLeft, "Keep folders open\tCtrl+B", self.panels.pin_left));
                 m.push(b.checked(Cmd::PinRight, "Keep details open\tCtrl+I", self.panels.pin_right));
                 m.push(b.checked(Cmd::Fullscreen, "Fullscreen\tF11", nv_win::is_fullscreen()));
+                m.push(b.checked(Cmd::Borderless, "Borderless window\tShift+F11", nv_win::is_borderless()));
                 m.push(Item::Separator);
                 m.push(b.item(Cmd::Refresh, "Refresh\tF5"));
             }
@@ -452,6 +456,8 @@ impl App {
                 m.push(Item::Submenu { text: "Quick edit".into(), items: quick, enabled: all_rewritable });
                 m.push(Item::Separator);
                 m.push(b.item(Cmd::Importer, "Import photos… (NuImporter, mock-up)"));
+                m.push(b.checked(Cmd::PickColour, "Pick a colour from the preview\tK", self.pick.on));
+                m.push(b.checked(Cmd::Palette, "Palette of the preview picture\tCtrl+K", self.pick.palette_on));
                 m.push(Item::Separator);
                 m.push(b.item(Cmd::OpenFolderInExplorer, "Open this folder in Explorer"));
                 m.push(b.item(Cmd::ClearThumbs, "Rebuild thumbnails of this folder"));
@@ -505,10 +511,13 @@ impl App {
                 menu.push(b.checked(Cmd::PinLeft, "Keep folders open\tCtrl+B", self.panels.pin_left));
                 menu.push(b.checked(Cmd::PinRight, "Keep details open\tCtrl+I", self.panels.pin_right));
                 menu.push(b.checked(Cmd::Fullscreen, "Fullscreen\tF11", nv_win::is_fullscreen()));
+                menu.push(b.checked(Cmd::Borderless, "Borderless window\tShift+F11", nv_win::is_borderless()));
                 menu.push(Item::Separator);
                 menu.push(b.item(Cmd::OpenFolderInExplorer, "Open this folder in Explorer"));
                 menu.push(b.item(Cmd::ClearThumbs, "Rebuild thumbnails of this folder"));
                 menu.push(b.item(Cmd::Importer, "Import photos… (NuImporter, mock-up)"));
+                menu.push(b.checked(Cmd::PickColour, "Pick a colour from the preview\tK", self.pick.on));
+                menu.push(b.checked(Cmd::Palette, "Palette of the preview picture\tCtrl+K", self.pick.palette_on));
                 menu.push(b.item(Cmd::ViewerSettings, "NuViewer settings…"));
                 menu.push(b.item(Cmd::Help, "Keys, mouse and credits\tF1"));
             }
@@ -608,6 +617,9 @@ impl App {
                 self.panels_changed();
             }
             Cmd::Fullscreen => crate::draw::toggle_fullscreen(self),
+            Cmd::Borderless => crate::draw::toggle_borderless(self),
+            Cmd::PickColour => self.toggle_pick(),
+            Cmd::Palette => self.toggle_palette(),
             Cmd::Help => {
                 self.help = !self.help;
                 nv_win::invalidate(self.hwnd);

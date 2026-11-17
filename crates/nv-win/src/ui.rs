@@ -430,6 +430,15 @@ impl Form {
             }
             let mut msg = MSG::default();
             while !ctx.done && GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                // A plain edit box does not know Ctrl+A: select everything in it.
+                if msg.message == WM_KEYDOWN && msg.wParam.0 == 0x41 && windows::Win32::UI::Input::KeyboardAndMouse::GetKeyState(0x11) < 0 {
+                    let mut class = [0u16; 16];
+                    let n = GetClassNameW(msg.hwnd, &mut class) as usize;
+                    if String::from_utf16_lossy(&class[..n]).eq_ignore_ascii_case("Edit") {
+                        let _ = SendMessageW(msg.hwnd, 0x00B1 /* EM_SETSEL */, Some(WPARAM(0)), Some(LPARAM(-1)));
+                        continue;
+                    }
+                }
                 if !IsDialogMessageW(self.hwnd, &msg).as_bool() {
                     let _ = TranslateMessage(&msg);
                     DispatchMessageW(&msg);

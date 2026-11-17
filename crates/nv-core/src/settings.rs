@@ -382,7 +382,10 @@ impl Settings {
     }
 
     pub fn load() -> Settings {
-        std::fs::read_to_string(Self::path()).map(|t| Self::parse(&t)).unwrap_or_default()
+        let s: Settings = std::fs::read_to_string(Self::path()).map(|t| Self::parse(&t)).unwrap_or_default();
+        // The sentence fonts are shown with is read by the decoders, in every program that loads the settings.
+        nv_codecs::fontview::set_sample(&s.more.font_sample);
+        s
     }
 
     pub fn save(&self) -> Result<(), String> {

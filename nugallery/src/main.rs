@@ -25,6 +25,7 @@ mod menus;
 mod model;
 mod ops;
 mod panels;
+mod pick;
 mod preview;
 mod state;
 mod tools;

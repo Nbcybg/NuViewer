@@ -41,7 +41,9 @@ impl From<io::Error> for ArcError {
 type Res<T> = Result<T, ArcError>;
 
 /// Extensions of files that are archives.
-pub const ARCHIVE_EXTS: &[&str] = &["zip", "cbz", "7z", "cb7", "rar", "cbr", "tar", "tgz", "gz", "bz2", "xz", "zst"];
+pub const ARCHIVE_EXTS: &[&str] = &[
+    "zip", "cbz", "7z", "cb7", "rar", "cbr", "tar", "tgz", "gz", "bz2", "xz", "zst", "cab", "dmg", "iso", "wim", "esd", "swm", "cpio", "arj", "lzh", "lha", "z", "taz", "lz", "lzma", "lz4", "tbz", "tbz2", "tb2", "txz", "tlz", "tzst", "rpm", "deb", "ar", "zipx", "jar", "war", "ear", "apk", "aab", "xpi", "vsix", "nupkg", "whl", "ipa", "crx", "appx", "msix", "kmz", "pk3", "pk4",
+];
 
 /// Is `path` an archive (by name; `.tar.gz` and friends included)?
 pub fn is_archive(path: &Path) -> bool {

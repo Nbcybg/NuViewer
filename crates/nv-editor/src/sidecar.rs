@@ -146,6 +146,17 @@ pub fn to_text(r: &Recipe, src: &Source) -> String {
             out.push_str(&format!("band name=\"{}\" hue=\"{}\" sat=\"{}\" lum=\"{}\"\n", BAND_NAMES[i], num(b.hue), num(b.sat), num(b.lum)));
         }
     }
+    for (i, name) in ["hue", "sat", "lum"].iter().enumerate() {
+        let c = r.hue_curves.curve(i);
+        if c.iter().any(|p| p.1 != 0.0) {
+            out.push_str(&format!("huecurve kind=\"{name}\" points=\"{}\"\n", pairs(c)));
+        }
+    }
+    for (i, n) in r.hue_curves.warp.iter().enumerate() {
+        if n[0] != 0.0 || n[1] != 0.0 {
+            out.push_str(&format!("warp spoke=\"{}\" ring=\"{}\" dh=\"{}\" ds=\"{}\"\n", i / crate::huecurves::RINGS, i % crate::huecurves::RINGS, num(n[0]), num(n[1])));
+        }
+    }
     if let Some(c) = r.crop {
         out.push_str(&format!("crop x=\"{}\" y=\"{}\" w=\"{}\" h=\"{}\"\n", num(c.x), num(c.y), num(c.w), num(c.h)));
     }
@@ -302,6 +313,26 @@ pub fn from_text(text: &str) -> Result<(Recipe, Source), String> {
                     r.hue_wheel[i] = Band { hue: f("hue"), sat: f("sat"), lum: f("lum") };
                 }
             }
+            "huecurve" => {
+                let pts: Vec<(f32, f32)> = parse_pairs(e.get("points").unwrap_or("")).into_iter().map(|(x, y)| (x.rem_euclid(360.0), y.clamp(-1.0, 1.0))).collect();
+                let i = match e.get("kind") {
+                    Some("hue") => 0,
+                    Some("sat") => 1,
+                    Some("lum") => 2,
+                    _ => continue,
+                };
+                let mut pts = pts;
+                pts.sort_by(|a, b| a.0.total_cmp(&b.0));
+                *r.hue_curves.curve_mut(i) = pts;
+            }
+            "warp" => {
+                let g = |k: &str| e.get(k).and_then(parse_f);
+                if let (Some(s), Some(ri), Some(dh), Some(ds)) = (g("spoke"), g("ring"), g("dh"), g("ds")) {
+                    if (s as usize) < crate::huecurves::SPOKES && (ri as usize) < crate::huecurves::RINGS {
+                        r.hue_curves.set_node(s as usize, ri as usize, dh.clamp(-180.0, 180.0), ds.clamp(-1.0, 1.0));
+                    }
+                }
+            }
             "crop" => {
                 let f = |k: &str| e.get(k).and_then(parse_f);
                 if let (Some(x), Some(y), Some(w), Some(h)) = (f("x"), f("y"), f("w"), f("h")) {
@@ -384,6 +415,20 @@ mod tests {
         let (back, s2) = from_text(&text).unwrap();
         assert_eq!(back, busy());
         assert_eq!(s2, src);
+    }
+
+    #[test]
+    fn hue_curves_and_warper_survive_a_round_trip() {
+        let mut r = Recipe::default();
+        r.hue_curves.hue = vec![(20.0, 0.5), (200.0, -0.25)];
+        r.hue_curves.lum = vec![(90.0, 0.1)];
+        r.hue_curves.set_node(2, 3, 25.0, -0.125);
+        let text = to_text(&r, &Source::default());
+        assert!(text.contains("huecurve kind=\"hue\"") && text.contains("warp spoke=\"2\" ring=\"3\""), "{text}");
+        assert!(!text.contains("kind=\"sat\""));
+        let (back, _) = from_text(&text).unwrap();
+        assert_eq!(back.hue_curves, r.hue_curves);
+        assert!(!r.is_identity());
     }
 
     #[test]

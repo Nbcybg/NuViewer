@@ -10,10 +10,10 @@ const UNDO_LIMIT: usize = 50;
 /// In-place file-name editor (drawn by `hud`).
 pub struct Rename {
     pub path: PathBuf,
-    pub chars: Vec<char>,
-    pub cursor: usize,
-    /// Selected range in chars (initially the file-name stem, like Explorer).
-    pub sel: Option<(usize, usize)>,
+    /// The text, caret and selection (initially the file-name stem is selected, like Explorer).
+    pub ti: nv_core::textinput::TextInput,
+    /// The left button is held in the box (dragging selects).
+    pub dragging: bool,
     pub error: Option<String>,
 }
 
@@ -136,6 +136,16 @@ impl App {
         invalidate(self.hwnd);
     }
 
+    /// Shift+F11 / View > Borderless window: the window without its title bar and frame (not fullscreen).
+    pub fn toggle_borderless_app(&mut self) {
+        let on = nv_win::toggle_borderless(self.hwnd);
+        let (w, h) = nv_win::client_size(self.hwnd);
+        let _ = self.renderer.resize(w, h);
+        self.draw();
+        invalidate(self.hwnd);
+        self.toast(if on { "Borderless window: Alt + drag moves it, the edges resize it, Shift+F11 brings the frame back" } else { "Window with its frame" });
+    }
+
     // ---- removing / re-adding files from the list ------------------------------------------------
 
     /// Forget file `i` everywhere (list, GPU caches, metadata) after it was deleted or moved away.
@@ -199,54 +209,20 @@ impl App {
     pub fn start_rename(&mut self) {
         let Some(i) = self.target() else { return };
         let path = self.folder.files[i].clone();
-        let chars: Vec<char> = file_name_of(&path).chars().collect();
-        let stem_len = chars.iter().rposition(|&c| c == '.').filter(|&p| p > 0).unwrap_or(chars.len());
-        self.rename = Some(Rename { path, cursor: stem_len, sel: Some((0, stem_len)), chars, error: None });
+        let ti = nv_core::textinput::TextInput::name_selected(&file_name_of(&path));
+        self.rename = Some(Rename { path, ti, dragging: false, error: None });
         invalidate(self.hwnd);
     }
 
     pub fn rename_key(&mut self, k: u32) {
+        use nv_core::textinput::Outcome;
+        let m = nv_win::modifiers();
         let Some(r) = self.rename.as_mut() else { return };
         r.error = None;
-        let len = r.chars.len();
-        // Deleting with a selection removes the selection first.
-        let delete_sel = |r: &mut Rename| -> bool {
-            if let Some((a, b)) = r.sel.take() {
-                r.chars.drain(a..b);
-                r.cursor = a;
-                true
-            } else {
-                false
-            }
-        };
-        match k {
-            VK_ESCAPE => self.rename = None,
-            VK_RETURN => return self.commit_rename(),
-            VK_BACK => {
-                if !delete_sel(r) && r.cursor > 0 {
-                    r.cursor -= 1;
-                    r.chars.remove(r.cursor);
-                }
-            }
-            VK_DELETE => {
-                if !delete_sel(r) && r.cursor < len {
-                    r.chars.remove(r.cursor);
-                }
-            }
-            VK_LEFT => {
-                r.cursor = r.sel.take().map(|(a, _)| a).unwrap_or(r.cursor.saturating_sub(1));
-            }
-            VK_RIGHT => {
-                r.cursor = r.sel.take().map(|(_, b)| b).unwrap_or((r.cursor + 1).min(len));
-            }
-            VK_HOME => {
-                r.sel = None;
-                r.cursor = 0;
-            }
-            VK_END => {
-                r.sel = None;
-                r.cursor = len;
-            }
+        match r.ti.key(k, m.ctrl, m.shift) {
+            Outcome::Escape => self.rename = None,
+            Outcome::Enter => return self.commit_rename(),
+            Outcome::Clipboard(op) => self.rename_clip(op),
             _ => {}
         }
         invalidate(self.hwnd);
@@ -254,23 +230,141 @@ impl App {
 
     pub fn rename_char(&mut self, c: char) {
         let Some(r) = self.rename.as_mut() else { return };
+        if c.is_control() {
+            return;
+        }
         if "<>:\"/\\|?*".contains(c) {
             r.error = Some("A file name can't contain \\ / : * ? \" < > |".into());
         } else {
             r.error = None;
-            if let Some((a, b)) = r.sel.take() {
-                r.chars.drain(a..b);
-                r.cursor = a;
+            r.ti.insert(c);
+        }
+        invalidate(self.hwnd);
+    }
+
+    /// Cut / copy / paste in the rename box.
+    pub fn rename_clip(&mut self, op: nv_core::textinput::Clip) {
+        use nv_core::textinput::Clip;
+        let hwnd = self.hwnd;
+        let Some(r) = self.rename.as_mut() else { return };
+        match op {
+            Clip::Copy => {
+                let t = r.ti.selected_text();
+                if !t.is_empty() {
+                    let _ = shell::clipboard_copy_text(hwnd, &t);
+                }
             }
-            r.chars.insert(r.cursor, c);
-            r.cursor += 1;
+            Clip::Cut => {
+                let t = r.ti.cut();
+                if !t.is_empty() {
+                    let _ = shell::clipboard_copy_text(hwnd, &t);
+                }
+            }
+            Clip::Paste => {
+                if let Some(t) = nv_win::files::clipboard_text(hwnd) {
+                    // A file name can't hold the characters Windows refuses.
+                    let clean: String = t.chars().filter(|c| !"<>:\"/\\|?*".contains(*c)).collect();
+                    r.ti.insert_str(&clean);
+                }
+            }
+        }
+        invalidate(hwnd);
+    }
+
+    /// The character boundary of the rename box closest to window x.
+    fn rename_index_at(&self, x: f32) -> usize {
+        let Some(r) = &self.rename else { return 0 };
+        let Some(g) = self.hud.rename_geom else { return r.ti.cursor };
+        let px = self.text_px();
+        let rel = x - g.0;
+        let (mut best, mut best_d) = (0usize, f32::MAX);
+        for i in 0..=r.ti.chars.len() {
+            let prefix: String = r.ti.chars[..i].iter().collect();
+            let d = (nv_win::text::measure(&prefix, px) as f32 - rel).abs();
+            if d < best_d {
+                best_d = d;
+                best = i;
+            }
+        }
+        best
+    }
+
+    /// Is the point on the rename box?
+    pub fn rename_box_hit(&self, x: i32, y: i32) -> bool {
+        self.hud.rename_geom.is_some_and(|g| (x as f32) >= g.3 && (x as f32) < g.4 && (y as f32) >= g.1 && (y as f32) < g.2)
+    }
+
+    /// Left press in the rename box: put the caret there (Shift extends the selection); outside the box nothing happens.
+    pub fn rename_press(&mut self, x: i32, y: i32) {
+        if !self.rename_box_hit(x, y) {
+            return;
+        }
+        let i = self.rename_index_at(x as f32);
+        let shift = nv_win::modifiers().shift;
+        if let Some(r) = self.rename.as_mut() {
+            r.ti.click_at(i, shift);
+            r.dragging = true;
+        }
+        invalidate(self.hwnd);
+    }
+
+    /// Dragging in the rename box selects.
+    pub fn rename_drag(&mut self, x: i32) {
+        let i = self.rename_index_at(x as f32);
+        if let Some(r) = self.rename.as_mut().filter(|r| r.dragging) {
+            r.ti.click_at(i, true);
+            invalidate(self.hwnd);
+        }
+    }
+
+    pub fn rename_double(&mut self, x: i32, y: i32) {
+        if !self.rename_box_hit(x, y) {
+            return;
+        }
+        let i = self.rename_index_at(x as f32);
+        if let Some(r) = self.rename.as_mut() {
+            r.ti.select_word_at(i);
+        }
+        invalidate(self.hwnd);
+    }
+
+    /// Right click while renaming: Cut, Copy, Paste, Delete, Select all.
+    pub fn rename_menu(&mut self, x: i32, y: i32) {
+        use nv_core::textinput::Clip;
+        use nv_win::menu::Entry as Item;
+        let Some(r) = self.rename.as_ref() else { return };
+        let (has_sel, has_text) = (r.ti.selection().is_some(), !r.ti.chars.is_empty());
+        let paste_ok = nv_win::files::clipboard_text(self.hwnd).is_some();
+        let menu = vec![
+            Item::item(1, "Cut\tCtrl+X").enabled(has_sel),
+            Item::item(2, "Copy\tCtrl+C").enabled(has_sel),
+            Item::item(3, "Paste\tCtrl+V").enabled(paste_ok),
+            Item::item(4, "Delete").enabled(has_sel),
+            Item::Separator,
+            Item::item(5, "Select all\tCtrl+A").enabled(has_text),
+        ];
+        match nv_win::menu::popup(self.hwnd, x, y, &menu) {
+            Some(1) => self.rename_clip(Clip::Cut),
+            Some(2) => self.rename_clip(Clip::Copy),
+            Some(3) => self.rename_clip(Clip::Paste),
+            Some(4) => {
+                if let Some(r) = self.rename.as_mut() {
+                    let _ = r.ti.cut();
+                }
+            }
+            Some(5) => {
+                if let Some(r) = self.rename.as_mut() {
+                    r.ti.select_all();
+                }
+            }
+            _ => {}
         }
         invalidate(self.hwnd);
     }
 
     fn commit_rename(&mut self) {
         let Some(r) = self.rename.as_mut() else { return };
-        let new_name: String = r.chars.iter().collect();
+        let new_name: String = r.ti.text();
         let old = r.path.clone();
         match fileops::rename_file(&old, &new_name) {
             Err(e) => {

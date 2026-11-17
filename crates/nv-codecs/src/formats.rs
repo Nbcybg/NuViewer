@@ -133,6 +133,25 @@ lwo|LightWave Object|3D model|3D|No|built-in reader|
 lwo2|LightWave Object 2|3D model|3D|No|built-in reader|
 usda|Universal Scene Description (ASCII)|3D scene|3D|No|built-in reader|
 usdz|Universal Scene Description (zip)|3D scene|3D|No|built-in reader|
+wrl|VRML world (Virtual Reality Modeling Language)|3D scene|3D|No|built-in reader|VRML 97 and VRML 1.0: faces, boxes, spheres, cones, cylinders, elevation grids, diffuse colours; textures, lights and scripts are ignored
+vrml|VRML world|3D scene|3D|No|built-in reader|same as .wrl
+wrz|VRML world (gzip)|3D scene|3D|No|built-in reader|same as .wrl
+kra|Krita Document|Layered|Preview|Flattened|built-in reader|the merged picture stored in the file
+ora|OpenRaster Image|Layered|Preview|Flattened|built-in reader|the merged picture stored in the file
+xcf|GIMP Image (eXperimental Computing Facility)|Layered|View|Flattened|built-in reader|layers are composited (normal, multiply, screen, overlay ... modes approximated; masks, opacity, visibility); 8 / 16 bit and float samples; text and filter layers use their stored pixels
+psp|Corel Paint Shop Pro Image|Layered|Preview|Flattened|built-in reader|the JPEG composite stored in the file; a card when there is none
+pspimage|Corel Paint Shop Pro Image|Layered|Preview|Flattened|built-in reader|the JPEG composite stored in the file; a card when there is none
+cdr|CorelDRAW Drawing|Vector / layout|Preview|No|built-in reader|the thumbnail stored in the file (X4 and later: zip; older: RIFF DISP); the drawing itself is not read
+cdt|CorelDRAW Template|Vector / layout|Preview|No|built-in reader|same as .cdr
+cd5|Chasys Draw IES Image|Layered|Card|No|built-in reader|closed format with no preview: a card, or a picture found stored inside
+xps|XPS Document (XML Paper Specification)|Document|Preview|No|built-in reader, Windows XPS renderer|the thumbnail stored in the package, else the first page drawn by Windows
+oxps|OpenXPS Document|Document|Preview|No|built-in reader, Windows XPS renderer|same as .xps
+dwfx|Autodesk Design Web Format (XPS based)|CAD / document|Preview|No|built-in reader, Windows XPS renderer|same as .xps
+dwf|Autodesk Design Web Format|CAD / document|Preview|No|built-in reader|a picture stored in the package, else a card (the W2D / W3D drawing streams are not drawn)
+u3d|Universal 3D (ECMA-363)|3D scene|Card|No|built-in reader|a card with the scene's meshes and nodes; the compressed geometry is not drawn
+xvl|Lattice3D XVL model|3D model|Card|No|built-in reader|closed format: a card, or a picture found stored inside
+xv3|Lattice3D XVL model (binary)|3D model|Card|No|built-in reader|same as .xvl
+xv0|Lattice3D XVL model (lightweight)|3D model|Card|No|built-in reader|same as .xvl
 ma|Autodesk Maya ASCII|3D scene|3D|No|built-in reader|
 unitypackage|Unity package|3D / game assets|Preview|No|built-in reader|
 step|STEP (ISO 10303) CAD model|CAD|3D|No|converter (FreeCAD / Blender / assimp) if installed|else a message
@@ -154,6 +173,16 @@ uasset|Unreal Engine asset|3D / game assets|Preview|No|built-in reader|stored pr
 mb|Autodesk Maya Binary|3D scene|Preview|No|built-in reader|stored preview, else a message
 f3d|Autodesk Fusion 360 design|CAD|Preview|No|built-in reader|stored preview, else a message
 duf|Daz Studio User File|3D scene|Preview|No|built-in reader|the .duf.png beside it, else a card from the JSON
+ttf|TrueType Font|Font|View|No|built-in reader (skrifa + text engine)|specimen sheet with your sentence (Settings), alphabet, every script the font covers, name / licence
+otf|OpenType Font|Font|View|No|built-in reader (skrifa + text engine)|TrueType or CFF outlines; variable fonts show their default style
+ttc|TrueType Collection|Font|View|No|built-in reader (skrifa + text engine)|the first font of the collection is shown
+otc|OpenType Collection|Font|View|No|built-in reader (skrifa + text engine)|the first font of the collection is shown
+woff|Web Open Font Format|Font (web)|View|No|built-in reader (zlib tables rebuilt to sfnt)|
+woff2|Web Open Font Format 2|Font (web)|View|No|built-in reader (Brotli, glyf / loca / hmtx rebuilt)|collections inside WOFF2 are not read
+eot|Embedded OpenType|Font (web)|View|No|built-in reader|MicroType Express compressed files are refused with a message
+pfb|PostScript Type 1 Font (binary)|Font (PostScript)|Card|No|built-in reader|Windows no longer draws Type 1: a card with what the header says
+pfa|PostScript Type 1 Font (ASCII)|Font (PostScript)|Card|No|built-in reader|a card with what the header says
+fon|Windows Bitmap Font|Font (bitmap)|Card|No|built-in reader|face name and size from the font resource
 mp4|MPEG-4 Part 14 video|Video|Play|No|Media Foundation (ffmpeg copy if needed)|poster frame in the gallery
 m4v|iTunes video (MPEG-4)|Video|Play|No|Media Foundation|
 mov|Apple QuickTime Movie|Video|Play|No|Media Foundation (ffmpeg copy if needed)|
@@ -240,6 +269,48 @@ gz|Gzip file|Archive|Card|No|card|
 bz2|Bzip2 file|Archive|Card|No|card|
 xz|XZ file|Archive|Card|No|card|
 zst|Zstandard file|Archive|Card|No|card|
+cab|Microsoft Cabinet|Archive|Card|No|built-in reader|file list from the cabinet's table; NuGallery opens it with 7-Zip or Windows' tar
+dmg|Apple Disk Image|Archive (disk image)|Card|No|built-in reader|partitions, size, compression; NuGallery opens it with 7-Zip
+iso|ISO 9660 / UDF disc image|Archive (disc image)|Card|No|built-in reader|disc name, file systems, the top level of the disc; NuGallery opens it with 7-Zip or tar
+wim|Windows Imaging Format|Archive (disc image)|Card|No|built-in reader|the images (editions) inside; NuGallery opens it with 7-Zip
+esd|Windows Electronic Software Download image|Archive (disc image)|Card|No|built-in reader|the images inside; NuGallery opens it with 7-Zip
+swm|Split Windows Imaging part|Archive (disc image)|Card|No|built-in reader|NuGallery opens it with 7-Zip
+cpio|cpio archive|Archive|Card|No|built-in reader|file list
+arj|ARJ archive|Archive|Card|No|built-in reader|file list; NuGallery opens it with 7-Zip
+lzh|LZH / LHA archive|Archive|Card|No|built-in reader|file list; NuGallery opens it with 7-Zip
+lha|LHA archive|Archive|Card|No|built-in reader|file list; NuGallery opens it with 7-Zip
+z|Unix compress file|Archive|Card|No|built-in reader|
+taz|compress-ed tar archive|Archive|Card|No|built-in reader|
+lz|lzip file|Archive|Card|No|built-in reader|unpacked size
+lzma|LZMA file|Archive|Card|No|built-in reader|
+lz4|LZ4 file|Archive|Card|No|built-in reader|
+tbz|bzip2-compressed tar archive|Archive|Card|No|built-in reader|
+tbz2|bzip2-compressed tar archive|Archive|Card|No|built-in reader|
+tb2|bzip2-compressed tar archive|Archive|Card|No|built-in reader|
+txz|xz-compressed tar archive|Archive|Card|No|built-in reader|
+tlz|LZMA-compressed tar archive|Archive|Card|No|built-in reader|
+tzst|Zstandard-compressed tar archive|Archive|Card|No|built-in reader|file list
+rpm|RPM package|Archive (package)|Card|No|built-in reader|name, version, architecture, licence
+deb|Debian package|Archive (package)|Card|No|built-in reader|package, version, maintainer, description
+ar|ar archive|Archive|Card|No|built-in reader|member list
+pak|Game data pack (Quake / Chromium / Unreal)|Archive (game)|Preview|No|built-in reader|the largest picture inside, else the file list; Unreal pak indexes are often encrypted
+zipx|WinZip extended ZIP|Archive|Preview|No|built-in reader|first picture inside, else a card
+jar|Java archive|Archive (software)|Preview|No|built-in reader|first picture inside, else a card
+war|Java web archive|Archive (software)|Preview|No|built-in reader|first picture inside, else a card
+ear|Java enterprise archive|Archive (software)|Preview|No|built-in reader|first picture inside, else a card
+apk|Android package|Archive (software)|Preview|No|built-in reader|first picture inside (often an icon), else a card
+aab|Android App Bundle|Archive (software)|Preview|No|built-in reader|first picture inside, else a card
+xpi|Firefox extension|Archive (software)|Preview|No|built-in reader|first picture inside, else a card
+vsix|Visual Studio / VS Code extension|Archive (software)|Preview|No|built-in reader|first picture inside, else a card
+nupkg|NuGet package|Archive (software)|Preview|No|built-in reader|first picture inside, else a card
+whl|Python wheel|Archive (software)|Preview|No|built-in reader|first picture inside, else a card
+ipa|iOS app archive|Archive (software)|Preview|No|built-in reader|first picture inside, else a card
+crx|Chrome extension|Archive (software)|Preview|No|built-in reader|first picture inside, else a card
+appx|Windows app package|Archive (software)|Preview|No|built-in reader|first picture inside (the app's logo), else a card
+msix|Windows MSIX package|Archive (software)|Preview|No|built-in reader|first picture inside (the app's logo), else a card
+kmz|Google Earth KMZ|Archive (maps)|Preview|No|built-in reader|first picture inside, else a card
+pk3|Quake III / id Tech 3 data (ZIP)|Archive (game)|Preview|No|built-in reader|first picture inside, else a card
+pk4|Doom 3 / id Tech 4 data (ZIP)|Archive (game)|Preview|No|built-in reader|first picture inside, else a card
 docx|Word document (Open XML)|Office document|Preview|No|built-in reader|stored thumbnail, else a card
 docm|Word macro-enabled document|Office document|Preview|No|built-in reader|stored thumbnail, else a card
 dotx|Word template|Office document|Preview|No|built-in reader|stored thumbnail, else a card

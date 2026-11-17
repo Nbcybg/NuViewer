@@ -351,6 +351,7 @@ impl App {
                 Entry::Separator,
                 checked(self.action_entry(Action::Gallery, "Gallery").enabled(has), !viewer),
                 checked(self.action_entry(Action::Fullscreen, "Fullscreen"), nv_win::is_fullscreen()),
+                checked(self.action_entry(Action::Borderless, "Borderless window"), nv_win::is_borderless()),
                 checked(self.action_entry(Action::Info, "Info / EXIF").enabled(has), self.hud.show_info),
                 checked(self.action_entry(Action::FilmStrip, "Film strip").enabled(viewer && many), self.strip.pinned),
                 checked(self.action_entry(Action::ReadMode, "Read mode (two pages)").enabled(viewer && many), self.read.on),
@@ -373,7 +374,14 @@ impl App {
                 self.action_entry(Action::PrevFile, "Previous file").enabled(many),
                 self.action_entry(Action::NextFile, "Next file").enabled(many),
             ],
-            4 => vec![self.action_entry(Action::Edit, "NuEditor").enabled(has && viewer), self.edit_with_entry(has), self.action_entry(Action::Settings, "Settings…"), self.action_entry(Action::DiskMonitor, "Disk speed")],
+            4 => vec![
+                self.action_entry(Action::Edit, "NuEditor").enabled(has && viewer),
+                self.edit_with_entry(has),
+                checked(self.action_entry(Action::PickColour, "Pick a colour (copy it)").enabled(has && viewer), self.pick.on),
+                checked(self.action_entry(Action::Palette, "Palette of this picture").enabled(has && viewer), self.pick.palette_on),
+                self.action_entry(Action::Settings, "Settings…"),
+                self.action_entry(Action::DiskMonitor, "Disk speed"),
+            ],
             _ => vec![self.action_entry(Action::Help, "Keys, mouse and credits")],
         }
     }
@@ -427,6 +435,9 @@ impl App {
             self.action_entry(Action::FitReset, self.fit_toggle().1).enabled(viewer),
             checked(self.action_entry(Action::Gallery, "Gallery").enabled(has_file), !viewer),
             checked(self.action_entry(Action::Fullscreen, "Fullscreen"), nv_win::is_fullscreen()),
+            checked(self.action_entry(Action::Borderless, "Borderless window"), nv_win::is_borderless()),
+            checked(self.action_entry(Action::PickColour, "Pick a colour (copy it)").enabled(has_file && viewer), self.pick.on),
+            checked(self.action_entry(Action::Palette, "Palette of this picture").enabled(has_file && viewer), self.pick.palette_on),
             checked(self.action_entry(Action::Slideshow, "Slideshow").enabled(many), self.slide.on),
             self.action_entry(Action::PlayPause, "Play / pause").enabled(playable),
             checked(self.action_entry(Action::ToggleSequences, "Fold image sequences"), self.settings.sequences),

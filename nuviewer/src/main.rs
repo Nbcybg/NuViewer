@@ -16,6 +16,7 @@ mod mouse;
 mod ops;
 mod quick_agent;
 mod order;
+mod pick;
 mod read;
 mod rotate;
 mod settings_more;
@@ -353,6 +354,8 @@ struct App {
     last_nav_ms: Option<f64>,
     hud: Hud,
     rename: Option<Rename>,
+    /// The colour picker and the palette bar (nothing is read until one is switched on).
+    pick: pick::Pick,
     undo: Vec<UndoOp>,
     /// Last folder picked for move/copy; the next picker opens there.
     last_dest: Option<PathBuf>,
@@ -1060,6 +1063,9 @@ impl App {
             nv_win::set_cursor_hidden(false);
             set_timer(self.hwnd, TIMER_CURSOR, CURSOR_IDLE_MS);
         }
+        if self.pick.on && matches!(ev, Event::MouseMove { .. }) {
+            invalidate(self.hwnd); // the read-out follows the pointer
+        }
         if let Event::MouseMove { x, y, left_down } = &ev {
             self.sidebar_hover(*x, *y, *left_down);
             self.strip_hover(*x, *y, *left_down);
@@ -1137,6 +1143,16 @@ impl App {
             // Middle click closes the viewer (not the gallery, and not while the rename box is open).
             Event::MiddleClick if self.mode == Mode::Viewer && self.rename.is_none() => self.request_quit(),
             Event::MiddleClick => {}
+            // The rename box is a text box: click / drag / double click select, right click is the Cut / Copy / Paste menu.
+            Event::MouseDown { x, y, .. } if self.rename.is_some() => self.rename_press(x, y),
+            Event::DoubleClick { x, y, .. } if self.rename.is_some() => self.rename_double(x, y),
+            Event::MouseMove { x, left_down: true, .. } if self.rename.is_some() => self.rename_drag(x),
+            Event::MouseUp if self.rename.is_some() => {
+                if let Some(r) = self.rename.as_mut() {
+                    r.dragging = false;
+                }
+            }
+            Event::RightClick { x, y } if self.rename.is_some() => self.rename_menu(x, y),
             Event::Char(c) => self.rename_char(c),
             Event::Key(k) if self.rename.is_some() => self.rename_key(k),
             Event::Key(k) => {
@@ -1208,6 +1224,9 @@ impl App {
             }
             // A double click on the picture opens the gallery (the first click of it already did its hold-zoom and let go).
             Event::DoubleClick { x, y, ctrl } => {
+                if self.pick_press(x, y) {
+                    return;
+                }
                 if !self.menubar_press(x, y) && !self.sidebar_press(x, y) && !self.strip_press(x, y) && !self.editor_press(x, y) && !self.controls_press(x, y) {
                     if ctrl || self.is_model() || self.pano_active() {
                         self.viewer_press(x, y, ctrl); // on a 3D model / 360 view / with Ctrl held it is just another press
@@ -1223,6 +1242,9 @@ impl App {
                         nv_win::shell::open_url(url);
                         return;
                     }
+                }
+                if self.pick_press(x, y) {
+                    return;
                 }
                 if !self.menubar_press(x, y) && !self.sidebar_press(x, y) && !self.strip_press(x, y) && !self.editor_press(x, y) && !self.controls_press(x, y) {
                     self.viewer_press(x, y, ctrl);
@@ -1292,6 +1314,7 @@ impl App {
             last_nav_ms: None,
             hud: Hud::new(),
             rename: None,
+            pick: Default::default(),
             undo: Vec::new(),
             last_dest: None,
             slide: Slideshow::new(),

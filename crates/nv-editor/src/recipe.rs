@@ -264,6 +264,8 @@ pub struct Recipe {
     pub wb_chart: Option<[f32; 3]>,
     pub curves: Curves,
     pub hue_wheel: [Band; 8],
+    /// Hue curves and the colour warper (OKLCH, see `huecurves`).
+    pub hue_curves: crate::huecurves::HueCurves,
     pub quarter_turns: u8,
     pub flip_h: bool,
     pub flip_v: bool,
@@ -287,6 +289,7 @@ impl Default for Recipe {
             wb_chart: None,
             curves: Curves::default(),
             hue_wheel: [Band { hue: 0.0, sat: 0.0, lum: 0.0 }; 8],
+            hue_curves: Default::default(),
             quarter_turns: 0,
             flip_h: false,
             flip_v: false,
@@ -331,6 +334,7 @@ impl Recipe {
             && self.wb_chart.is_none()
             && self.curves.is_identity()
             && self.hue_wheel.iter().all(|b| b.hue == 0.0 && b.sat == 0.0 && b.lum == 0.0)
+            && self.hue_curves.is_identity()
     }
 
     pub fn vignette_identity(&self) -> bool {
@@ -372,6 +376,7 @@ impl Recipe {
             Group::Color => {
                 self.invert = false;
                 self.hue_wheel = Recipe::default().hue_wheel;
+                self.hue_curves = Default::default();
             }
             Group::Composition => {
                 self.quarter_turns = 0;

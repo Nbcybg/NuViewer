@@ -64,7 +64,7 @@ pub fn kind_of_ext(ext: &str) -> Kind {
     let e = ext.to_ascii_lowercase();
     if nv_codecs::is_raw_ext(&e) {
         Kind::Raw
-    } else if matches!(e.as_str(), "pdf" | "ai" | "eps" | "swf" | "fla" | "html" | "htm" | "xhtml" | "mhtml" | "mht") || (!nv_codecs::is_supported_ext(&e) && nv_codecs::is_document_ext(&e)) {
+    } else if matches!(e.as_str(), "pdf" | "ai" | "eps" | "swf" | "fla" | "html" | "htm" | "xhtml" | "mhtml" | "mht") || nv_codecs::fontview::is_ext(&e) || (!nv_codecs::is_supported_ext(&e) && nv_codecs::is_document_ext(&e)) {
         Kind::Document
     } else if nv_codecs::model::EXTS.contains(&e.as_str()) {
         Kind::Model

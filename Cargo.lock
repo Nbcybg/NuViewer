@@ -1141,7 +1141,7 @@ dependencies = [
 
 [[package]]
 name = "nueditor"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "nv-codecs",
  "nv-core",
@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "nugallery"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "nv-codecs",
  "nv-core",
@@ -1166,7 +1166,7 @@ dependencies = [
 
 [[package]]
 name = "nuimporter"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "nv-codecs",
  "nv-core",
@@ -1270,7 +1270,7 @@ dependencies = [
 
 [[package]]
 name = "nuquick"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "nv-codecs",
  "nv-core",
@@ -1280,7 +1280,7 @@ dependencies = [
 
 [[package]]
 name = "nuviewer"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "nv-codecs",
  "nv-core",
@@ -1293,7 +1293,7 @@ dependencies = [
 
 [[package]]
 name = "nuviewer-setup"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "miniz_oxide 0.9.1",
  "nv-win",
@@ -1302,8 +1302,9 @@ dependencies = [
 
 [[package]]
 name = "nv-codecs"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
+ "brotli-decompressor",
  "fbxcel-dom",
  "flate2",
  "flif",
@@ -1325,6 +1326,7 @@ dependencies = [
  "roxmltree 0.20.0",
  "ruzstd",
  "serde_json",
+ "skrifa",
  "windows",
  "zune-core 0.4.12",
  "zune-jpeg 0.4.21",
@@ -1332,7 +1334,7 @@ dependencies = [
 
 [[package]]
 name = "nv-core"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "flate2",
  "nv-codecs",
@@ -1344,7 +1346,7 @@ dependencies = [
 
 [[package]]
 name = "nv-editor"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "image-webp",
  "jpeg-encoder",
@@ -1353,14 +1355,14 @@ dependencies = [
 
 [[package]]
 name = "nv-media"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "windows",
 ]
 
 [[package]]
 name = "nv-render"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "nv-codecs",
  "windows",
@@ -1368,11 +1370,11 @@ dependencies = [
 
 [[package]]
 name = "nv-text"
-version = "0.3.2"
+version = "0.4.1"
 
 [[package]]
 name = "nv-win"
-version = "0.3.2"
+version = "0.4.1"
 dependencies = [
  "nv-text",
  "png",

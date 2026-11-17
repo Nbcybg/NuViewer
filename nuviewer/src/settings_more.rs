@@ -225,6 +225,9 @@ const G_EXPLORER_REMOVE: u16 = 1404;
 const G_EXPLORER_STATE: u16 = 1405;
 const G_WEBSITE: u16 = 1406;
 const G_SUPPORT: u16 = 1407;
+const G_FONT_SAMPLE: u16 = 1408;
+const G_PICK_FORMAT: u16 = 1409;
+const G_PALETTE_SIZE: u16 = 1410;
 
 const SNAP_FORMATS: [&str; 6] = ["png", "png16", "jpg", "webp", "tiff", "bmp"];
 const SNAP_SDR: [SdrAssume; 4] = [SdrAssume::AsShown, SdrAssume::Bt1886, SdrAssume::Rec709A, SdrAssume::Gamma22];
@@ -310,6 +313,14 @@ pub fn build_more(form: &Form, s: &Settings) {
     form.label(28, 372, 660, 20, &format!("{}  {}   ·   {}", nv_core::about::PROGRAMS.join(" · "), env!("CARGO_PKG_VERSION"), nv_core::i18n::tf("about.made_by", &[&nv_core::about::STUDIO])));
     form.button(G_WEBSITE, 28, 400, 300, 28, nv_core::about::WEBSITE, false);
     form.button(G_SUPPORT, 338, 400, 300, 28, tx("general.support"), false);
+    form.group(12, 452, 696, 160, "Fonts and colours");
+    form.label(28, 478, 660, 20, "The sentence a font is shown with in the viewer, the gallery and thumbnails (up to 100 characters):");
+    form.edit(G_FONT_SAMPLE, 28, 504, 660, 24, &m.font_sample);
+    form.label(28, 546, 250, 20, "A picked colour (K) is copied as:");
+    let fmt_names: Vec<&str> = nv_core::colours::FORMATS.iter().map(|f| f.2).collect();
+    form.combo(G_PICK_FORMAT, 280, 542, 220, 140, &fmt_names, nv_core::colours::FORMATS.iter().position(|f| f.1 == m.pick_format).unwrap_or(0));
+    form.label(28, 580, 250, 20, "Colours in a palette (Ctrl+K), 2 to 16:");
+    form.edit(G_PALETTE_SIZE, 280, 576, 50, 24, &m.palette_size.to_string());
     explorer_state(form);
     ffmpeg_state(form, s);
 }
@@ -400,4 +411,8 @@ pub fn read_more(form: &Form, s: &mut Settings) {
     m.tether_dir = form.text(I_TETHER).trim().trim_matches('"').to_string();
     let langs = languages();
     m.language = langs.get(form.combo_index(G_LANG)).cloned().unwrap_or_else(|| "auto".into());
+    m.font_sample = nv_codecs::fontview::clean_sample(&form.text(G_FONT_SAMPLE));
+    nv_codecs::fontview::set_sample(&m.font_sample);
+    m.pick_format = nv_core::colours::FORMATS[form.combo_index(G_PICK_FORMAT).min(nv_core::colours::FORMATS.len() - 1)].1.to_string();
+    m.palette_size = form.text(G_PALETTE_SIZE).trim().parse::<u8>().map(|v| v.clamp(2, 16)).unwrap_or(m.palette_size);
 }

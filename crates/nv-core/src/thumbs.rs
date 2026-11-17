@@ -48,6 +48,10 @@ fn cache_key(path: &Path, meta: &std::fs::Metadata) -> u64 {
     fnv1a(&mut h, &THUMB_MAX.to_le_bytes());
     // Cached thumbnails are sRGB; what an untagged picture's numbers mean (a setting) changes them.
     fnv1a(&mut h, &nv_codecs::colour_signature().to_le_bytes());
+    // A font's thumbnail shows the user's sentence (Settings), so a new sentence needs new thumbnails.
+    if path.extension().and_then(|e| e.to_str()).is_some_and(nv_codecs::fontview::is_ext) {
+        fnv1a(&mut h, &nv_codecs::fontview::signature().to_le_bytes());
+    }
     h
 }
 

@@ -126,6 +126,11 @@ pub struct Prefs {
     pub tether_dir: String,
     /// NuQuick listens for Ctrl+Print Screen (a region) and Ctrl+Alt+Print Screen (the whole screen) and starts NuImporter.
     pub screenshot_keys: bool,
+    /// The sentence a font file is shown with (up to 100 characters; empty = "The quick brown fox jumps over the lazy dog").
+    pub font_sample: String,
+    /// How a picked colour is written to the clipboard (`colours::ColourFormat::id`), and how many colours a palette has.
+    pub pick_format: String,
+    pub palette_size: u8,
 }
 
 impl Default for Prefs {
@@ -164,6 +169,9 @@ impl Default for Prefs {
             import_edit: false,
             tether_dir: String::new(),
             screenshot_keys: true,
+            font_sample: nv_codecs::fontview::DEFAULT_SAMPLE.to_string(),
+            pick_format: "hex".into(),
+            palette_size: 8,
         }
     }
 }
@@ -238,6 +246,13 @@ impl Prefs {
             "import_edit" => self.import_edit = parse_bool(v).unwrap_or(self.import_edit),
             "tether_dir" => self.tether_dir = v.to_string(),
             "screenshot_keys" => self.screenshot_keys = parse_bool(v).unwrap_or(self.screenshot_keys),
+            "font_sample" => self.font_sample = nv_codecs::fontview::clean_sample(v),
+            "pick_format" => {
+                if crate::colours::ColourFormat::from_id(v).is_some() {
+                    self.pick_format = v.trim().to_ascii_lowercase();
+                }
+            }
+            "palette_size" => self.palette_size = pct(v, 2, 16, self.palette_size),
             _ => return false,
         }
         true
@@ -246,7 +261,7 @@ impl Prefs {
     pub fn serialize(&self) -> String {
         let b = |v: bool| if v { "true" } else { "false" };
         format!(
-            "dim_pct = {}\ncanvas_mode = {}\ncanvas_image = {}\ncanvas_shade = {}\nplay_loop = {}\nplay_pingpong = {}\nautoplay = {}\nvolume = {}\nmuted = {}\nscrub_preview = {}\nseven_zip = {}\nffmpeg = {}\narchive_format = {}\narchive_level = {}\npdf_page = {}\npdf_quality = {}\nlanguage = {}\nsnapshot_format = {}\nsnapshot_quality = {}\nsnapshot_dir = {}\nsnapshot_name = {}\nsnapshot_sdr = {}\nsnapshot_tonemap = {}\nsnapshot_peak = {}\nsnapshot_keep_hdr = {}\nimport_after = {}\nimport_dir = {}\nimport_format = {}\nimport_quality = {}\nimport_name = {}\nimport_edit = {}\ntether_dir = {}\nscreenshot_keys = {}\n",
+            "dim_pct = {}\ncanvas_mode = {}\ncanvas_image = {}\ncanvas_shade = {}\nplay_loop = {}\nplay_pingpong = {}\nautoplay = {}\nvolume = {}\nmuted = {}\nscrub_preview = {}\nseven_zip = {}\nffmpeg = {}\narchive_format = {}\narchive_level = {}\npdf_page = {}\npdf_quality = {}\nlanguage = {}\nsnapshot_format = {}\nsnapshot_quality = {}\nsnapshot_dir = {}\nsnapshot_name = {}\nsnapshot_sdr = {}\nsnapshot_tonemap = {}\nsnapshot_peak = {}\nsnapshot_keep_hdr = {}\nimport_after = {}\nimport_dir = {}\nimport_format = {}\nimport_quality = {}\nimport_name = {}\nimport_edit = {}\ntether_dir = {}\nscreenshot_keys = {}\nfont_sample = {}\npick_format = {}\npalette_size = {}\n",
             self.dim_pct,
             self.canvas_mode.id(),
             self.canvas_image,
@@ -279,7 +294,10 @@ impl Prefs {
             self.import_name,
             b(self.import_edit),
             self.tether_dir,
-            b(self.screenshot_keys)
+            b(self.screenshot_keys),
+            self.font_sample,
+            self.pick_format,
+            self.palette_size
         )
     }
 }

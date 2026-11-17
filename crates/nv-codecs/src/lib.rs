@@ -6,7 +6,9 @@
 
 use std::path::Path;
 
+mod archives;
 mod artfmt;
+mod designfmt;
 mod blend;
 mod codepage;
 mod cmyk;
@@ -18,6 +20,7 @@ mod docthumb;
 mod eps;
 pub mod errors;
 mod flifdec;
+pub mod fontview;
 pub mod formats;
 mod gpufit;
 mod gifdec;
@@ -54,9 +57,12 @@ pub mod stats;
 mod svgdec;
 mod vector2d;
 mod swf;
+mod webfont;
 mod webpage;
 #[cfg(windows)]
 mod wic;
+#[cfg(windows)]
+mod xpsdraw;
 mod webpdec;
 pub mod zipscan;
 
@@ -340,7 +346,7 @@ const BLEND_EXTS: &[&str] = &["blend", "blend1"];
 
 /// Every extension we can open (lowercase, no dot): what the file-association registration lists.
 pub fn supported_extensions() -> Vec<&'static str> {
-    let mut v: Vec<&'static str> = NATIVE_EXTS.iter().chain(RAW_EXTS.iter()).chain(MORE_EXTS.iter()).chain(model::EXTS.iter()).chain(imgfmt::EXTS.iter()).chain(BLEND_EXTS.iter()).chain(artfmt::EXTS.iter()).chain(legacy::EXTS.iter()).chain(vector2d::EXTS.iter()).copied().collect();
+    let mut v: Vec<&'static str> = NATIVE_EXTS.iter().chain(RAW_EXTS.iter()).chain(MORE_EXTS.iter()).chain(model::EXTS.iter()).chain(imgfmt::EXTS.iter()).chain(BLEND_EXTS.iter()).chain(artfmt::EXTS.iter()).chain(legacy::EXTS.iter()).chain(vector2d::EXTS.iter()).chain(fontview::EXTS.iter()).chain(designfmt::EXTS.iter()).copied().collect();
     if cfg!(windows) {
         v.extend(WIC_EXTS);
         v.extend(DOC_EXTS);
@@ -359,7 +365,7 @@ pub fn supported_extensions() -> Vec<&'static str> {
 /// Extensions of still pictures that can be converted to PNG / JPEG: everything we open except video, sound, 3D models,
 /// documents and Blender files.
 pub fn convertible_extensions() -> Vec<&'static str> {
-    let skip = |e: &str| media::media_kind(e).is_some() || e == "duf" || e == "lip" || e == "oci" || e == "cpt" || e == "wad" || model::EXTS.contains(&e) || DOC_EXTS.contains(&e) || BLEND_EXTS.contains(&e) || EPS_EXTS.contains(&e) || TRY_EXTS.contains(&e) || FLASH_EXTS.contains(&e) || webpage::is_ext(e);
+    let skip = |e: &str| media::media_kind(e).is_some() || e == "duf" || e == "lip" || e == "oci" || e == "cpt" || e == "wad" || model::EXTS.contains(&e) || fontview::is_ext(e) || DOC_EXTS.contains(&e) || BLEND_EXTS.contains(&e) || EPS_EXTS.contains(&e) || TRY_EXTS.contains(&e) || FLASH_EXTS.contains(&e) || webpage::is_ext(e);
     supported_extensions().into_iter().filter(|e| !skip(e)).collect()
 }
 
@@ -371,7 +377,7 @@ pub fn is_raw_ext(ext: &str) -> bool {
 pub fn is_supported_ext(ext: &str) -> bool {
     let e = ext.to_ascii_lowercase();
     let e = e.as_str();
-    NATIVE_EXTS.contains(&e) || RAW_EXTS.contains(&e) || MORE_EXTS.contains(&e) || TRY_EXTS.contains(&e) || FLASH_EXTS.contains(&e) || webpage::is_ext(e) || model::EXTS.contains(&e) || imgfmt::is_ext(e) || artfmt::is_ext(e) || legacy::is_ext(e) || vector2d::is_ext(e) || (cfg!(windows) && (WIC_EXTS.contains(&e) || DOC_EXTS.contains(&e) || META_EXTS.contains(&e) || EPS_EXTS.contains(&e))) || SVG_EXTS.contains(&e) || BLEND_EXTS.contains(&e) || media::media_kind(e).is_some()
+    NATIVE_EXTS.contains(&e) || RAW_EXTS.contains(&e) || MORE_EXTS.contains(&e) || TRY_EXTS.contains(&e) || FLASH_EXTS.contains(&e) || webpage::is_ext(e) || model::EXTS.contains(&e) || imgfmt::is_ext(e) || artfmt::is_ext(e) || legacy::is_ext(e) || vector2d::is_ext(e) || fontview::is_ext(e) || designfmt::is_ext(e) || (cfg!(windows) && (WIC_EXTS.contains(&e) || DOC_EXTS.contains(&e) || META_EXTS.contains(&e) || EPS_EXTS.contains(&e))) || SVG_EXTS.contains(&e) || BLEND_EXTS.contains(&e) || media::media_kind(e).is_some()
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -604,6 +610,12 @@ fn decode_file_opts(path: &Path, first_only: bool, thumb: bool) -> Result<Image,
         return r;
     }
     if let Some(r) = vector2d::decode(path, &ext, first_only) {
+        return r;
+    }
+    if let Some(r) = fontview::decode(path, &ext, first_only) {
+        return r;
+    }
+    if let Some(r) = designfmt::decode(path, &ext, first_only) {
         return r;
     }
     if MORE_EXTS.contains(&ext.as_str()) {

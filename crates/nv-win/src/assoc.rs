@@ -47,18 +47,22 @@ pub const FORMATS: &[Format] = &[
     f("Flash (SWF movie, FLA project)", &["swf", "fla"], false),
     f("Web page (HTML, as a picture)", &["html", "htm", "xhtml", "mhtml", "mht"], false),
     f("Windows metafile", &["emf", "wmf"], false),
+    f("Fonts (TTF, OTF, TTC, WOFF, WOFF2, EOT, Type 1)", &["ttf", "otf", "ttc", "otc", "woff", "woff2", "eot", "pfb", "pfa", "fon"], false),
+    f("Layered paint files (Krita, OpenRaster, GIMP, Paint Shop Pro, Chasys)", &["kra", "ora", "xcf", "psp", "pspimage", "cd5"], false),
+    f("CorelDRAW, XPS and DWF", &["cdr", "cdt", "xps", "oxps", "dwfx", "dwf"], false),
     f("STL", &["stl"], false),
     f("OBJ", &["obj"], false),
     f("PLY", &["ply"], false),
     f("glTF / VRM", &["glb", "gltf", "vrm"], false),
     f("FBX", &["fbx"], false),
     f("Blender", &["blend", "blend1"], false),
-    f("3DS / 3MF / AMF / DAE / DXF / LWO / LAS / USD", &["3ds", "3mf", "amf", "dae", "dxf", "lwo", "lwo2", "las", "usda", "usdz", "ma", "unitypackage"], false),
+    f("3DS / 3MF / AMF / DAE / DXF / LWO / LAS / USD / VRML / U3D", &["3ds", "3mf", "amf", "dae", "dxf", "lwo", "lwo2", "las", "usda", "usdz", "ma", "unitypackage", "wrl", "vrml", "wrz", "u3d"], false),
     f("CAD and interchange (STEP, IGES, Alembic, USD, DWG)", &["step", "stp", "iges", "igs", "abc", "usd", "usdc", "dwg"], false),
-    f("3D scenes of other programs (max, c4d, lxo, ztl, spp ...)", &["max", "c4d", "lxo", "ztl", "zpr", "spp", "ms", "hrc", "uasset", "mb", "f3d"], false),
+    f("3D scenes of other programs (max, c4d, lxo, ztl, spp ...)", &["max", "c4d", "lxo", "ztl", "zpr", "spp", "ms", "hrc", "uasset", "mb", "f3d", "xvl", "xv3", "xv0"], false),
     f("Video", &["mp4", "m4v", "mov", "mkv", "avi", "wmv", "webm", "mpg", "mpeg", "mpe", "ts", "mts", "m2ts", "3gp", "flv", "ogv", "m2t", "3g2", "f4v", "ogm", "vob", "asf", "dv", "rm", "rmvb", "divx", "m2v", "mod", "tod", "wtv"], false),
     f("Sound (waveform)", &["wav", "mp3", "flac", "aac", "m4a", "ogg", "oga", "opus", "wma", "aif", "aiff", "aifc", "au", "snd", "pcm", "alac", "ape", "dsf", "dff", "dsd", "wv", "tta", "mka", "mpc", "mp2", "amr", "ac3", "dts", "caf", "weba", "m4b"], false),
     f("RED / MXF / BRAW", &["r3d", "mxf", "braw"], false),
+    f("Archives, disc images and packages (CAB, ISO, DMG, TAR, GZ, RPM, DEB, 7z, RAR ...)", &["cab", "dmg", "iso", "wim", "esd", "swm", "cpio", "arj", "lzh", "lha", "z", "taz", "lz", "lzma", "lz4", "tbz", "tbz2", "tb2", "txz", "tlz", "tzst", "rpm", "deb", "ar", "tar", "tgz", "gz", "bz2", "xz", "zst", "7z", "rar", "cb7", "cbr", "pak"], false),
     f("Canon RAW", &["cr2", "cr3", "crw"], true),
     f("Nikon RAW", &["nef", "nrw"], true),
     f("Sony RAW", &["arw", "sr2", "srf"], true),
@@ -74,10 +78,11 @@ pub const FORMATS: &[Format] = &[
 /// The groups of the chooser: title and the range of `FORMATS` each one shows.
 pub const GROUPS: &[(&str, std::ops::Range<usize>)] = &[
     ("Pictures", 0..21),
-    ("Documents and vector art", 21..27),
-    ("3D models", 27..36),
-    ("Video and sound", 36..39),
-    ("Camera RAW", 39..49),
+    ("Documents and vector art", 21..30),
+    ("3D models", 30..39),
+    ("Video and sound", 39..42),
+    ("Archives and disc images", 42..43),
+    ("Camera RAW", 43..53),
 ];
 
 const ROW_HEIGHT: i32 = 20;
@@ -243,7 +248,7 @@ mod tests {
         assert_eq!(GROUPS.last().map(|g| g.1.end), Some(FORMATS.len()), "the groups cover every format");
         assert!(GROUPS.windows(2).all(|w| w[0].1.end == w[1].1.start));
         assert_eq!(FORMATS[GROUPS[1].1.start].name, "PDF / Illustrator");
-        assert_eq!(FORMATS[GROUPS[4].1.start].name, "Canon RAW");
+        assert_eq!(FORMATS[GROUPS[5].1.start].name, "Canon RAW");
     }
 
     #[test]

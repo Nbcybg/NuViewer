@@ -36,6 +36,20 @@ pub fn toggle_fullscreen(app: &mut App) {
     nv_win::invalidate(app.hwnd);
 }
 
+pub fn toggle_borderless(app: &mut App) {
+    nv_win::toggle_borderless(app.hwnd);
+    let (w, h) = nv_win::client_size(app.hwnd);
+    app.size = (w, h);
+    if let Some(r) = app.renderer.as_mut() {
+        let _ = r.resize(w, h);
+    }
+    app.relayout();
+    app.clamp_scroll();
+    app.request_thumbs();
+    app.draw();
+    nv_win::invalidate(app.hwnd);
+}
+
 /// "3.2 MB" like Explorer.
 pub fn fmt_bytes(n: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
@@ -203,6 +217,7 @@ impl App {
         self.draw_right();
         self.draw_toolbar();
         self.draw_overlays(w, h, d);
+        self.draw_pick(w, h, d);
         self.draw_drag_label(w, h, d);
         self.draw_tip(w, h, d);
         if let Some(r) = self.renderer.as_mut() {
@@ -425,7 +440,6 @@ impl App {
                 Btn::ViewDetails => "☰".to_string(),
                 Btn::ViewList => "≣".to_string(),
                 Btn::Tools => "Tools ▾".to_string(),
-                Btn::Exit => "✕".to_string(),
                 Btn::PinTop => "Pin".to_string(),
                 _ => String::new(),
             };

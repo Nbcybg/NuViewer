@@ -42,6 +42,9 @@ pub const C_SCOPE_VECTOR: u32 = 40;
 pub const C_FALSE: u32 = 41;
 pub const C_PANEL: u32 = 42;
 pub const C_FULLSCREEN: u32 = 43;
+pub const C_BORDERLESS: u32 = 120;
+pub const C_PICK: u32 = 121;
+pub const C_PALETTE: u32 = 122;
 pub const C_SCOPE_NEXT: u32 = 44;
 pub const C_CROP: u32 = 50;
 pub const C_WB: u32 = 51;
@@ -118,6 +121,14 @@ impl App {
         nv_win::toggle_fullscreen(self.hwnd);
         let (w, h) = nv_win::client_size(self.hwnd);
         // The WM_SIZE of the style change arrives while this handler is busy: resize by hand.
+        self.handle(Event::Resize { width: w, height: h });
+        self.update_title();
+    }
+
+    /// Shift+F11 / View > Borderless window.
+    pub(super) fn toggle_borderless(&mut self) {
+        nv_win::toggle_borderless(self.hwnd);
+        let (w, h) = nv_win::client_size(self.hwnd);
         self.handle(Event::Resize { width: w, height: h });
         self.update_title();
     }
@@ -204,12 +215,15 @@ impl App {
                 Self::checked(C_PANEL, "Panel\tTab", self.panel),
                 Entry::Separator,
                 Self::checked(C_FULLSCREEN, "Fullscreen\tF11", nv_win::is_fullscreen()),
+                Self::checked(C_BORDERLESS, "Borderless window\tShift+F11", nv_win::is_borderless()),
             ],
             3 => vec![
                 Self::checked(C_CROP, "Crop…\tR", self.tools.mode == Mode::Crop),
                 Entry::item(C_AUTOCROP, "Crop to the picture (no empty corners)").enabled(has),
                 Entry::item(C_CLEARCROP, "Remove the crop").enabled(self.recipe.crop.is_some()),
                 Self::checked(C_WB, "White balance picker\tW", self.tools.mode == Mode::Picker),
+                Self::checked(C_PICK, "Pick a colour (copy it)\tK", self.colour.on),
+                Self::checked(C_PALETTE, "Palette of the picture\tCtrl+K", self.colour.palette_on),
                 self.retouch_menu(),
             ],
             _ => vec![Entry::item(C_HELP, "Keys, mouse and credits\tF1")],
@@ -233,10 +247,13 @@ impl App {
             Entry::Separator,
             Self::checked(C_CROP, "Crop…\tR", self.tools.mode == Mode::Crop),
             Self::checked(C_WB, "White balance picker\tW", self.tools.mode == Mode::Picker),
+            Self::checked(C_PICK, "Pick a colour (copy it)\tK", self.colour.on),
+            Self::checked(C_PALETTE, "Palette of the picture\tCtrl+K", self.colour.palette_on),
             self.retouch_menu(),
             self.scope_menu(),
             Self::checked(C_PANEL, "Panel\tTab", self.panel),
             Self::checked(C_FULLSCREEN, "Fullscreen\tF11", nv_win::is_fullscreen()),
+            Self::checked(C_BORDERLESS, "Borderless window\tShift+F11", nv_win::is_borderless()),
             Entry::Separator,
             Entry::item(C_SAVE, "Save\tCtrl+S").enabled(has && self.dirty()),
             Entry::item(C_SAVE_COPY, "Save a copy…\tCtrl+Shift+S").enabled(has),
@@ -337,6 +354,9 @@ impl App {
             }
             C_PANEL => self.toggle_panel(),
             C_FULLSCREEN => self.toggle_window(),
+            C_BORDERLESS => self.toggle_borderless(),
+            C_PICK => self.toggle_colour(),
+            C_PALETTE => self.toggle_palette(),
             C_CROP => {
                 if self.tools.mode == Mode::Crop {
                     self.finish_crop(true);

@@ -15,6 +15,15 @@ pub enum Target {
     Num(Num),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum EntryOp {
+    SelectAll,
+    Copy,
+    Cut,
+    Paste,
+    Delete,
+}
+
 pub struct NumEntry {
     pub target: Target,
     pub text: String,
@@ -97,12 +106,19 @@ impl App {
         if self.entry.is_none() {
             return false;
         }
+        let ctrl = nv_win::modifiers().ctrl;
         match vk {
             0x0D => self.entry_commit(),
             0x1B => {
                 self.entry = None;
                 invalidate(self.hwnd);
             }
+            // Select all (the next character replaces everything), copy, cut, paste.
+            0x41 if ctrl => self.entry_edit(EntryOp::SelectAll),
+            0x43 if ctrl => self.entry_edit(EntryOp::Copy),
+            0x58 if ctrl => self.entry_edit(EntryOp::Cut),
+            0x56 if ctrl => self.entry_edit(EntryOp::Paste),
+            0x2E => self.entry_edit(EntryOp::Delete),
             0x08 => {
                 if let Some(e) = &mut self.entry {
                     if e.fresh {
@@ -117,6 +133,61 @@ impl App {
             _ => {}
         }
         true
+    }
+
+    /// Select all / copy / cut / paste / delete in the number being typed.
+    pub(super) fn entry_edit(&mut self, op: EntryOp) {
+        let hwnd = self.hwnd;
+        let Some(e) = &mut self.entry else { return };
+        match op {
+            EntryOp::SelectAll => e.fresh = true,
+            EntryOp::Copy => {
+                let _ = nv_win::shell::clipboard_copy_text(hwnd, &e.text);
+            }
+            EntryOp::Cut => {
+                let _ = nv_win::shell::clipboard_copy_text(hwnd, &e.text);
+                e.text.clear();
+                e.fresh = false;
+            }
+            EntryOp::Delete => {
+                e.text.clear();
+                e.fresh = false;
+            }
+            EntryOp::Paste => {
+                if let Some(t) = nv_win::files::clipboard_text(hwnd) {
+                    let clean: String = t.trim().chars().map(|c| if c == ',' { '.' } else { c }).filter(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E')).take(14).collect();
+                    if !clean.is_empty() {
+                        e.text = clean;
+                        e.fresh = false;
+                    }
+                }
+            }
+        }
+        invalidate(hwnd);
+    }
+
+    /// Right click while typing a number: Cut, Copy, Paste, Delete, Select all.
+    pub(super) fn entry_menu(&mut self, x: i32, y: i32) {
+        use nv_win::menu::Entry as Item;
+        let Some(e) = &self.entry else { return };
+        let has_text = !e.text.is_empty();
+        let paste_ok = nv_win::files::clipboard_text(self.hwnd).is_some();
+        let menu = vec![
+            Item::item(1, "Cut\tCtrl+X").enabled(has_text),
+            Item::item(2, "Copy\tCtrl+C").enabled(has_text),
+            Item::item(3, "Paste\tCtrl+V").enabled(paste_ok),
+            Item::item(4, "Delete").enabled(has_text),
+            Item::Separator,
+            Item::item(5, "Select all\tCtrl+A").enabled(has_text),
+        ];
+        match nv_win::menu::popup(self.hwnd, x, y, &menu) {
+            Some(1) => self.entry_edit(EntryOp::Cut),
+            Some(2) => self.entry_edit(EntryOp::Copy),
+            Some(3) => self.entry_edit(EntryOp::Paste),
+            Some(4) => self.entry_edit(EntryOp::Delete),
+            Some(5) => self.entry_edit(EntryOp::SelectAll),
+            _ => {}
+        }
     }
 
     fn entry_commit(&mut self) {

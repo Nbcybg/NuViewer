@@ -117,6 +117,7 @@ impl App {
 
     /// Start decoding the canvas picture when the settings name one that is not on the GPU yet.
     pub fn poll_background(&mut self) {
+        self.pick_poll();
         if let Some(rx) = &self.disp.bg_rx {
             if let Ok(res) = rx.try_recv() {
                 self.disp.bg_rx = None;

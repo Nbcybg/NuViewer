@@ -11,6 +11,9 @@ pub const ID_WHEEL: u64 = 6;
 /// Sections of the panel after the seven slider groups.
 pub const SECTION_CURVES: usize = 7;
 pub const SECTION_WHEEL: usize = 8;
+/// Hue vs Hue / Sat / Lum curves and the colour warper (tabs of one section).
+pub const SECTION_HUECURVES: usize = 9;
+pub const ID_WARP: u64 = 7;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
@@ -34,6 +37,10 @@ pub struct Tools {
     pub curve_drag: Option<usize>,
     pub band: usize,
     pub band_drag: Option<usize>,
+    /// Hue curves section: 0 hue, 1 sat, 2 lum, 3 warper; the point being dragged; the warper node being dragged (spoke, ring).
+    pub hue_tab: usize,
+    pub hue_drag: Option<usize>,
+    pub warp_drag: Option<(usize, usize)>,
     /// Where the fitted picture was drawn last (window pixels).
     pub pic_rect: [f32; 4],
     /// Brush size of the heal tools, percent of the picture's long side.
@@ -60,6 +67,9 @@ impl Default for Tools {
             curve_drag: None,
             band: 3,
             band_drag: None,
+            hue_tab: 0,
+            hue_drag: None,
+            warp_drag: None,
             pic_rect: [0.0; 4],
             brush: 2.0,
             cursor: None,
@@ -87,7 +97,7 @@ impl App {
         let d = self.dpi;
         let pad = 14.0 * d;
         let w = panel[2] - panel[0] - 2.0 * pad;
-        if section == SECTION_CURVES {
+        if section == SECTION_CURVES || section == SECTION_HUECURVES {
             let tw = (w - 3.0 * 4.0 * d) / 4.0;
             let tabs = (0..4).map(|i| [panel[0] + pad + i as f32 * (tw + 4.0 * d), y + 4.0 * d, panel[0] + pad + i as f32 * (tw + 4.0 * d) + tw, y + 28.0 * d]).collect();
             let area = [panel[0] + pad, y + 36.0 * d, panel[0] + pad + w, y + 36.0 * d + w * 0.8];
@@ -107,7 +117,7 @@ impl App {
     }
 
     fn special(&self) -> Option<Special> {
-        if !self.panel || (self.open_group != SECTION_CURVES && self.open_group != SECTION_WHEEL) {
+        if !self.panel || (self.open_group != SECTION_CURVES && self.open_group != SECTION_WHEEL && self.open_group != SECTION_HUECURVES) {
             return None;
         }
         self.layout().special
@@ -215,6 +225,18 @@ impl App {
 
     /// R crop, W picker, and inside the crop tool Enter / Esc / A. True if the key was used.
     pub(super) fn tool_key(&mut self, vk: u32) -> bool {
+        // The colour picker (K) and the palette (Ctrl+K); Esc stops them first.
+        if vk == 0x1B && self.colour_escape() {
+            return true;
+        }
+        if vk == 0x4B && self.tools.mode == Mode::None {
+            if nv_win::modifiers().ctrl {
+                self.toggle_palette();
+            } else {
+                self.toggle_colour();
+            }
+            return true;
+        }
         if matches!(self.tools.mode, Mode::None | Mode::Heal(_)) && self.heal_key(vk) {
             return true;
         }
@@ -311,6 +333,9 @@ impl App {
     pub(super) fn tool_press(&mut self, x: i32, y: i32, ctrl: bool) -> bool {
         let (fx, fy) = (x as f32, y as f32);
         if let Some(sp) = self.special() {
+            if self.open_group == SECTION_HUECURVES {
+                return self.hue_press(&sp, fx, fy);
+            }
             if self.open_group == SECTION_CURVES {
                 if let Some(i) = sp.tabs.iter().position(|r| contains(*r, fx, fy)) {
                     self.tools.curve_ch = i;
@@ -396,6 +421,9 @@ impl App {
                 return self.heal_drag(x, y);
             }
         }
+        if self.tools.hue_drag.is_some() || self.tools.warp_drag.is_some() {
+            return self.hue_drag(fx, fy);
+        }
         if let Some(idx) = self.tools.curve_drag {
             if let Some(sp) = self.special() {
                 let (nx, ny) = Self::curve_point(sp.area, fx, fy);
@@ -432,6 +460,8 @@ impl App {
     pub(super) fn tool_release(&mut self) {
         self.heal_release();
         self.tools.curve_drag = None;
+        self.tools.hue_drag = None;
+        self.tools.warp_drag = None;
         self.tools.band_drag = None;
         self.tools.crop_drag = None;
         if let Some((a, b)) = self.tools.level.take() {
@@ -453,6 +483,9 @@ impl App {
     pub(super) fn tool_right(&mut self, x: i32, y: i32) -> bool {
         let (fx, fy) = (x as f32, y as f32);
         let Some(sp) = self.special() else { return false };
+        if self.open_group == SECTION_HUECURVES {
+            return self.hue_right(&sp, fx, fy);
+        }
         if self.open_group == SECTION_CURVES {
             if contains(sp.area, fx, fy) {
                 if let Some(i) = self.curve_near(sp.area, fx, fy, 14.0 * self.dpi) {
@@ -612,6 +645,255 @@ pub fn draw_curves(r: &mut Renderer, text: &mut Text, t: &Tools, rec: &Recipe, s
         let _ = r.fill_rect([sx - 2.5 * d, sy - 2.5 * d, sx + 2.5 * d, sy + 2.5 * d], rgb(cur.1, 1.0));
     }
     text.draw(r, "click adds a point · drag moves · right-click removes", (10.0 * d) as i32, a[0], a[3] + 8.0 * d, dim_c);
+}
+
+// ---------------------------------------------------------------------------------------------- hue curves and the warper
+
+/// A hue (degrees) as an angle on the wheel: 0 at the top, clockwise.
+fn wheel_xy(c: (f32, f32), radius: f32, hue: f32) -> (f32, f32) {
+    (c.0 + radius * hue.to_radians().sin(), c.1 - radius * hue.to_radians().cos())
+}
+
+impl App {
+    /// The centre and the radius of the warper's wheel inside the section's square.
+    fn warp_geometry(a: [f32; 4]) -> ((f32, f32), f32) {
+        (((a[0] + a[2]) / 2.0, (a[1] + a[3]) / 2.0), (a[2] - a[0]).min(a[3] - a[1]) / 2.0 * 0.94)
+    }
+
+    /// Where a warper node is drawn: the colour it stands for (spoke / ring), moved by its offsets.
+    fn warp_node_xy(rec: &Recipe, a: [f32; 4], spoke: usize, ring: usize) -> ((f32, f32), (f32, f32)) {
+        use nv_editor::huecurves::{RINGS, SPOKES};
+        let (c, rad) = Self::warp_geometry(a);
+        let _ = SPOKES;
+        let n = ring as f32 / (RINGS - 1) as f32;
+        let home = wheel_xy(c, rad * n, spoke as f32 * 30.0);
+        let [dh, ds] = rec.hue_curves.node(spoke, ring);
+        let moved = wheel_xy(c, rad * (n + ds).clamp(0.0, 1.0), spoke as f32 * 30.0 + dh);
+        (home, moved)
+    }
+
+    fn warp_near(&self, a: [f32; 4], x: f32, y: f32, radius: f32) -> Option<(usize, usize)> {
+        use nv_editor::huecurves::{RINGS, SPOKES};
+        let mut best: Option<((usize, usize), f32)> = None;
+        for s in 0..SPOKES {
+            for r in 1..RINGS {
+                let (home, moved) = Self::warp_node_xy(&self.recipe, a, s, r);
+                for p in [moved, home] {
+                    let d = ((p.0 - x).powi(2) + (p.1 - y).powi(2)).sqrt();
+                    if d <= radius && best.is_none_or(|b| d < b.1) {
+                        best = Some(((s, r), d));
+                    }
+                }
+            }
+        }
+        best.map(|b| b.0)
+    }
+
+    fn hue_point(a: [f32; 4], x: f32, y: f32) -> (f32, f32) {
+        (((x - a[0]) / (a[2] - a[0])).clamp(0.0, 0.9999) * 360.0, (1.0 - 2.0 * (y - a[1]) / (a[3] - a[1])).clamp(-1.0, 1.0))
+    }
+
+    fn hue_near(&self, a: [f32; 4], x: f32, y: f32, radius: f32) -> Option<usize> {
+        let (w, h) = (a[2] - a[0], a[3] - a[1]);
+        self.recipe.hue_curves.curve(self.tools.hue_tab).iter().position(|p| {
+            let (sx, sy) = (a[0] + p.0 / 360.0 * w, a[1] + (1.0 - p.1) / 2.0 * h);
+            ((sx - x).powi(2) + (sy - y).powi(2)).sqrt() <= radius
+        })
+    }
+
+    pub(super) fn hue_press(&mut self, sp: &Special, fx: f32, fy: f32) -> bool {
+        if let Some(i) = sp.tabs.iter().position(|r| contains(*r, fx, fy)) {
+            self.tools.hue_tab = i;
+            invalidate(self.hwnd);
+            return true;
+        }
+        if !contains(sp.area, fx, fy) {
+            return false;
+        }
+        if self.tools.hue_tab == 3 {
+            if let Some((s, r)) = self.warp_near(sp.area, fx, fy, 12.0 * self.dpi) {
+                self.snapshot();
+                self.tools.warp_drag = Some((s, r));
+                return self.hue_drag(fx, fy);
+            }
+            return true;
+        }
+        self.snapshot();
+        let tab = self.tools.hue_tab;
+        let idx = match self.hue_near(sp.area, fx, fy, 12.0 * self.dpi) {
+            Some(i) => i,
+            None => {
+                let (h, v) = Self::hue_point(sp.area, fx, fy);
+                nv_editor::huecurves::set_point(self.recipe.hue_curves.curve_mut(tab), h, v)
+            }
+        };
+        self.tools.hue_drag = Some(idx);
+        self.hue_drag(fx, fy)
+    }
+
+    pub(super) fn hue_drag(&mut self, fx: f32, fy: f32) -> bool {
+        let Some(sp) = self.special() else { return true };
+        if let Some((s, r)) = self.tools.warp_drag {
+            use nv_editor::huecurves::RINGS;
+            let (c, rad) = Self::warp_geometry(sp.area);
+            let (dx, dy) = (fx - c.0, fy - c.1);
+            let hue = dx.atan2(-dy).to_degrees().rem_euclid(360.0);
+            let n = ((dx * dx + dy * dy).sqrt() / rad).clamp(0.0, 1.0);
+            let home_h = s as f32 * 30.0;
+            let mut dh = (hue - home_h).rem_euclid(360.0);
+            if dh > 180.0 {
+                dh -= 360.0;
+            }
+            let ds = n - r as f32 / (RINGS - 1) as f32;
+            // A small pull is a click that did not mean to move the node.
+            let (dh, ds) = if dh.abs() < 1.0 && ds.abs() < 0.01 { (0.0, 0.0) } else { (dh, ds) };
+            self.recipe.hue_curves.set_node(s, r, dh, ds);
+            self.changed();
+            return true;
+        }
+        if let Some(i) = self.tools.hue_drag {
+            let tab = self.tools.hue_tab;
+            let (h, v) = Self::hue_point(sp.area, fx, fy);
+            let pts = self.recipe.hue_curves.curve_mut(tab);
+            if i < pts.len() {
+                // Keep the order: a point may not pass its neighbours.
+                let lo = if i > 0 { pts[i - 1].0 + 1.0 } else { 0.0 };
+                let hi = if i + 1 < pts.len() { pts[i + 1].0 - 1.0 } else { 359.0 };
+                pts[i] = (h.clamp(lo, hi.max(lo)), if v.abs() < 0.03 { 0.0 } else { v });
+                self.changed();
+            }
+        }
+        true
+    }
+
+    pub(super) fn hue_right(&mut self, sp: &Special, fx: f32, fy: f32) -> bool {
+        if !contains(sp.area, fx, fy) {
+            return false;
+        }
+        if self.tools.hue_tab == 3 {
+            if let Some((s, r)) = self.warp_near(sp.area, fx, fy, 14.0 * self.dpi) {
+                self.snapshot();
+                self.recipe.hue_curves.set_node(s, r, 0.0, 0.0);
+                self.changed();
+            }
+            return true;
+        }
+        if let Some(i) = self.hue_near(sp.area, fx, fy, 14.0 * self.dpi) {
+            self.snapshot();
+            let tab = self.tools.hue_tab;
+            self.recipe.hue_curves.curve_mut(tab).remove(i);
+            self.changed();
+        }
+        true
+    }
+}
+
+/// The warper's wheel: hue round the circle, chroma growing outwards (OKLCH at a fixed lightness), as a bitmap `n` pixels square.
+pub fn warp_image(n: u32) -> Image {
+    let mut rgba = vec![0u8; (n * n * 4) as usize];
+    let c = n as f32 / 2.0;
+    let radius = c * 0.94;
+    for y in 0..n {
+        for x in 0..n {
+            let (dx, dy) = (x as f32 + 0.5 - c, y as f32 + 0.5 - c);
+            let rad = (dx * dx + dy * dy).sqrt() / radius;
+            if rad > 1.0 {
+                continue;
+            }
+            let hue = dx.atan2(-dy).to_degrees().rem_euclid(360.0);
+            let rgb = nv_editor::huecurves::lch_to_srgb(0.74, rad * nv_editor::huecurves::CHROMA_MAX, hue);
+            let edge = ((1.0 - rad) * radius).clamp(0.0, 1.0);
+            let i = ((y * n + x) * 4) as usize;
+            rgba[i..i + 4].copy_from_slice(&[(rgb[0] * 255.0) as u8, (rgb[1] * 255.0) as u8, (rgb[2] * 255.0) as u8, (edge * 255.0) as u8]);
+        }
+    }
+    Image::new(n, n, rgba)
+}
+
+/// The Hue curves section: its four tabs and the square of the chosen one (a curve over the hue circle, or the warper's wheel).
+pub fn draw_hue_curves(r: &mut Renderer, text: &mut Text, t: &Tools, rec: &Recipe, sp: &Special, d: f32) {
+    use nv_editor::huecurves::{curve_lut, lch_to_srgb, RINGS, SPOKES};
+    let (text_c, dim_c, accent) = (rgb(pal::TEXT, 1.0), rgb(pal::DIM, 1.0), rgb(pal::ACCENT, 1.0));
+    for (i, (rect, name)) in sp.tabs.iter().zip(["Hue", "Sat", "Lum", "Warp"]).enumerate() {
+        let changed = if i < 3 { rec.hue_curves.curve(i).iter().any(|p| p.1 != 0.0) } else { rec.hue_curves.warp.iter().any(|n| n[0] != 0.0 || n[1] != 0.0) };
+        let fill = if t.hue_tab == i { accent } else { rgb(pal::TILE, 1.0) };
+        let _ = r.fill_rect(*rect, fill);
+        text.draw_centered(r, name, (12.0 * d) as i32, (rect[0] + rect[2]) / 2.0, rect[1] + 4.0 * d, text_c);
+        if changed {
+            let _ = r.fill_rect([rect[2] - 9.0 * d, rect[1] + 3.0 * d, rect[2] - 4.0 * d, rect[1] + 8.0 * d], rgb(0xFFD23D, 1.0));
+        }
+    }
+    let a = sp.area;
+    let (w, h) = (a[2] - a[0], a[3] - a[1]);
+    let _ = r.fill_rect(a, rgb(0x15171A, 1.0));
+    if t.hue_tab < 3 {
+        // The hues along the bottom edge, so a point's place on the wheel can be read.
+        let strip = 6.0 * d;
+        let mut x = 0.0;
+        while x < w {
+            let col = lch_to_srgb(0.74, 0.12, x / w * 360.0);
+            let hex = ((col[0] * 255.0) as u32) << 16 | ((col[1] * 255.0) as u32) << 8 | (col[2] * 255.0) as u32;
+            let _ = r.fill_rect([a[0] + x, a[3] - strip, a[0] + x + 3.0, a[3]], rgb(hex, 1.0));
+            x += 3.0;
+        }
+        for k in 1..4 {
+            let f = k as f32 / 4.0;
+            let _ = r.fill_rect([a[0] + w * f - 0.5, a[1], a[0] + w * f + 0.5, a[3] - strip], rgb(0x2E3238, 1.0));
+        }
+        let mid = a[1] + h / 2.0;
+        let _ = r.fill_rect([a[0], mid - 0.5, a[2], mid + 0.5], rgb(0x4A4F58, 1.0));
+        let pts = rec.hue_curves.curve(t.hue_tab);
+        if !pts.is_empty() {
+            let lut = curve_lut(pts);
+            let mut x = 0.0;
+            while x < w {
+                let v = lut[((x / w * 360.0) as usize).min(359)];
+                let sy = a[1] + (1.0 - v) / 2.0 * h;
+                let _ = r.fill_rect([a[0] + x, sy - 1.0, a[0] + x + 2.0, sy + 1.0], rgb(0xF0F0F0, 1.0));
+                x += 2.0;
+            }
+        }
+        for p in pts {
+            let (sx, sy) = (a[0] + p.0 / 360.0 * w, a[1] + (1.0 - p.1) / 2.0 * h);
+            let _ = r.fill_rect([sx - 4.0 * d, sy - 4.0 * d, sx + 4.0 * d, sy + 4.0 * d], rgb(0xFFFFFF, 1.0));
+            let _ = r.fill_rect([sx - 2.5 * d, sy - 2.5 * d, sx + 2.5 * d, sy + 2.5 * d], rgb(0xFFD23D, 1.0));
+        }
+        let what = ["moves the hue (up to 90°)", "raises / lowers the chroma", "raises / lowers the lightness"][t.hue_tab];
+        text.draw(r, &format!("up {what}"), (10.0 * d) as i32, a[0], a[3] + 8.0 * d, dim_c);
+        text.draw(r, "click adds · drag moves · right-click removes", (10.0 * d) as i32, a[0], a[3] + 22.0 * d, dim_c);
+    } else {
+        let side = w.min(h);
+        let square = [a[0] + (w - side) / 2.0, a[1] + (h - side) / 2.0, a[0] + (w + side) / 2.0, a[1] + (h + side) / 2.0];
+        let _ = r.draw_image(ID_WARP, square, false);
+        let (c, rad) = App::warp_geometry(a);
+        for s in 0..SPOKES {
+            for ring in 1..RINGS {
+                let (home, moved) = App::warp_node_xy(rec, a, s, ring);
+                let node = rec.hue_curves.node(s, ring);
+                let changed = node[0] != 0.0 || node[1] != 0.0;
+                if changed {
+                    // The pull, as a line of small squares from where the node was to where it is.
+                    let steps = (((moved.0 - home.0).powi(2) + (moved.1 - home.1).powi(2)).sqrt() / (3.0 * d)) as i32;
+                    for k in 0..=steps {
+                        let f = k as f32 / steps.max(1) as f32;
+                        let (x, y) = (home.0 + (moved.0 - home.0) * f, home.1 + (moved.1 - home.1) * f);
+                        let _ = r.fill_rect([x - 1.0, y - 1.0, x + 1.0, y + 1.0], rgb(0xFFFFFF, 0.9));
+                    }
+                    let _ = r.fill_rect([home.0 - 2.0 * d, home.1 - 2.0 * d, home.0 + 2.0 * d, home.1 + 2.0 * d], rgb(0x101010, 0.9));
+                    let s2 = 5.0 * d;
+                    let _ = r.fill_rect([moved.0 - s2 - 1.0, moved.1 - s2 - 1.0, moved.0 + s2 + 1.0, moved.1 + s2 + 1.0], rgb(0xFFFFFF, 1.0));
+                    let _ = r.fill_rect([moved.0 - s2, moved.1 - s2, moved.0 + s2, moved.1 + s2], rgb(0xFFD23D, 1.0));
+                } else {
+                    let s2 = 2.5 * d;
+                    let _ = r.fill_rect([home.0 - s2 - 1.0, home.1 - s2 - 1.0, home.0 + s2 + 1.0, home.1 + s2 + 1.0], rgb(0x101010, 0.8));
+                    let _ = r.fill_rect([home.0 - s2, home.1 - s2, home.0 + s2, home.1 + s2], rgb(0xE8E8E8, 0.9));
+                }
+            }
+        }
+        let _ = (c, rad);
+        text.draw(r, "drag a dot to the colour it should become", (10.0 * d) as i32, a[0], a[3] + 8.0 * d, dim_c);
+        text.draw(r, "right-click puts a dot back", (10.0 * d) as i32, a[0], a[3] + 22.0 * d, dim_c);
+    }
 }
 
 /// A ring of hues as a bitmap `n` pixels square, transparent outside the ring.

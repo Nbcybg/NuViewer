@@ -663,7 +663,7 @@ pub const EXTS: &[&str] = &[
     // the core formats (this file)
     "stl", "obj", "ply", "glb", "gltf", "vrm", "fbx",
     // read natively (model_more.rs)
-    "3ds", "3mf", "amf", "dae", "las", "dxf", "lwo", "lwo2", "usda", "usdz", "ma", "unitypackage",
+    "3ds", "3mf", "amf", "dae", "las", "dxf", "lwo", "lwo2", "usda", "usdz", "ma", "unitypackage", "wrl", "vrml", "wrz",
     // through an installed converter (assimp / Blender / FreeCAD / ODA), else a message saying which
     "step", "stp", "iges", "igs", "abc", "usd", "usdc", "dwg",
     // closed scene formats: the picture stored inside, else a message
@@ -672,6 +672,8 @@ pub const EXTS: &[&str] = &[
 
 #[path = "model_more.rs"]
 pub mod more;
+#[path = "vrml.rs"]
+mod vrml;
 
 /// The software-rendered picture of a mesh (also carries the mesh for the GPU view).
 pub fn preview_image(mesh: Mesh, thumb: bool) -> Image {

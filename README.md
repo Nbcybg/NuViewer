@@ -242,6 +242,8 @@ a slideshow, an animated GIF/APNG/WebP (play/pause, frame stepping, seek, speed)
 seek, frames per second). It is built so video and music can use the same bar later (play/pause, seek, time, speed,
 volume); there is no video or audio decoder yet.
 
+- **0.4.1:** colour picker (K) and palette (Ctrl+K) in the viewer, gallery and editor; hue curves and a colour warper in NuEditor; borderless window (Shift+F11); every text box editable (select all, copy, paste, menu); see `CHANGELOG.md`.
+- **0.4.0:** fonts (specimen sheet with your own sentence, Settings > General), many more archives / disc images (CAB, ISO, DMG, WIM, cpio, RPM, DEB, tar in gzip ...), game packs, Krita / OpenRaster / GIMP XCF / Paint Shop Pro / CorelDRAW / XPS / DWF / U3D / VRML files, see `CHANGELOG.md` and `docs/session19.md`.
 - **0.3.2:** the 16 NuGallery bugs and 2 viewer bugs of 2026-11-17 (a video as the first picture no longer freezes on its first frame; damaged / streamed zips open; folder tree with right click, drag and drop and sideways scroll; Back / Forward keep the view; hints; Open with; video preview with controls; fit enlarges small pictures), see `CHANGELOG.md` and `docs/session18.md`.
 - **0.3.1:** more clipart and legacy formats (PCD, DCX, CLP, CIN, DPX, PDN, WAL, WAD, CPT, PS, HP-GL, CGM, flat DXF); the full list of what opens, what NuEditor can edit and each format's name is in `docs/formats.csv`.
 

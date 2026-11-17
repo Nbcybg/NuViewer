@@ -24,7 +24,6 @@ pub enum Btn {
     ViewDetails,
     ViewList,
     Tools,
-    Exit,
     PinTop,
     PinLeft,
     PinRight,
@@ -115,8 +114,6 @@ pub fn layout(w: f32, h: f32, d: f32, p: &Panels) -> Chrome {
         let left_end = x + gap;
         // Right group, from the right edge inwards.
         let mut r = w - pad;
-        buttons.push((Btn::Exit, [r - b, y0, r, y1]));
-        r -= b + gap * 2.0;
         let tools_w = 64.0 * d;
         buttons.push((Btn::Tools, [r - tools_w, y0, r, y1]));
         r -= tools_w + gap * 2.0;

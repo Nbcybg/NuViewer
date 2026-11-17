@@ -160,6 +160,8 @@ struct Plan {
     vibrance: f32,
     /// Hue wheel: per band (hue, saturation, luminance) in -1..1, None when untouched.
     bands: Option<[[f32; 3]; 8]>,
+    /// Hue curves and the warper, None when untouched.
+    hue: Option<crate::huecurves::HueStage>,
     invert: bool,
     vignette: Option<Vignette>,
 }
@@ -207,12 +209,12 @@ impl Plan {
         });
 
         let bands = r.hue_wheel.iter().any(|b| b.hue != 0.0 || b.sat != 0.0 || b.lum != 0.0).then(|| r.hue_wheel.map(|b| [b.hue / 100.0, b.sat / 100.0, b.lum / 100.0]));
-        Plan { gain, shadows: sh, highlights: hl, tone, shift, matrix, vibrance: r.get(P::Vibrance) / 100.0, bands, invert: r.invert, vignette }
+        Plan { gain, shadows: sh, highlights: hl, tone, shift, matrix, vibrance: r.get(P::Vibrance) / 100.0, bands, hue: crate::huecurves::HueStage::new(&r.hue_curves), invert: r.invert, vignette }
     }
 
     /// True when every step works on one channel at a time: then the whole recipe is three 256-entry tables.
     fn per_channel_only(&self) -> bool {
-        self.shadows == 0.0 && self.highlights == 0.0 && self.shift.is_none() && self.matrix.is_none() && self.vibrance == 0.0 && self.bands.is_none() && self.vignette.is_none()
+        self.shadows == 0.0 && self.highlights == 0.0 && self.shift.is_none() && self.matrix.is_none() && self.vibrance == 0.0 && self.bands.is_none() && self.hue.is_none() && self.vignette.is_none()
     }
 }
 
@@ -396,6 +398,9 @@ fn general_rows(plan: &Plan, frame: &Frame, y_first: usize, w: usize, src: &[u8]
             }
             if let Some(b) = &plan.bands {
                 v = hue_wheel(v, b);
+            }
+            if let Some(h) = &plan.hue {
+                v = h.apply(v);
             }
             if plan.invert {
                 v = [1.0 - v[0], 1.0 - v[1], 1.0 - v[2]];

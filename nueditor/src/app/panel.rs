@@ -12,10 +12,10 @@ use nv_editor::recipe::RetouchKind;
 use nv_editor::resample::Algo;
 use nv_editor::watermark::Place;
 
-pub const SECTION_PRESETS: usize = 9;
-pub const SECTION_EXPORT: usize = 10;
-/// Panel sections after the seven slider groups: Curves, Hue wheel, Presets, Export.
-pub const SECTION_NAMES: [&str; 4] = ["Curves", "Hue wheel", "Presets", "Export copy"];
+pub const SECTION_PRESETS: usize = 10;
+pub const SECTION_EXPORT: usize = 11;
+/// Panel sections after the seven slider groups: Curves, Hue wheel, Hue curves (+ warper), Presets, Export.
+pub const SECTION_NAMES: [&str; 5] = ["Curves", "Hue wheel", "Hue curves", "Presets", "Export copy"];
 pub const GROUP_COMPOSITION: usize = 4;
 pub const GROUP_HEAL: usize = 5;
 pub const GROUP_FILM: usize = 6;

@@ -15,6 +15,7 @@ pub mod convert;
 pub mod cropmath;
 pub mod engine;
 pub mod export;
+pub mod huecurves;
 pub mod journal;
 pub mod lut;
 pub mod ops;

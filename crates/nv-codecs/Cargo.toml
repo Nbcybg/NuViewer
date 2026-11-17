@@ -27,6 +27,8 @@ icns = "0.5"
 flate2 = "1"
 ruzstd = "0.8"
 roxmltree = "0.20"
+skrifa = "0.49"
+brotli-decompressor = "5"
 
 [target.'cfg(windows)'.dependencies.windows]
 workspace = true
@@ -38,6 +40,8 @@ features = [
   "Win32_System_WinRT",
   "Win32_System_Threading",
   "Win32_Graphics_Gdi",
+  "Win32_Graphics_Printing",
+  "Win32_Storage_Xps",
   "Win32_Graphics_GdiPlus",
   "Win32_UI_WindowsAndMessaging",
   "Foundation",

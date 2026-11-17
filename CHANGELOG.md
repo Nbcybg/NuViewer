@@ -2,6 +2,59 @@
 
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
+## 0.4.1 - 2026-11-18
+
+Colour tools, a borderless window, text editing in every text box, and a speed check against 0.3.2. Details: `docs/session19.md` (second part).
+
+### Added
+- **Colour picker (K)** in the viewer, the gallery (on the preview picture) and NuEditor (on the picture as edited): the value under the pointer follows it, a click
+  copies it to the clipboard (Settings > General: `#RRGGBB`, `rgb()`, `hsl()`, `hsv()`, `R, G, B` or `oklch()`; Shift+click copies the other common format). Esc or K stops.
+- **Palette (Ctrl+K)**: the dominant colours of the picture (2 to 16, k-means in OKLab), with the share of each; a click on a swatch copies its value.
+  Nothing is read, kept or drawn until one of the two is switched on, so looking at pictures costs nothing; measured below.
+- **Hue curves and the colour warper** in NuEditor (panel section "Hue curves": tabs Hue / Sat / Lum / Warp), worked in OKLCH: three curves over the hue circle with free points
+  (hue shift up to 90 degrees, chroma, lightness), and a 12 x 5 warper wheel: drag a dot to the colour it should become. Out-of-gamut results lose chroma instead of being
+  clipped, so the hue does not turn. Saved in the pair file (`huecurve` and `warp` lines) and shown in the gallery's and the viewer's thumbnails like the other edits.
+- **Borderless window** (Shift+F11 and View > Borderless window) in the viewer, the gallery and NuEditor: no title bar or frame at the same place; its edges resize it, Alt + drag moves it.
+- Every text box can be edited like one: the viewer's rename box (select all, copy, cut, paste, Shift+arrows, click / drag / double click, right-click menu), the Settings and dialog
+  edit boxes (Ctrl+A), the gallery's rename / new folder / property fields (right-click menu), NuEditor's typed numbers (Ctrl+A / C / X / V, Delete, right-click menu).
+
+### Changed
+- NuGallery's toolbar no longer has the close button (the menu bar's x does that).
+- The file-type chooser has a group "Archives and disc images".
+
+### Speed (measured here, 0.3.2 against this build, medians of 9 to 17 runs)
+- Viewer: first picture 85 / 86 ms, next picture 12.4 / 12.7 ms; window 42 / 52 ms (min 35 / 37, the median is noise). NuGallery: start 36 / 35 ms, 8 x 12 MP thumbnails cold 138 / 137 ms,
+  warm 42 / 45 ms. NuEditor: first picture 58 / 57 ms. The programs are 4% bigger (fonts, archives, new formats).
+- NuEditor's engine on a 1.9 MP window proxy: no edit 2.7 ms, three tables 3.2 ms, saturation + vibrance 13.6 ms, hue wheel 24 ms, hue curves 35 to 56 ms, warper 22 ms (before the
+  work below: 54 and 45 ms). Hue curves and the warper are a 41^3 lattice of the exact OKLCH maths read by trilinear interpolation (about 20 ns a pixel instead of 100); the cells that
+  touch a colour that had to be gamut-mapped are worked out in full.
+
+## 0.4.0 - 2026-11-17
+
+New file types: fonts, many archives and disc images, painting / design / 3D files. Table of every type: `docs/formats.csv` (343 rows). Details: `docs/session19.md`.
+
+### Added
+- **Fonts** (`ttf` `otf` `ttc` `otc` `woff` `woff2` `eot`): a specimen sheet drawn with the font itself (shaped, so Thai marks, Arabic and ligatures are right): your sentence at
+  80 / 56 / 36 / 24 / 16 / 12 px, capitals, small letters, figures, a line for every script the font covers (Thai, Cyrillic, Greek, Hebrew, Arabic, Devanagari, kana, Hangul, CJK),
+  and what the font says about itself (name, version, designer, licence, variable axes, glyph count). Thumbnails: the big letters, the sentence and the name. WOFF2 (Brotli, with the
+  rebuilt `glyf` / `loca` / `hmtx`), WOFF and EOT are turned back into plain fonts first. `pfb` / `pfa` (Type 1) and `fon` (bitmap) get a card.
+- **The sentence is a setting:** Settings > General > "Font files": up to 100 characters, default "The quick brown fox jumps over the lazy dog". A font that has none of the sentence
+  (a Thai font and an English sentence) is shown in a sentence of a script it has. Thumbnails are made again when the sentence changes.
+- **Archives and disc images** read from their own table of contents, without unpacking (and opened as folders in NuGallery through 7-Zip / Windows' tar): `cab` `dmg` `iso` `wim` `esd` `swm`
+  `cpio` `arj` `lzh` `lha` `z` `taz` `lz` `lzma` `lz4` `tbz` `tbz2` `tb2` `txz` `tlz` `tzst` `rpm` `deb` `ar`; the existing `tar` `tgz` `gz` `xz` `zst` `7z` `rar` got the same (tar inside gzip / zstd is listed).
+  The viewer shows a page with up to 70 entries and sizes, the gallery a card with the first ones. Zip-based packages (`jar` `war` `apk` `aab` `xpi` `vsix` `nupkg` `whl` `ipa` `crx`
+  `appx` `msix` `kmz` `pk3` `pk4` `zipx`) show their first picture.
+- **Game packs** (`pak`): Quake / Sin / Daikatana packs (the largest picture inside, else the list), Chromium / Electron resource packs (the largest PNG), Unreal Engine pak (facts).
+- **Paint and design files:** Krita `kra` and OpenRaster `ora` (merged picture), GIMP `xcf` (layers composited), Paint Shop Pro `psp` / `pspimage` (stored JPEG composite),
+  CorelDRAW `cdr` / `cdt` (stored thumbnail), Chasys Draw IES `cd5` (card), XPS / OpenXPS / DWFx (thumbnail, else the first page drawn by Windows), DWF (picture or card),
+  Universal 3D `u3d` (card: meshes and nodes), Lattice `xvl` (card).
+- **VRML** (`wrl` `vrml` `wrz`): VRML 97 and 1.0 as a 3D model you can turn (faces, boxes, spheres, cones, cylinders, elevation grids, colours).
+- The file-type chooser (`--associate`) has entries for all of these (off by default).
+
+### Not done / not verified
+- `xcf`, `psp`, `cdr`, `arj`, `lzh`, `rar` listing and the Unreal pak footer were written from the format descriptions and checked against files made for the tests only (none of those programs here).
+- `u3d` and `xvl` geometry is not drawn; `cd5` has no published format; `dwf` drawing streams are not drawn; MicroType-compressed `eot` is refused with a message.
+
 ## 0.3.2 - 2026-11-17
 
 The user's list of 16 NuGallery bugs, 2 viewer bugs and "check every video". Details, causes and what was measured: `docs/session18.md`.

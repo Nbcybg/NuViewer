@@ -13,6 +13,9 @@
 .ply,Polygon File Format (Stanford),3D model,3D view you can turn,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,
 .stl,Stereolithography model,3D model,3D view you can turn,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,
 .vrm,VRM avatar (glTF),3D model,3D view you can turn,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,
+.xv0,Lattice3D XVL model (lightweight),3D model,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,same as .xvl
+.xv3,Lattice3D XVL model (binary),3D model,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,same as .xvl
+.xvl,Lattice3D XVL model,3D model,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"closed format: a card, or a picture found stored inside"
 .3mf,3D Manufacturing Format,3D model (printing),3D view you can turn,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,slicer projects (Bambu / Orca / Prusa) included
 .amf,Additive Manufacturing File,3D model (printing),3D view you can turn,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,
 .abc,Alembic,3D scene,3D view you can turn,"No - nothing to edit (video, sound, 3D, archive, text or a card)",converter if installed,else a message
@@ -26,28 +29,74 @@
 .max,Autodesk 3ds Max scene,3D scene,The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"small stored preview, enlarged"
 .mb,Autodesk Maya Binary,3D scene,The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"stored preview, else a message"
 .ms,Marmoset Toolbag scene,3D scene,The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"stored preview, else a message"
+.u3d,Universal 3D (ECMA-363),3D scene,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,a card with the scene's meshes and nodes; the compressed geometry is not drawn
 .usd,Universal Scene Description,3D scene,3D view you can turn,"No - nothing to edit (video, sound, 3D, archive, text or a card)",converter if installed,else a message
 .usda,Universal Scene Description (ASCII),3D scene,3D view you can turn,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,
 .usdc,Universal Scene Description (binary),3D scene,3D view you can turn,"No - nothing to edit (video, sound, 3D, archive, text or a card)",converter if installed,else a message
 .usdz,Universal Scene Description (zip),3D scene,3D view you can turn,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,
+.vrml,VRML world,3D scene,3D view you can turn,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,same as .wrl
+.wrl,VRML world (Virtual Reality Modeling Language),3D scene,3D view you can turn,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"VRML 97 and VRML 1.0: faces, boxes, spheres, cones, cylinders, elevation grids, diffuse colours; textures, lights and scripts are ignored"
+.wrz,VRML world (gzip),3D scene,3D view you can turn,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,same as .wrl
 .zpr,Pixologic ZBrush project,3D sculpt,The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"stored preview, else a message"
 .ztl,Pixologic ZBrush tool,3D sculpt,The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"stored preview, else a message"
 .spp,Adobe Substance Painter project,3D texturing,The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"stored preview, else a message"
 .fla,Adobe Flash Animate project,Animation / authoring,The picture stored inside the file,"Yes, flattened - the merged picture / first frame / first page; layers and animation are not edited",built-in reader,"a library picture, else a card"
 .swf,Adobe Flash movie (Shockwave Flash),Animation / web,The picture stored inside the file,"Yes, flattened - the merged picture / first frame / first page; layers and animation are not edited",built-in reader,"largest bitmap inside, else a card"
 .7z,7-Zip archive,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",card (NuGallery opens it with 7-Zip),
+.ar,ar archive,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,member list
+.arj,ARJ archive,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,file list; NuGallery opens it with 7-Zip
 .bz2,Bzip2 file,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",card,
+.cab,Microsoft Cabinet,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,file list from the cabinet's table; NuGallery opens it with 7-Zip or Windows' tar
+.cpio,cpio archive,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,file list
 .gz,Gzip file,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",card,
+.lha,LHA archive,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,file list; NuGallery opens it with 7-Zip
+.lz,lzip file,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,unpacked size
+.lz4,LZ4 file,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,
+.lzh,LZH / LHA archive,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,file list; NuGallery opens it with 7-Zip
+.lzma,LZMA file,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,
 .rar,RAR archive,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",card (NuGallery opens it with 7-Zip),
 .tar,Tape archive,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",card,
+.taz,compress-ed tar archive,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,
+.tb2,bzip2-compressed tar archive,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,
+.tbz,bzip2-compressed tar archive,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,
+.tbz2,bzip2-compressed tar archive,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,
 .tgz,Gzip-compressed tar archive,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",card,
+.tlz,LZMA-compressed tar archive,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,
+.txz,xz-compressed tar archive,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,
+.tzst,Zstandard-compressed tar archive,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,file list
 .xz,XZ file,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",card,
+.z,Unix compress file,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,
 .zip,ZIP archive,Archive,The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside, else a card"
+.zipx,WinZip extended ZIP,Archive,The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside, else a card"
 .zst,Zstandard file,Archive,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",card,
 .cb7,Comic book archive (7z),Archive (comics),Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",card (NuGallery opens it with 7-Zip),
 .cbr,Comic book archive (RAR),Archive (comics),Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",card (NuGallery opens it with 7-Zip),
 .cbz,Comic book archive (ZIP),Archive (comics),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,first page picture
+.esd,Windows Electronic Software Download image,Archive (disc image),Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,the images inside; NuGallery opens it with 7-Zip
+.iso,ISO 9660 / UDF disc image,Archive (disc image),Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"disc name, file systems, the top level of the disc; NuGallery opens it with 7-Zip or tar"
+.swm,Split Windows Imaging part,Archive (disc image),Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,NuGallery opens it with 7-Zip
+.wim,Windows Imaging Format,Archive (disc image),Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,the images (editions) inside; NuGallery opens it with 7-Zip
+.dmg,Apple Disk Image,Archive (disk image),Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"partitions, size, compression; NuGallery opens it with 7-Zip"
 .epub,EPUB e-book,Archive (e-book),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,cover picture
+.pak,Game data pack (Quake / Chromium / Unreal),Archive (game),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"the largest picture inside, else the file list; Unreal pak indexes are often encrypted"
+.pk3,Quake III / id Tech 3 data (ZIP),Archive (game),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside, else a card"
+.pk4,Doom 3 / id Tech 4 data (ZIP),Archive (game),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside, else a card"
+.kmz,Google Earth KMZ,Archive (maps),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside, else a card"
+.deb,Debian package,Archive (package),Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"package, version, maintainer, description"
+.rpm,RPM package,Archive (package),Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"name, version, architecture, licence"
+.aab,Android App Bundle,Archive (software),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside, else a card"
+.apk,Android package,Archive (software),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside (often an icon), else a card"
+.appx,Windows app package,Archive (software),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside (the app's logo), else a card"
+.crx,Chrome extension,Archive (software),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside, else a card"
+.ear,Java enterprise archive,Archive (software),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside, else a card"
+.ipa,iOS app archive,Archive (software),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside, else a card"
+.jar,Java archive,Archive (software),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside, else a card"
+.msix,Windows MSIX package,Archive (software),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside (the app's logo), else a card"
+.nupkg,NuGet package,Archive (software),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside, else a card"
+.vsix,Visual Studio / VS Code extension,Archive (software),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside, else a card"
+.war,Java web archive,Archive (software),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside, else a card"
+.whl,Python wheel,Archive (software),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside, else a card"
+.xpi,Firefox extension,Archive (software),The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"first picture inside, else a card"
 .aac,Advanced Audio Coding,Audio,Plays (video / sound) with a poster picture,"No - nothing to edit (video, sound, 3D, archive, text or a card)",Media Foundation,
 .ac3,Dolby Digital (AC-3),Audio,Plays (video / sound) with a poster picture,"No - nothing to edit (video, sound, 3D, archive, text or a card)",ffmpeg copy,needs ffmpeg
 .aif,Audio Interchange File Format,Audio,Plays (video / sound) with a poster picture,"No - nothing to edit (video, sound, 3D, archive, text or a card)",Media Foundation,
@@ -85,6 +134,8 @@
 .igs,IGES CAD model,CAD,3D view you can turn,"No - nothing to edit (video, sound, 3D, archive, text or a card)",converter if installed,else a message
 .step,STEP (ISO 10303) CAD model,CAD,3D view you can turn,"No - nothing to edit (video, sound, 3D, archive, text or a card)",converter (FreeCAD / Blender / assimp) if installed,else a message
 .stp,STEP (ISO 10303) CAD model,CAD,3D view you can turn,"No - nothing to edit (video, sound, 3D, archive, text or a card)",converter (FreeCAD / Blender / assimp) if installed,else a message
+.dwf,Autodesk Design Web Format,CAD / document,The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"a picture stored in the package, else a card (the W2D / W3D drawing streams are not drawn)"
+.dwfx,Autodesk Design Web Format (XPS based),CAD / document,The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)","built-in reader, Windows XPS renderer",same as .xps
 .dxf,AutoCAD Drawing Exchange Format,CAD / vector,3D view you can turn,"Yes, rasterised - drawn to pixels first; saving makes a new raster file, the original is untouched",built-in reader,3D faces become a model; a flat drawing is drawn as lines
 .3fr,Hasselblad 3F Raw,Camera RAW,Picture,Yes - on the camera's look or the developed picture; the RAW file is never rewritten (edits kept beside it),built-in (embedded JPEG or developed),
 .arw,Sony Alpha Raw,Camera RAW,Picture,Yes - on the camera's look or the developed picture; the RAW file is never rewritten (edits kept beside it),built-in (embedded JPEG or developed),
@@ -129,9 +180,21 @@
 .xsd,XML Schema,Data,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,coloured page
 .yaml,YAML,Data,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,coloured page
 .yml,YAML,Data,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,coloured page
+.oxps,OpenXPS Document,Document,The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)","built-in reader, Windows XPS renderer",same as .xps
 .pdf,Portable Document Format,Document,Pages,"Yes, rasterised - drawn to pixels first; saving makes a new raster file, the original is untouched",Windows PDF renderer,page by page
+.xps,XPS Document (XML Paper Specification),Document,The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)","built-in reader, Windows XPS renderer","the thumbnail stored in the package, else the first page drawn by Windows"
 .cin,Cineon Digital Film,Film frame,Picture,"Yes - raster picture: edit, save a copy or keep the edits beside it",built-in decoder,10-bit log converted to display; 8 / 16 bit too
 .dpx,Digital Picture Exchange (SMPTE 268M),Film frame,Picture,"Yes - raster picture: edit, save a copy or keep the edits beside it",built-in decoder,"RGB / RGBA / grey, 8 / 10 / 16 bit; YCbCr and RLE not supported"
+.otc,OpenType Collection,Font,Picture,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader (skrifa + text engine),the first font of the collection is shown
+.otf,OpenType Font,Font,Picture,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader (skrifa + text engine),TrueType or CFF outlines; variable fonts show their default style
+.ttc,TrueType Collection,Font,Picture,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader (skrifa + text engine),the first font of the collection is shown
+.ttf,TrueType Font,Font,Picture,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader (skrifa + text engine),"specimen sheet with your sentence (Settings), alphabet, every script the font covers, name / licence"
+.pfa,PostScript Type 1 Font (ASCII),Font (PostScript),Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,a card with what the header says
+.pfb,PostScript Type 1 Font (binary),Font (PostScript),Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,Windows no longer draws Type 1: a card with what the header says
+.fon,Windows Bitmap Font,Font (bitmap),Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,face name and size from the font resource
+.eot,Embedded OpenType,Font (web),Picture,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,MicroType Express compressed files are refused with a message
+.woff,Web Open Font Format,Font (web),Picture,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader (zlib tables rebuilt to sfnt),
+.woff2,Web Open Font Format 2,Font (web),Picture,"No - nothing to edit (video, sound, 3D, archive, text or a card)","built-in reader (Brotli, glyf / loca / hmtx rebuilt)",collections inside WOFF2 are not read
 .hdr,Radiance RGBE (High Dynamic Range),HDR,Picture,"Yes - raster picture: edit, save a copy or keep the edits beside it",built-in decoder,tone-mapped to sRGB
 .rgbe,Radiance RGBE (High Dynamic Range),HDR,Picture,"Yes - raster picture: edit, save a copy or keep the edits beside it",built-in decoder,tone-mapped to sRGB
 .exr,OpenEXR (Industrial Light & Magic),HDR / VFX,Picture,"Yes - raster picture: edit, save a copy or keep the edits beside it",built-in decoder,tone-mapped to sRGB
@@ -139,14 +202,20 @@
 .icns,Apple Icon Image,Icon,Picture,"Yes - raster picture: edit, save a copy or keep the edits beside it",built-in decoder,
 .ico,Windows Icon,Icon,Picture,"Yes - raster picture: edit, save a copy or keep the edits beside it","Windows codec, own fallback",largest size
 .afphoto,Affinity Photo Document,Layered,The picture stored inside the file,"Yes, flattened - the merged picture / first frame / first page; layers and animation are not edited",built-in reader,stored preview
+.cd5,Chasys Draw IES Image,Layered,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,"closed format with no preview: a card, or a picture found stored inside"
 .clip,Clip Studio Paint Document,Layered,The picture stored inside the file,"Yes, flattened - the merged picture / first frame / first page; layers and animation are not edited",built-in decoder,canvas preview stored in the file
 .cpt,Corel PHOTO-PAINT Image,Layered,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,closed format; export PNG / TIFF from PHOTO-PAINT
+.kra,Krita Document,Layered,The picture stored inside the file,"Yes, flattened - the merged picture / first frame / first page; layers and animation are not edited",built-in reader,the merged picture stored in the file
 .lip,Clip Studio (older) file,Layered,The picture stored inside the file,"Yes, flattened - the merged picture / first frame / first page; layers and animation are not edited",built-in decoder,"the picture found inside, else a card; format unconfirmed"
 .oci,openCanvas Image,Layered,Information card (no pixels),"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,size only; the pixel data is a closed format
+.ora,OpenRaster Image,Layered,The picture stored inside the file,"Yes, flattened - the merged picture / first frame / first page; layers and animation are not edited",built-in reader,the merged picture stored in the file
 .pdn,Paint.NET Image,Layered,The picture stored inside the file,"Yes, flattened - the merged picture / first frame / first page; layers and animation are not edited",built-in decoder,"stored preview (up to 256 px, enlarged); layers not read"
 .psb,Adobe Photoshop Large Document,Layered,Picture,"Yes, flattened - the merged picture / first frame / first page; layers and animation are not edited",built-in decoder,merged picture
 .psd,Adobe Photoshop Document,Layered,Picture,"Yes, flattened - the merged picture / first frame / first page; layers and animation are not edited",built-in decoder,merged picture; layers are not editable
+.psp,Corel Paint Shop Pro Image,Layered,The picture stored inside the file,"Yes, flattened - the merged picture / first frame / first page; layers and animation are not edited",built-in reader,the JPEG composite stored in the file; a card when there is none
+.pspimage,Corel Paint Shop Pro Image,Layered,The picture stored inside the file,"Yes, flattened - the merged picture / first frame / first page; layers and animation are not edited",built-in reader,the JPEG composite stored in the file; a card when there is none
 .sai,PaintTool SAI Document (version 1),Layered,Picture,"Yes, flattened - the merged picture / first frame / first page; layers and animation are not edited",built-in decoder,canvas from raster layers; linework and masks not drawn
+.xcf,GIMP Image (eXperimental Computing Facility),Layered,Picture,"Yes, flattened - the merged picture / first frame / first page; layers and animation are not edited",built-in reader,"layers are composited (normal, multiply, screen, overlay ... modes approximated; masks, opacity, visibility); 8 / 16 bit and float samples; text and filter layers use their stored pixels"
 .afpub,Affinity Publisher Document,Layout,The picture stored inside the file,"Yes, flattened - the merged picture / first frame / first page; layers and animation are not edited",built-in reader,stored preview
 .aftemplate,Affinity Template,Layout,The picture stored inside the file,"Yes, flattened - the merged picture / first frame / first page; layers and animation are not edited",built-in reader,stored preview
 .kar,Karaoke MIDI,Music (notes),Plays (video / sound) with a poster picture,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in synthesizer,
@@ -225,6 +294,8 @@
 .eps,Encapsulated PostScript,Vector (print),Picture,"Yes, rasterised - drawn to pixels first; saving makes a new raster file, the original is untouched","Ghostscript if installed, else the preview inside",
 .ps,PostScript,Vector (print),Picture,"Yes, rasterised - drawn to pixels first; saving makes a new raster file, the original is untouched","Ghostscript if installed, else the preview inside",
 .afdesign,Affinity Designer Document,Vector / layered,The picture stored inside the file,"Yes, flattened - the merged picture / first frame / first page; layers and animation are not edited",built-in reader,stored preview
+.cdr,CorelDRAW Drawing,Vector / layout,The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,the thumbnail stored in the file (X4 and later: zip; older: RIFF DISP); the drawing itself is not read
+.cdt,CorelDRAW Template,Vector / layout,The picture stored inside the file,"No - nothing to edit (video, sound, 3D, archive, text or a card)",built-in reader,same as .cdr
 .3g2,3GPP2 mobile video,Video,Plays (video / sound) with a poster picture,"No - nothing to edit (video, sound, 3D, archive, text or a card)",Media Foundation,
 .3gp,3GPP mobile video,Video,Plays (video / sound) with a poster picture,"No - nothing to edit (video, sound, 3D, archive, text or a card)",Media Foundation,
 .asf,Advanced Systems Format,Video,Plays (video / sound) with a poster picture,"No - nothing to edit (video, sound, 3D, archive, text or a card)",Media Foundation,

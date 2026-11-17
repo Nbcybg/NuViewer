@@ -43,7 +43,6 @@ fn button_hint(b: Btn) -> &'static str {
         Btn::ViewDetails => "Details: name, size, type, date (Ctrl+2)",
         Btn::ViewList => "List (Ctrl+3)",
         Btn::Tools => "Tools: batch rename / convert, compress, PDF, settings",
-        Btn::Exit => "Close NuGallery",
         Btn::PinTop => "Keep the toolbar open (Ctrl+T)",
         Btn::PinLeft => "Keep the folders panel open (Ctrl+B)",
         Btn::PinRight => "Keep the details panel open (Ctrl+I)",

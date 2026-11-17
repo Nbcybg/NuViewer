@@ -260,7 +260,7 @@ pub fn draw(r: &mut Renderer, text: &mut Text, pv: &Preview, rect: [f32; 4], cli
 
 impl App {
     /// The part of the preview box that can be seen (the panel scrolls it under the header).
-    fn preview_visible(&self) -> Option<([f32; 4], [f32; 4])> {
+    pub(crate) fn preview_visible(&self) -> Option<([f32; 4], [f32; 4])> {
         let geo = self.right_geo()?;
         let d = self.dpi;
         let p = geo.panel;

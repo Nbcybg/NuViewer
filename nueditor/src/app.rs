@@ -18,6 +18,7 @@ use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 mod chrome;
+mod colourtool;
 mod entry;
 mod heal;
 mod panel;
@@ -25,7 +26,7 @@ mod tools;
 mod view;
 use nv_win::menubar::MenuBar;
 use panel::{Item, SECTION_NAMES, SECTION_PRESETS};
-use tools::{Mode, Tools, ID_WHEEL, SECTION_CURVES, SECTION_WHEEL};
+use tools::{Mode, Tools, ID_WARP, ID_WHEEL, SECTION_CURVES, SECTION_HUECURVES, SECTION_WHEEL};
 use view::{View, ID_DETAIL, ID_DETAIL_ORIG, ID_SCOPE};
 
 const ID_EDIT: u64 = 1;
@@ -189,6 +190,8 @@ pub struct App {
     help_links: Vec<([f32; 4], String)>,
     /// A number being typed into a slider's value (see `entry.rs`).
     entry: Option<entry::NumEntry>,
+    /// The colour picker / palette (nothing is kept until one is switched on).
+    colour: colourtool::ColourTool,
     first_frame_ms: Option<f64>,
     menubar: MenuBar,
     /// Where the tool strip's buttons were drawn (command, rect), for clicks.
@@ -282,6 +285,7 @@ impl App {
             toast: None,
             help_links: Vec::new(),
             entry: None,
+            colour: Default::default(),
             first_frame_ms: None,
             menubar: MenuBar::new(&chrome::MENU_LABELS),
             toolbar_hits: Vec::new(),
@@ -338,6 +342,9 @@ impl App {
                 if self.entry_press(x, y) {
                     return;
                 }
+                if self.colour_press(x, y) {
+                    return;
+                }
                 let bar_h = self.menubar.height(self.dpi);
                 if self.menubar.visible() && (y as f32) < bar_h {
                     if let Some(n) = self.menubar.nav_hit(x as f32, y as f32, self.dpi) {
@@ -383,6 +390,7 @@ impl App {
                         self.hot = hot;
                         invalidate(self.hwnd);
                     }
+                    self.colour_move(x, y);
                     if let Mode::Heal(_) = self.tools.mode {
                         self.tools.cursor = contains(self.area(), x as f32, y as f32).then_some((x, y));
                         invalidate(self.hwnd);
@@ -404,6 +412,7 @@ impl App {
                     self.item_right(i);
                 }
             }
+            Event::RightClick { x, y } if self.entry.is_some() => self.entry_menu(x, y),
             Event::RightClick { x, y } => {
                 if self.tool_right(x, y) {
                 } else {
@@ -598,6 +607,7 @@ impl App {
     fn finish_render(&mut self, out: Pixels, ms: f32) {
         self.edit_ms = ms;
         self.update_scope(&out);
+        self.colour_after_render(&out);
         let out = self.display_copy(out);
         if let Some(r) = &mut self.renderer {
             let mut img = Image::new(out.w, out.h, out.rgba);
@@ -785,6 +795,8 @@ impl App {
             self.recipe.curves = Default::default();
         } else if section == SECTION_WHEEL {
             self.recipe.hue_wheel = Recipe::default().hue_wheel;
+        } else if section == SECTION_HUECURVES {
+            self.recipe.hue_curves = Default::default();
         }
         self.changed();
     }
@@ -793,6 +805,7 @@ impl App {
         match section {
             SECTION_CURVES => !self.recipe.curves.is_identity(),
             SECTION_WHEEL => self.recipe.hue_wheel != Recipe::default().hue_wheel,
+            SECTION_HUECURVES => !self.recipe.hue_curves.is_identity(),
             panel::SECTION_EXPORT => self.export_ui != panel::ExportUi::from_settings(&self.settings),
             _ => false,
         }
@@ -865,7 +878,11 @@ impl App {
             }
         }
         if vk == 0x7A {
-            self.toggle_window(); // F11
+            if m.shift {
+                self.toggle_borderless(); // Shift+F11
+            } else {
+                self.toggle_window(); // F11
+            }
             return;
         }
         if vk == 0x70 {
@@ -1128,7 +1145,7 @@ impl App {
             for gi in 0..Group::ALL.len() + SECTION_NAMES.len() {
                 headers.push((gi, [panel[0], y, panel[2], y + head_h]));
                 y += head_h;
-                if gi == self.open_group && (gi == SECTION_CURVES || gi == SECTION_WHEEL) {
+                if gi == self.open_group && (gi == SECTION_CURVES || gi == SECTION_WHEEL || gi == SECTION_HUECURVES) {
                     let (sp, ny) = self.special_layout(panel, y, gi);
                     special = Some(sp);
                     y = ny;
@@ -1278,6 +1295,7 @@ impl App {
         if self.view.zoom.is_some() && self.view.detail_dirty {
             self.render_detail();
         }
+        let colour_hud = self.colour_hud();
         let l = self.layout();
         let d = self.dpi;
         let id = if self.show_original { ID_ORIG } else { ID_EDIT };
@@ -1293,7 +1311,7 @@ impl App {
             None => status,
         };
         let values: Vec<String> = l.rows.iter().map(|(i, _, _)| self.value_text(*i)).collect();
-        let sections_changed = [self.section_changed(SECTION_CURVES), self.section_changed(SECTION_WHEEL), self.section_changed(SECTION_PRESETS), self.section_changed(panel::SECTION_EXPORT)];
+        let sections_changed = [self.section_changed(SECTION_CURVES), self.section_changed(SECTION_WHEEL), self.section_changed(SECTION_HUECURVES), self.section_changed(SECTION_PRESETS), self.section_changed(panel::SECTION_EXPORT)];
         let item_list = self.item_draws(&l);
         let hot_item = match self.hot {
             Some(Hit::Item(i)) => Some(i),
@@ -1471,6 +1489,14 @@ impl App {
                         let _ = r.upload(ID_WHEEL, &tools::wheel_image(side));
                     }
                     tools::draw_wheel(r, &mut self.text, &self.tools, &self.recipe, sp, d);
+                } else if self.open_group == SECTION_HUECURVES {
+                    if self.tools.hue_tab == 3 {
+                        let side = (sp.area[2] - sp.area[0]).min(sp.area[3] - sp.area[1]) as u32;
+                        if r.image_size_of(ID_WARP) != Some((side, side)) {
+                            let _ = r.upload(ID_WARP, &tools::warp_image(side));
+                        }
+                    }
+                    tools::draw_hue_curves(r, &mut self.text, &self.tools, &self.recipe, sp, d);
                 }
             }
             for (n, (i, row, track)) in l.rows.iter().enumerate() {
@@ -1550,6 +1576,9 @@ impl App {
             entry::draw_entry_box(r, &mut self.text, eb, d);
         }
         gfx::draw_menubar(r, &mut self.text, &mut self.menubar, self.size.0 as f32, d);
+        if let Some(hud) = &colour_hud {
+            colourtool::draw(r, &mut self.text, hud, &mut self.colour.bar, d);
+        }
         self.text.end_frame(r);
         let _ = r.end();
         if self.first_frame_ms.is_none() && self.full.is_some() {

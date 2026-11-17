@@ -9,6 +9,9 @@ impl App {
     /// A key was pressed (and no text box is open): run whatever it is bound to.
     pub fn on_key(&mut self, k: u32) {
         let m = nv_win::modifiers();
+        if k == 0x1B && self.pick_escape() {
+            return; // Esc stops the picker / palette before it closes anything
+        }
         match self.keymap.lookup(k, m.ctrl, m.shift, m.alt) {
             // Japanese reading style: the page after this one is on the left, so Left turns forward and Right turns back.
             // A video or a sound on screen: Space plays / pauses it, Shift+arrows seek.
@@ -124,6 +127,9 @@ impl App {
                 invalidate(self.hwnd);
             }
             Action::Fullscreen => self.toggle_fullscreen_app(),
+            Action::Borderless => self.toggle_borderless_app(),
+            Action::PickColour => self.toggle_pick(),
+            Action::Palette => self.toggle_palette(),
             Action::Slideshow => self.toggle_slideshow(),
             Action::Shuffle => self.toggle_shuffle(),
             Action::SortCycle => self.sort_cycle(),

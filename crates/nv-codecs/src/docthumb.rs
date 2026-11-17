@@ -16,9 +16,11 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
-pub const ARCHIVE_EXTS: &[&str] = &["zip", "cbz", "epub"];
+pub const ARCHIVE_EXTS: &[&str] = &["zip", "cbz", "epub", "zipx", "jar", "war", "ear", "apk", "aab", "xpi", "vsix", "nupkg", "whl", "ipa", "crx", "appx", "msix", "kmz", "pk3", "pk4"];
 /// Archives that get a card (NuGallery opens them as folders through 7-Zip or Windows' tar).
-pub const OTHER_ARCHIVE_EXTS: &[&str] = &["7z", "cb7", "rar", "cbr", "tar", "tgz", "gz", "bz2", "xz", "zst"];
+pub const OTHER_ARCHIVE_EXTS: &[&str] = &[
+    "7z", "cb7", "rar", "cbr", "tar", "tgz", "gz", "bz2", "xz", "zst", "cab", "dmg", "iso", "wim", "esd", "swm", "cpio", "arj", "lzh", "lha", "z", "taz", "lz", "lzma", "lz4", "tbz", "tbz2", "tb2", "txz", "tlz", "tzst", "rpm", "deb", "ar", "pak",
+];
 pub const OFFICE_EXTS: &[&str] = &["docx", "docm", "dotx", "xlsx", "xlsm", "xltx", "pptx", "pptm", "potx", "ppsx"];
 pub const OPENDOC_EXTS: &[&str] = &["odt", "ods", "odp", "odg", "ott", "ots", "otp"];
 pub const AFFINITY_EXTS: &[&str] = &["afphoto", "afdesign", "afpub", "aftemplate"];
@@ -496,6 +498,12 @@ pub(crate) fn decode(path: &Path, first_only: bool) -> Result<Image, String> {
     let mut note = String::new();
     let mut about = String::new();
 
+    // Archives that are not zip files: what is inside, from the file's own table of contents (a card, or the page of a listing).
+    if OTHER_ARCHIVE_EXTS.contains(&ext.as_str()) {
+        if let Some(r) = crate::archives::decode(path, &ext, first_only) {
+            return r;
+        }
+    }
     if ARCHIVE_EXTS.contains(&ext.as_str()) || OFFICE_EXTS.contains(&ext.as_str()) || OPENDOC_EXTS.contains(&ext.as_str()) {
         match picture_from_zip(path, &ext, limit) {
             Ok((mut img, total, entry)) => {
