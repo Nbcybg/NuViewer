@@ -144,7 +144,18 @@ fn path_id(p: &Path) -> u64 {
     h.finish()
 }
 
-/// View state: either "fit" (scale to window, never upscale) or an explicit zoom with pan.
+/// Fit to screen also enlarges a picture that is smaller than the window (Settings > Viewer > "Fit also enlarges small
+/// pictures"), by at most `FIT_ENLARGE_MAX` times.
+static FIT_ENLARGE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+const FIT_ENLARGE_MAX: f32 = 8.0;
+
+/// The scale that makes a picture of `img` pixels fill a `win` window as far as it can without cutting anything off.
+fn fit_scale_for(img: (u32, u32), win: (u32, u32)) -> f32 {
+    let s = (win.0 as f32 / img.0.max(1) as f32).min(win.1 as f32 / img.1.max(1) as f32);
+    if FIT_ENLARGE.load(Ordering::Relaxed) { s.min(FIT_ENLARGE_MAX) } else { s.min(1.0) }
+}
+
+/// View state: either "fit" (scale to window; small pictures are enlarged unless that is switched off) or an explicit zoom with pan.
 struct View {
     fit: bool,
     zoom: f32,
@@ -247,7 +258,7 @@ impl View {
     }
 
     fn fit_scale(img: (u32, u32), win: (u32, u32)) -> f32 {
-        (win.0 as f32 / img.0 as f32).min(win.1 as f32 / img.1 as f32).min(1.0)
+        fit_scale_for(img, win)
     }
 
     fn scale(&self, img: (u32, u32), win: (u32, u32)) -> f32 {
@@ -380,6 +391,8 @@ struct App {
     edits_for: Option<u64>,
     /// The viewer controls on the left edge (see `sidebar.rs`).
     sidebar: sidebar::Sidebar,
+    /// The programs listed in the last "Open with" menu (their ids, in the order shown).
+    open_with_ids: std::cell::RefCell<Vec<String>>,
     /// The film strip on the right edge (see `strip.rs`) and read mode, two pages without a gap (see `read.rs`).
     strip: strip::Strip,
     read: read::Read,
@@ -1000,6 +1013,11 @@ impl App {
             } else if let (Some(sv), Some(d)) = (&spread, dst) {
                 self.draw_spread(sv, d, nearest);
             } else if let Some(d) = dst {
+                // From here the real picture is what is shown: the CPU-made first frame has done its job.
+                if self.disp.proxy.is_some() {
+                    self.disp.proxy = None;
+                    self.renderer.retain_thumbs(|id| id != display::PROXY_ID);
+                }
                 if turn == 0.0 {
                     let _ = self.renderer.draw_current(d, nearest);
                 } else if let Some((ow, oh)) = self.renderer.image_size() {
@@ -1299,6 +1317,7 @@ impl App {
             edits: nv_editor::EditStack::new(),
             edits_for: None,
             sidebar: sidebar::Sidebar::new(),
+            open_with_ids: std::cell::RefCell::new(Vec::new()),
             strip: strip::Strip::new(),
             read: read::Read::new(),
             editor: editor_ui::Editor::new(),
@@ -1358,13 +1377,13 @@ struct Preview {
 }
 
 fn make_preview(img: &nv_codecs::Image, win: (u32, u32)) -> Preview {
-    // Same fit rule as the GPU path: shrink to fit (using the displayed, i.e. rotated, size), never enlarge.
+    // Same fit rule as the GPU path (using the displayed, i.e. rotated, size).
     let (dw, dh) = img.display_size();
-    let s = (win.0 as f32 / dw as f32).min(win.1 as f32 / dh as f32).min(1.0);
+    let s = fit_scale_for((dw, dh), win);
     // Shrunk the way the GPU shrinks (mip chain, then Catmull-Rom), turned while sampling, so that the GPU frame that follows, and every
     // later visit to this picture, looks the same as this first frame.
     let scaled;
-    let src = if s < 1.0 {
+    let src = if s != 1.0 {
         scaled = nv_codecs::fit_like_gpu(img, s);
         &scaled
     } else {
@@ -1700,6 +1719,7 @@ fn main() {
     }
     // Pictures open borderless-fullscreen from the first frame (--windowed opts out; --fullscreen is accepted and is the default). --actual-size starts at 100%.
     let startup_settings = Settings::load();
+    FIT_ENLARGE.store(startup_settings.fit_enlarge, Ordering::Relaxed);
     CANVAS.store(startup_settings.canvas, Ordering::Relaxed);
     colour::apply_at_startup(&startup_settings);
     nv_codecs::set_model_textures(startup_settings.model_textures);

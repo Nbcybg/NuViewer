@@ -98,11 +98,28 @@ fn quiet(mut c: Command) -> Command {
 
 /// Everything in the archive. `tool` is the 7-Zip path from Settings (may be empty).
 pub fn list(path: &Path, password: Option<&str>, tool: &str) -> Res<Vec<Entry>> {
+    list_ex(path, password, tool).map(|(v, _)| v)
+}
+
+/// Like `list`, and says whether the archive is damaged (cut off, or without its table of contents) so that only what could
+/// be read from the front is listed.
+pub fn list_ex(path: &Path, password: Option<&str>, tool: &str) -> Res<(Vec<Entry>, bool)> {
+    let mut zip_error: Option<String> = None;
     if is_zip(path) {
         match zip_list(path) {
-            Ok(v) => return Ok(v),
-            Err(ArcError::Other(e)) if seven_zip(tool).is_none() && tar_exe().is_none() => return Err(ArcError::Other(e)),
-            Err(_) => {} // a zip64 / odd layout: let the external tool try
+            Ok(v) if !v.is_empty() => return Ok((v, false)),
+            Ok(_) => {}
+            Err(ArcError::Other(e)) => zip_error = Some(e),
+            Err(e) => return Err(e),
+        }
+        // No usable table of contents: walk the entries from the front, like 7-Zip does.
+        if let Ok(v) = recover_list(path) {
+            if !v.is_empty() {
+                return Ok((v, true));
+            }
+        }
+        if let (Some(e), None, None) = (&zip_error, seven_zip(tool), tar_exe()) {
+            return Err(ArcError::Other(e.clone()));
         }
     }
     if let Some(z) = seven_zip(tool) {
@@ -117,30 +134,26 @@ pub fn list(path: &Path, password: Option<&str>, tool: &str) -> Res<Vec<Entry>> 
         }
         // bsdtar -tv: "-rw-r--r--  0 user group   1234 Jan  1 12:00 name"
         let text = String::from_utf8_lossy(&out.stdout);
-        return Ok(text
-            .lines()
-            .filter_map(|l| {
-                let parts: Vec<&str> = l.split_whitespace().collect();
-                let size = parts.get(4)?.parse::<u64>().ok()?;
-                let name = l.splitn(9, char::is_whitespace).last().map(|s| s.trim().to_string()).filter(|_| parts.len() >= 9)?;
-                Some(Entry { is_dir: name.ends_with('/'), name, size, encrypted: false })
-            })
-            .collect());
+        return Ok((
+            text.lines()
+                .filter_map(|l| {
+                    let parts: Vec<&str> = l.split_whitespace().collect();
+                    let size = parts.get(4)?.parse::<u64>().ok()?;
+                    let name = l.splitn(9, char::is_whitespace).last().map(|s| s.trim().to_string()).filter(|_| parts.len() >= 9)?;
+                    Some(Entry { is_dir: name.ends_with('/'), name, size, encrypted: false })
+                })
+                .collect(),
+            false,
+        ));
     }
     Err(ArcError::Other("this kind of archive needs 7-Zip (set its path in Settings > Archives & PDF)".into()))
 }
 
-fn seven_list(exe: &Path, archive: &Path, password: Option<&str>) -> Res<Vec<Entry>> {
+fn seven_list(exe: &Path, archive: &Path, password: Option<&str>) -> Res<(Vec<Entry>, bool)> {
     let mut c = Command::new(exe);
     c.args(["l", "-slt", "-ba", "-sccUTF-8", "-y"]).arg(format!("-p{}", password.unwrap_or(""))).arg(archive);
     let out = quiet(c).output()?;
     let err = String::from_utf8_lossy(&out.stderr).to_lowercase();
-    if !out.status.success() {
-        if err.contains("password") || err.contains("encrypted") || err.contains("wrong") {
-            return Err(ArcError::Password);
-        }
-        return Err(ArcError::Other(String::from_utf8_lossy(&out.stderr).trim().lines().next().unwrap_or("7-Zip could not read this archive").to_string()));
-    }
     let text = String::from_utf8_lossy(&out.stdout);
     let mut entries = Vec::new();
     let (mut name, mut size, mut dir, mut enc) = (String::new(), 0u64, false, false);
@@ -172,7 +185,18 @@ fn seven_list(exe: &Path, archive: &Path, password: Option<&str>) -> Res<Vec<Ent
         }
     }
     flush(&mut name, &mut size, &mut dir, &mut enc, &mut entries);
-    Ok(entries)
+    // 7-Zip lists the part it can read of a cut-off or damaged archive and exits with an error code: that is not "can't open".
+    // (The archive's own line "Path = file.zip" is the first block when there is a header; -ba drops it, so nothing to skip.)
+    if !out.status.success() {
+        if entries.is_empty() {
+            if err.contains("password") || err.contains("encrypted") || err.contains("wrong") {
+                return Err(ArcError::Password);
+            }
+            return Err(ArcError::Other(String::from_utf8_lossy(&out.stderr).trim().lines().next().unwrap_or("7-Zip could not read this archive").to_string()));
+        }
+        return Ok((entries, true));
+    }
+    Ok((entries, false))
 }
 
 // ---- unpacking -------------------------------------------------------------------------------------------------------------
@@ -198,9 +222,19 @@ pub fn safe_relative(name: &str) -> Option<PathBuf> {
 pub fn extract(path: &Path, dest: &Path, wanted: &[String], password: Option<&str>, tool: &str, progress: &mut dyn FnMut(usize, usize) -> bool) -> Res<()> {
     std::fs::create_dir_all(dest)?;
     if is_zip(path) {
-        match zip_extract(path, dest, wanted, password, progress) {
-            Err(ArcError::Other(e)) if e.starts_with("needs-tool") => {} // AES: below
-            other => return other,
+        let has_table = zip_entries(path).map(|t| !t.is_empty()).unwrap_or(false);
+        if has_table {
+            match zip_extract(path, dest, wanted, password, progress) {
+                Err(ArcError::Other(e)) if e.starts_with("needs-tool") => {} // AES: below
+                other => return other,
+            }
+        } else {
+            // No table of contents (cut off, or streamed): unpack what can be read from the front.
+            match recover_extract(path, dest, wanted, progress) {
+                Ok(n) if n > 0 => return Ok(()),
+                Err(ArcError::Other(e)) if e == "stopped" => return Err(ArcError::Other(e)),
+                _ => {}
+            }
         }
     }
     if let Some(z) = seven_zip(tool) {
@@ -215,6 +249,11 @@ pub fn extract(path: &Path, dest: &Path, wanted: &[String], password: Option<&st
         let out = quiet(c).output()?;
         let _ = std::fs::remove_file(dest.join(".want.txt"));
         if out.status.success() {
+            progress(1, 1);
+            return Ok(());
+        }
+        // A damaged archive: 7-Zip unpacks what it can and exits with an error code. That is still a result.
+        if out.status.code() == Some(1) || (out.status.code() == Some(2) && has_files(dest)) {
             progress(1, 1);
             return Ok(());
         }
@@ -245,6 +284,89 @@ pub fn extract(path: &Path, dest: &Path, wanted: &[String], password: Option<&st
         return Err(ArcError::Other(String::from_utf8_lossy(&out.stderr).trim().lines().next().unwrap_or("tar could not unpack this archive").to_string()));
     }
     Err(ArcError::Other("this kind of archive needs 7-Zip (set its path in Settings > Archives & PDF)".into()))
+}
+
+/// Files being unpacked carry this extension until they are whole (the gallery's folder listing leaves them out).
+pub const PART_EXT: &str = "nvpart";
+
+fn part_path(target: &Path) -> PathBuf {
+    let mut name = target.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    name.push(format!(".{PART_EXT}"));
+    target.with_file_name(name)
+}
+
+/// Is there any file (not a folder) under `dir`?
+fn has_files(dir: &Path) -> bool {
+    std::fs::read_dir(dir).map(|rd| rd.flatten().any(|e| match e.metadata() { Ok(m) if m.is_dir() => has_files(&e.path()), Ok(m) => m.len() > 0 && e.path().extension().map_or(true, |x| x != PART_EXT), Err(_) => false })).unwrap_or(false)
+}
+
+/// The entries of a zip without a (usable) table of contents, found by walking it from the front. A cut-off last entry is
+/// listed with the size that could be read.
+fn recover_list(path: &Path) -> Res<Vec<Entry>> {
+    let mut out: Vec<Entry> = Vec::new();
+    nv_codecs::zipscan::walk(path, &mut |h, rd| {
+        let (n, _) = nv_codecs::zipscan::drain(rd, None);
+        if !h.is_dir && (n > 0 || h.size == Some(0)) || h.is_dir {
+            out.push(Entry { name: h.name.replace('\\', "/"), size: n, is_dir: h.is_dir, encrypted: false });
+        }
+        true
+    })?;
+    Ok(out)
+}
+
+/// Unpack the entries named in `wanted` (all when empty) of a zip without a table of contents, in the order they are in the
+/// file. Returns how many files were written; a cut-off last entry is written as far as it goes.
+fn recover_extract(path: &Path, dest: &Path, wanted: &[String], progress: &mut dyn FnMut(usize, usize) -> bool) -> Res<usize> {
+    let mut count = 0usize;
+    let mut failure: Option<ArcError> = None;
+    let total = wanted.len();
+    nv_codecs::zipscan::walk(path, &mut |h, rd| {
+        if h.is_dir {
+            return true;
+        }
+        let name = h.name.replace('\\', "/");
+        if !wanted.is_empty() && !wanted.iter().any(|w| *w == name) {
+            return true;
+        }
+        let Some(rel) = safe_relative(&name) else { return true };
+        let target = dest.join(&rel);
+        if let Some(parent) = target.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                failure = Some(e.into());
+                return false;
+            }
+        }
+        let part = part_path(&target);
+        let file = match std::fs::File::create(&part) {
+            Ok(f) => f,
+            Err(e) => {
+                failure = Some(e.into());
+                return false;
+            }
+        };
+        let mut w = std::io::BufWriter::new(file);
+        let (n, whole) = nv_codecs::zipscan::drain(rd, Some(&mut w));
+        let _ = w.flush();
+        drop(w);
+        if n == 0 && !whole {
+            let _ = std::fs::remove_file(&part);
+            return false;
+        }
+        if std::fs::rename(&part, &target).is_err() {
+            let _ = std::fs::remove_file(&part);
+            return false;
+        }
+        count += 1;
+        if !progress(count, total.max(count)) {
+            failure = Some(ArcError::Other("stopped".into()));
+            return false;
+        }
+        whole
+    })?;
+    match failure {
+        Some(e) => Err(e),
+        None => Ok(count),
+    }
 }
 
 // ---- native ZIP --------------------------------------------------------------------------------------------------------------
@@ -328,7 +450,7 @@ fn zip_entries(path: &Path) -> Res<Vec<ZipEntry>> {
             }
             e += 4 + sz;
         }
-        let name = String::from_utf8_lossy(name_b).replace('\\', "/");
+        let name = nv_codecs::zipscan::decode_name(name_b, flags).replace('\\', "/");
         out.push(ZipEntry { is_dir: name.ends_with('/'), name, method, flags, crc, comp, size, offset, dos_time });
         p += 46 + nl + el + cl;
     }
@@ -433,15 +555,20 @@ fn zip_extract(path: &Path, dest: &Path, wanted: &[String], password: Option<&st
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let mut out = std::io::BufWriter::new(std::fs::File::create(&target)?);
+        // Written under a temporary name and renamed when whole, so a folder that is being read while the archive is still
+        // unpacking (see `PART_EXT`) never shows half a picture.
+        let part = part_path(&target);
+        let mut out = std::io::BufWriter::new(std::fs::File::create(&part)?);
         let r = if e.method == 8 { io::copy(&mut flate2::read::DeflateDecoder::new(&mut raw), &mut out) } else { io::copy(&mut raw, &mut out) };
         if let Err(err) = r {
             drop(out);
-            let _ = std::fs::remove_file(&target);
+            let _ = std::fs::remove_file(&part);
             // A wrong password that passed the one-byte check shows up as garbage in the deflate stream.
             return Err(if encrypted { ArcError::Password } else { ArcError::Other(err.to_string()) });
         }
         out.flush()?;
+        drop(out);
+        std::fs::rename(&part, &target)?;
         if !progress(i + 1, total) {
             return Err(ArcError::Other("stopped".into()));
         }

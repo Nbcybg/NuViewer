@@ -117,6 +117,12 @@ pub enum Cmd {
     Fullscreen,
     Help,
     OpenFolderInExplorer,
+    /// Open the file with a program Windows offers for it (`Handler::id`).
+    OpenWithApp(String),
+    /// Windows' own "choose an app" window.
+    OpenWithChoose,
+    Properties,
+    Settings,
     ClearThumbs,
     ViewerSettings,
     Undo,
@@ -153,6 +159,22 @@ impl Builder {
 }
 
 impl App {
+    /// "Open with": the programs Windows lists for the first selected file, and "Choose another app".
+    fn open_with_menu(&self, b: &mut Builder, picked: &[&Entry]) -> Item {
+        let first = picked.iter().find(|e| !e.is_dir()).map(|e| e.path.clone());
+        let mut items: Vec<Item> = Vec::new();
+        if let Some(p) = &first {
+            for h in nv_win::openwith::handlers(p).into_iter().take(14) {
+                items.push(b.item(Cmd::OpenWithApp(h.id.clone()), h.name));
+            }
+        }
+        if !items.is_empty() {
+            items.push(Item::Separator);
+        }
+        items.push(b.item(Cmd::OpenWithChoose, "Choose another app…"));
+        Item::Submenu { text: "Open with".into(), items, enabled: first.is_some() }
+    }
+
     /// The right-click menu, in the order the gallery's design asks for.
     pub fn context_menu(&mut self, x: i32, y: i32) {
         let picked: Vec<&Entry> = self.sel.entries(&self.listing);
@@ -171,6 +193,8 @@ impl App {
         let mut menu: Vec<Item> = Vec::new();
         menu.push(b.item(Cmd::Open, "Open\tSpace").enabled(has));
         menu.push(b.item(Cmd::Slideshow, "Slideshow\tF8").enabled(any_pic));
+        let ow = self.open_with_menu(&mut b, &picked);
+        menu.push(ow);
         let quick: Vec<Item> = [QuickOp::RotateLeft, QuickOp::RotateRight, QuickOp::FlipH, QuickOp::FlipV].iter().map(|&q| b.item(Cmd::Quick(q), q.label())).collect();
         menu.push(b.item(Cmd::NuEditor, "Edit in NuEditor	F4").enabled(any_pic && !many));
         menu.push(Item::Submenu { text: "Quick edit".into(), items: quick, enabled: all_rewritable });
@@ -208,6 +232,7 @@ impl App {
         menu.push(b.item(Cmd::Rename, "Rename\tF2").enabled(has && !many));
         menu.push(b.item(Cmd::Delete, "Delete\tDel").enabled(has));
         menu.push(b.item(Cmd::Undo, format!("{}\tCtrl+Z", self.undo_label())).enabled(!self.undo.is_empty()));
+        menu.push(b.item(Cmd::Properties, "Properties"));
         let any_archive = picked.iter().any(|e| nv_core::archive_tools::is_archive(&e.path));
         menu.push(b.item(Cmd::Compress, "Compress…").enabled(has));
         menu.push(b.item(Cmd::Extract, "Unpack here").enabled(any_archive));
@@ -230,6 +255,23 @@ impl App {
             ];
             menu.push(b.sub("Batch", batch));
         }
+        // How this folder is shown, and the program's settings.
+        menu.push(Item::Separator);
+        let mut view: Vec<Item> = ViewMode::ALL.iter().map(|&v| b.checked(Cmd::View(v), v.label(), self.mode == v)).collect();
+        view.push(Item::Separator);
+        view.push(b.item(Cmd::ZoomIn, "Larger thumbnails\tCtrl +"));
+        view.push(b.item(Cmd::ZoomOut, "Smaller thumbnails\tCtrl −"));
+        view.push(b.item(Cmd::ZoomReset, "Default size\tCtrl 0"));
+        view.push(Item::Separator);
+        view.push(b.checked(Cmd::ToggleFolders, "Folders", self.listing.folders));
+        view.push(b.checked(Cmd::ToggleHidden, "Hidden files", self.persist.hidden));
+        view.push(b.checked(Cmd::ToggleNames, "File names under thumbnails", self.persist.names));
+        menu.push(b.sub("View", view));
+        let sort = self.sort_items(&mut b);
+        menu.push(b.sub("Sort by", sort));
+        let show: Vec<Item> = Show::ALL_CHOICES.iter().map(|&s| b.checked(Cmd::Show(s), s.label(), self.listing.show == s)).collect();
+        menu.push(b.sub("Show only", show));
+        menu.push(b.item(Cmd::Settings, "Settings…"));
         if let Some(id) = popup(self.hwnd, x, y, &menu) {
             if let Some(cmd) = b.cmds.get(id as usize - 1).cloned() {
                 self.run_cmd(cmd);
@@ -335,6 +377,8 @@ impl App {
             0 => {
                 m.push(b.item(Cmd::Open, "Open\tSpace").enabled(has));
                 m.push(b.item(Cmd::Slideshow, "Slideshow\tF8").enabled(any_pic));
+                let ow = self.open_with_menu(b, &picked);
+                m.push(ow);
                 m.push(b.item(Cmd::NuEditor, "Edit in NuEditor\tF4").enabled(any_pic && !many));
                 let mut with: Vec<Item> = externals.iter().enumerate().map(|(k, name)| b.item(Cmd::EditWith(k), name.clone())).collect();
                 if !with.is_empty() {
@@ -349,7 +393,9 @@ impl App {
                 m.push(b.item(Cmd::Rename, "Rename\tF2").enabled(has && !many));
                 m.push(b.item(Cmd::Delete, "Delete\tDel").enabled(has));
                 m.push(b.item(Cmd::Print, "Print\tCtrl+P").enabled(any_pic));
+                m.push(b.item(Cmd::Properties, "Properties"));
                 m.push(Item::Separator);
+                m.push(b.item(Cmd::Settings, "Settings…"));
                 m.push(b.item(Cmd::Exit, "Close"));
             }
             1 => {
@@ -566,6 +612,10 @@ impl App {
                 self.help = !self.help;
                 nv_win::invalidate(self.hwnd);
             }
+            Cmd::OpenWithApp(id) => self.open_with_app(&id),
+            Cmd::OpenWithChoose => self.open_with_choose(),
+            Cmd::Properties => self.show_properties(),
+            Cmd::Settings => self.launch_viewer_settings(),
             Cmd::OpenFolderInExplorer => {
                 let _ = std::process::Command::new("explorer.exe").arg(&self.listing.dir).spawn();
             }

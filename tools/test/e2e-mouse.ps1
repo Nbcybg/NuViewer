@@ -101,6 +101,7 @@ function InRange([double]$v, [double]$lo, [double]$hi) { ($v -ge $lo) -and ($v -
 $sandbox = Join-Path $env:TEMP "nv_mouse_$([Diagnostics.Process]::GetCurrentProcess().Id)"
 New-Item -ItemType Directory -Force $sandbox | Out-Null
 $env:NUVIEWER_SETTINGS = Join-Path $sandbox "settings.ini"   # tests never read or write your real settings
+Set-Content $env:NUVIEWER_SETTINGS "fit_enlarge = 0" -Encoding ASCII   # small pictures are measured at their own size (fit enlarges by default now)
 $scr = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 $cx = [int]($scr.Width / 2); $cy = [int]($scr.Height / 2)
 $script:viewer = $null; $script:win = [IntPtr]::Zero
@@ -246,8 +247,8 @@ try {
         $hm = [In]::SendMessage($menu, 0x01E1, [IntPtr]::Zero, [IntPtr]::Zero)   # MN_GETHMENU
         $n = [In]::GetMenuItemCount($hm)
         $texts = @(0..($n - 1) | ForEach-Object { [In]::MenuText($hm, $_) })
-        Check "menu has the expected 38 entries (4 separators)  [count $n]" ($n -eq 38)
-        $want = 'Previous picture*', 'Next picture*', 'Fit to screen*', 'Actual size*', 'Gallery*', 'Fullscreen*', 'Slideshow*', 'Info*', 'Rename*', 'Copy to*', 'Move to*', 'Copy picture*', 'Copy file path*', 'Show in Explorer*', 'Delete*', 'Undo*', 'Edit in NuEditor*', 'Edit with*', 'File types*', 'Help*', 'Close*'
+        Check "menu has the expected 40 entries  [count $n]" ($n -eq 40)
+        $want = 'Previous picture*', 'Next picture*', 'Actual size*', 'Open with*', 'Properties*', 'Gallery*', 'Fullscreen*', 'Slideshow*', 'Info*', 'Rename*', 'Copy to*', 'Move to*', 'Copy picture*', 'Copy file path*', 'Show in Explorer*', 'Delete*', 'Undo*', 'Edit in NuEditor*', 'Edit with*', 'File types*', 'Help*', 'Close*'
         $missing = @($want | Where-Object { $w = $_; -not ($texts | Where-Object { $_ -like $w }) })
         Check "menu lists every action  [missing: $($missing -join ', ')]" ($missing.Count -eq 0)
         # Keyboard through the menu: Down, Down (first enabled = Previous, second = Next), Enter -> next picture.

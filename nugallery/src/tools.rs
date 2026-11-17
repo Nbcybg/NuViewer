@@ -54,7 +54,7 @@ fn name_of(p: &Path) -> String {
     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-/// Pictures (and other things the viewer shows as a picture) among `names`.
+/// Files the viewer can show (pictures, documents, models, sounds, videos ...) as opposed to anything else in an archive.
 fn showable(name: &str) -> bool {
     let ext = Path::new(name).extension().and_then(|e| e.to_str()).unwrap_or("");
     nv_codecs::is_supported_ext(ext) && !at::is_archive(Path::new(name))
@@ -92,85 +92,132 @@ impl App {
         if let Some(a) = &self.archive {
             if !self.listing.dir.starts_with(&a.dir) {
                 self.archive = None;
+                if let Some(show) = self.archive_show.take() {
+                    self.listing.show = show;
+                    self.listing.rearrange();
+                }
             }
         }
     }
 
-    /// Open `path` as a folder: unpack its pictures (asking for the password when it needs one), then show them.
+    /// Open `path` as a folder. The listing is read first (fast), the folder is shown at once, and the files are unpacked into
+    /// it while it is on screen: they appear as they are written, pictures first being whatever comes first in the archive.
+    /// Every kind of file is unpacked, not only pictures, so an archive of documents, sounds or videos opens too. A damaged
+    /// archive (cut off, or without its table of contents) gives what could be read, like 7-Zip does.
     pub fn open_archive(&mut self, path: PathBuf, password: Option<String>) {
         let cache = at::cache_dir(&path);
         if cache.join(".done").exists() {
-            self.enter_archive(path, cache);
+            self.enter_archive(path, cache, false, None);
             return;
         }
         let tool = self.settings.more.seven_zip.clone();
-        let entries = match at::list(&path, password.as_deref(), &tool) {
-            Ok(e) => e,
-            Err(ArcError::Password) => {
-                if let Some(pw) = ask_password(&path, password.is_some()) {
-                    self.open_archive(path, Some(pw));
+        let (tx, wake) = (self.tx.clone(), self.wake.clone());
+        self.spawn_job("Opening archive", move |progress| {
+            let nothing = |message: String| JobResult { message, refresh: false, select: Vec::new() };
+            let ask = |result: Result<(), ArcError>| {
+                let _ = tx.send(Msg::Archive(Box::new(ArchiveDone { archive: path.clone(), dest: cache.clone(), password: password.clone(), result, open: true })));
+            };
+            let (entries, damaged) = match at::list_ex(&path, password.as_deref(), &tool) {
+                Ok(v) => v,
+                Err(ArcError::Password) => {
+                    ask(Err(ArcError::Password));
+                    return nothing(String::new());
                 }
-                return;
+                Err(e) => return nothing(format!("Can't open {}: {e}", name_of(&path))),
+            };
+            if password.is_none() && entries.iter().any(|e| e.encrypted && !e.is_dir) {
+                ask(Err(ArcError::Password));
+                return nothing(String::new());
             }
-            Err(e) => return self.toast(format!("Can't open {}: {e}", name_of(&path))),
-        };
-        if password.is_none() && entries.iter().any(|e| e.encrypted && !e.is_dir) {
-            if let Some(pw) = ask_password(&path, false) {
-                self.open_archive(path, Some(pw));
+            // Every file, within sensible limits (one file over 1 GB, or more than 4 GB in all, is left for "Unpack here").
+            let (mut bytes, mut wanted, mut skipped) = (0u64, Vec::new(), 0usize);
+            for e in entries.iter().filter(|e| !e.is_dir) {
+                if e.size > 1 << 30 || bytes + e.size > 4 << 30 {
+                    skipped += 1;
+                    continue;
+                }
+                bytes += e.size;
+                wanted.push(e.name.clone());
             }
-            return;
-        }
-        let wanted: Vec<String> = entries.iter().filter(|e| !e.is_dir && e.size <= 1 << 30 && showable(&e.name)).map(|e| e.name.clone()).collect();
-        if wanted.is_empty() {
-            return self.toast(format!("{} has no pictures in it", name_of(&path)));
-        }
-        let _ = std::fs::remove_dir_all(&cache); // a half-finished earlier try
-        self.unpack(path, cache, wanted, password, true);
+            if wanted.is_empty() {
+                return nothing(if entries.is_empty() { format!("{} is empty", name_of(&path)) } else { format!("{} has only files that are too big to open here — use Unpack here", name_of(&path)) });
+            }
+            let viewable = entries.iter().filter(|e| !e.is_dir && showable(&e.name)).count();
+            let _ = std::fs::remove_dir_all(&cache); // a half-finished earlier try
+            if std::fs::create_dir_all(&cache).is_err() {
+                return nothing("Can't make room to unpack in the cache folder".into());
+            }
+            // From here the folder is on screen and fills up.
+            let _ = tx.send(Msg::ArchiveShow { archive: path.clone(), dir: cache.clone(), damaged, files: wanted.len(), viewable });
+            wake();
+            let mut last = std::time::Instant::now();
+            let r = at::extract(&path, &cache, &wanted, password.as_deref(), &tool, &mut |done, total| {
+                if last.elapsed() > std::time::Duration::from_millis(350) {
+                    last = std::time::Instant::now();
+                    let _ = tx.send(Msg::ArchiveTick);
+                    wake();
+                }
+                progress(format!("{done} / {total} files"))
+            });
+            if r.is_ok() && !damaged && skipped == 0 {
+                let _ = std::fs::write(cache.join(".done"), b"");
+            }
+            let message = match &r {
+                Ok(()) if damaged => format!("{} is damaged: {} file{} could be read", name_of(&path), wanted.len(), if wanted.len() == 1 { "" } else { "s" }),
+                Ok(()) if skipped > 0 => format!("{skipped} file{} too big to open here — use Unpack here", if skipped == 1 { " is" } else { "s are" }),
+                Ok(()) => String::new(),
+                Err(ArcError::Password) => String::new(),
+                Err(ArcError::Other(e)) if e == "stopped" => "Unpacking stopped — what was unpacked so far is shown".into(),
+                Err(e) => format!("Couldn't unpack all of {}: {e}", name_of(&path)),
+            };
+            let _ = tx.send(Msg::Archive(Box::new(ArchiveDone { archive: path.clone(), dest: cache.clone(), password: password.clone(), result: r, open: true })));
+            JobResult { message, refresh: false, select: Vec::new() }
+        });
     }
 
-    /// Show the unpacked archive as the current folder.
-    fn enter_archive(&mut self, archive: PathBuf, dir: PathBuf) {
+    /// Show the unpacked archive (or what has been unpacked so far) as the current folder.
+    pub fn enter_archive(&mut self, archive: PathBuf, dir: PathBuf, damaged: bool, counts: Option<(usize, usize)>) {
         let _ = std::fs::write(dir.join(".touch"), b""); // keeps the cache folder "recently used"
         let _ = std::fs::remove_file(dir.join(".touch"));
         self.archive = Some(ArchiveView { archive: archive.clone(), dir: dir.clone() });
+        // An archive of things the current filter hides (documents, sounds ... under "pictures only") would look empty.
+        if let Some((_, viewable)) = counts {
+            if viewable == 0 && self.listing.show != crate::model::Show::All {
+                self.archive_show = Some(self.listing.show);
+                self.listing.show = crate::model::Show::All;
+            }
+        }
         self.go(dir, Vec::new(), true);
-        self.toast(format!("{} opened as a folder — its pictures are unpacked in a cache that is cleaned up by itself", name_of(&archive)));
+        let what = if damaged { " (damaged: showing what could be read)" } else { "" };
+        self.toast(format!("{} opened as a folder{what}", name_of(&archive)));
     }
 
-    /// Unpack `wanted` (everything when empty) into `dest` on a worker thread.
-    fn unpack(&mut self, archive: PathBuf, dest: PathBuf, wanted: Vec<String>, password: Option<String>, open: bool) {
+    /// Unpack `wanted` (everything when empty) into `dest` on a worker thread (Unpack here).
+    fn unpack(&mut self, archive: PathBuf, dest: PathBuf, wanted: Vec<String>, password: Option<String>) {
         let tool = self.settings.more.seven_zip.clone();
         let (tx, wake) = (self.tx.clone(), self.wake.clone());
-        let label = if open { "Opening archive" } else { "Unpacking" };
-        self.spawn_job(label, move |progress| {
-            let mut last = 0usize;
-            let r = at::extract(&archive, &dest, &wanted, password.as_deref(), &tool, &mut |done, total| {
-                last = done;
-                progress(format!("{done} / {total} files"))
-            });
-            if r.is_ok() && open {
-                let _ = std::fs::write(dest.join(".done"), b"");
-            }
+        self.spawn_job("Unpacking", move |progress| {
+            let r = at::extract(&archive, &dest, &wanted, password.as_deref(), &tool, &mut |done, total| progress(format!("{done} / {total} files")));
             let message = match &r {
-                Ok(()) if open => String::new(),
                 Ok(()) => format!("Unpacked to {}", name_of(&dest)),
                 Err(ArcError::Password) => String::new(),
                 Err(ArcError::Other(e)) if e == "stopped" => "Unpacking cancelled".into(),
                 Err(e) => format!("Couldn't unpack {}: {e}", name_of(&archive)),
             };
-            if r.is_err() && open {
-                let _ = std::fs::remove_dir_all(&dest);
-            }
-            let _ = tx.send(Msg::Archive(Box::new(ArchiveDone { archive, dest: dest.clone(), password, result: r, open })));
+            let _ = tx.send(Msg::Archive(Box::new(ArchiveDone { archive, dest: dest.clone(), password, result: r, open: false })));
             wake();
-            JobResult { message, refresh: !open, select: if open { Vec::new() } else { vec![dest] } }
+            JobResult { message, refresh: true, select: vec![dest] }
         });
     }
 
-    /// The worker finished: show it, ask again for a wrong password, or say what went wrong.
+    /// The worker finished: read the folder once more, ask again for a wrong password.
     pub fn archive_done(&mut self, d: ArchiveDone) {
         match d.result {
-            Ok(()) if d.open => self.enter_archive(d.archive, d.dest),
+            Ok(()) if d.open => {
+                if self.archive.as_ref().is_some_and(|a| a.archive == d.archive) {
+                    self.refresh(Vec::new());
+                }
+            }
             Err(ArcError::Password) => {
                 if let Some(pw) = ask_password(&d.archive, d.password.is_some()) {
                     if d.open {
@@ -178,6 +225,11 @@ impl App {
                     } else {
                         self.extract_archive(d.archive, Some(pw), Some(d.dest));
                     }
+                }
+            }
+            Err(_) if d.open => {
+                if self.archive.as_ref().is_some_and(|a| a.archive == d.archive) {
+                    self.refresh(Vec::new());
                 }
             }
             _ => {}
@@ -217,7 +269,7 @@ impl App {
         let dir = archive.parent().map(Path::to_path_buf).unwrap_or_default();
         let stem = archive.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Unpacked".into());
         let dest = dest.unwrap_or_else(|| fileops::unique_path(&dir, std::ffi::OsStr::new(&stem)));
-        self.unpack(archive, dest, Vec::new(), password, false);
+        self.unpack(archive, dest, Vec::new(), password);
     }
 
     // ---- compress ------------------------------------------------------------------------------------

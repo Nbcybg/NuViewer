@@ -75,7 +75,10 @@ impl App {
             return None;
         }
         match dst {
-            Some(d) => (0..4).all(|k| (d[k] - p.rect[k]).abs() < 1.1).then_some(p.rect),
+            // The real picture is on the GPU: it is drawn, and this stand-in is dropped. (It used to keep standing in whenever it
+            // covered the same pixels, which froze a video or an animation that was the first picture on its first frame, and
+            // showed the old picture after the file was changed behind it, in NuEditor for instance.)
+            Some(_) => None,
             None => (self.view.fit && self.view.zoom == 1.0 && self.view.pan == (0.0, 0.0)).then_some(p.rect),
         }
     }

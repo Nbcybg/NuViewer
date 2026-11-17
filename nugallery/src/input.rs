@@ -135,6 +135,26 @@ impl TextInput {
         self.cursor = index;
     }
 
+    /// Select the word (letters and digits) around char `index`, or the run of other characters there (a double click).
+    pub fn select_word_at(&mut self, index: usize) {
+        let n = self.chars.len();
+        if n == 0 {
+            return;
+        }
+        let i = index.min(n - 1);
+        let class = |c: char| c.is_alphanumeric();
+        let on = class(self.chars[i]);
+        let (mut a, mut b) = (i, i + 1);
+        while a > 0 && class(self.chars[a - 1]) == on {
+            a -= 1;
+        }
+        while b < n && class(self.chars[b]) == on {
+            b += 1;
+        }
+        self.anchor = Some(a);
+        self.cursor = b;
+    }
+
     fn word_left(&self) -> usize {
         let mut i = self.cursor;
         while i > 0 && !self.chars[i - 1].is_alphanumeric() {
@@ -313,6 +333,18 @@ mod tests {
         assert_eq!((t.cursor, t.selection()), (6, None));
         t.insert('\u{7}'); // control characters are ignored
         assert_eq!(t.text(), "abcdef");
+    }
+
+    #[test]
+    fn a_double_click_selects_a_word() {
+        let mut t = TextInput::new("C:\\Users\\me\\Pictures");
+        t.select_word_at(4);
+        assert_eq!(t.selected_text(), "Users");
+        t.select_word_at(2);
+        assert_eq!(t.selected_text(), ":\\", "a run of separators is a word too");
+        let mut e = TextInput::new("");
+        e.select_word_at(0);
+        assert_eq!(e.selection(), None);
     }
 
     #[test]

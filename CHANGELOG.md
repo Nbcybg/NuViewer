@@ -2,6 +2,36 @@
 
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
+## 0.3.2 - 2026-11-17
+
+The user's list of 16 NuGallery bugs, 2 viewer bugs and "check every video". Details, causes and what was measured: `docs/session18.md`.
+
+### Fixed
+- **A video (or animated GIF / WebP) that was the first picture stayed on its first frame** while the time ran: the CPU-made first frame kept standing in for the
+  real picture whenever it covered the same pixels. The real picture is drawn now and the stand-in dropped (also fixes the old picture staying after NuEditor changed the
+  file). 10 of 10 test clips (mp4 / mov / mkv / hevc / webm / avi / wmv / flv, with and without sound) play; 0 of 10 did before.
+- **Zip files** that open in 7-Zip but not here (a streamed or cut-off download: no table of contents, sizes after the data) open now, with what can be read of them;
+  they open as a folder at once and fill while they are unpacked, instead of after everything was unpacked. Archives with no pictures (documents, sounds, text) open too.
+  Damaged zips get their thumbnail the same way.
+- **Two pictures selected after coming back from the viewer:** the picture the viewer ended on is the one selection now.
+- **Back / Forward** go back to where the folder was left: the scroll position, the focused picture and the selection (they used to jump to the first picture).
+- **Folder tree:** the right click menu works, files can be dragged onto a folder (and dropped from Explorer onto it) instead of "those files are already in that folder",
+  Cut / Copy / Paste / Delete / Rename / New folder / Properties work on its folders (also with the keyboard once it is clicked), clicking a folder no longer scrolls the tree
+  under the pointer, deep folders have a sideways scroll bar (Shift + wheel).
+- **Address bar:** select with the mouse (drag, double click for a word), right click for Cut / Copy / Paste / Select all.
+- Long names: a hint shows the whole name (with type, size and date), the Details panel writes the whole name over several lines.
+- The viewer's **Fit** really fits: a picture smaller than the window is enlarged (Settings > Viewer: "Fit also enlarges small pictures", at most 8x).
+
+### Added
+- **Open with** (the programs Windows offers, plus "Choose another app") and **Properties** in the right click menus of the gallery and the viewer; **Settings**, **View**,
+  **Sort by** and **Show only** in the gallery's right click menu.
+- **Hover hints** on every toolbar button, folder, file and the address bar.
+- **Video and sound preview in the gallery** with a play / pause button, a seek bar, the time and a volume / mute control (the wheel is the volume).
+- **Archives are marked** with a yellow tag (ZIP, RAR, 7Z ...) on their tile.
+- Fit and 100% are one toggle (the sidebar button, the menus, F and A).
+- Thumbnails: big JPEGs show their EXIF picture at once (128 KB read instead of the whole file) and are replaced by the real thumbnail; when nothing else waits, the
+  rest of the folder is made into the thumbnail cache so that scrolling finds it ready.
+
 ## 0.3.1 - 2026-11-17
 
 ### Added

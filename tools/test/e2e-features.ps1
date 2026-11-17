@@ -204,7 +204,7 @@ try {
         $hm = [In]::SendMessage($menu, 0x01E1, [IntPtr]::Zero, [IntPtr]::Zero)
         $n = [In]::GetMenuItemCount($hm)
         $texts = @(0..($n - 1) | ForEach-Object { [In]::MenuText($hm, $_) })
-        Check "menu has 38 entries  [$n]" ($n -eq 38)
+        Check "menu has 40 entries  [$n]" ($n -eq 40)
         Check 'Settings… and Fold image sequences are in the menu' ((@($texts | Where-Object { $_ -like 'Settings*' }).Count -eq 1) -and (@($texts | Where-Object { $_ -like 'Fold image sequences*' }).Count -eq 1))
         $ow = [array]::IndexOf(@($texts | ForEach-Object { $_ -like 'Edit with*' }), $true)
         $sub = [In]::GetSubMenu($hm, $ow)

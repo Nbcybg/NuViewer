@@ -284,6 +284,33 @@ impl App {
         }
     }
 
+    /// Open the selected file(s) with the program picked in the Open with menu.
+    pub fn open_with_app(&mut self, id: &str) {
+        for p in self.picked_files().iter().take(10) {
+            if let Err(e) = nv_win::openwith::open(p, id) {
+                self.toast(format!("Can't open it: {e}"));
+                break;
+            }
+        }
+    }
+
+    /// Windows' "How do you want to open this file?" window for the first selected file.
+    pub fn open_with_choose(&mut self) {
+        if let Some(p) = self.picked_files().first() {
+            if let Err(e) = nv_win::openwith::choose(self.hwnd, p) {
+                self.toast(format!("Can't open it: {e}"));
+            }
+        }
+    }
+
+    /// Explorer's Properties window: of the first selected item, or of this folder when nothing is selected.
+    pub fn show_properties(&mut self) {
+        let p = self.picked_paths().first().cloned().unwrap_or_else(|| self.listing.dir.clone());
+        if let Err(e) = files::properties(self.hwnd, &p) {
+            self.toast(format!("Can't show the properties: {e}"));
+        }
+    }
+
     pub fn show_location(&mut self) {
         if let Some(p) = self.picked_paths().first() {
             shell::reveal_in_explorer(p);
@@ -330,7 +357,14 @@ impl App {
                     self.push_undo(crate::undo::Step::Moved(vec![(path.clone(), new.clone())]));
                 }
                 self.toast(format!("Renamed to {name} — Ctrl+Z to undo"));
-                self.refresh(vec![new]);
+                if let Some(parent) = path.parent() {
+                    self.tree_reload(parent);
+                }
+                // Renaming the folder the view is in (or above): the view follows it.
+                match crate::treeui::renamed_view(&self.listing.dir, &path, &new) {
+                    Some(now) => self.go(now, Vec::new(), false),
+                    None => self.refresh(vec![new]),
+                }
             }
             Err(e) => {
                 active.error = Some(e);
@@ -364,7 +398,15 @@ impl App {
         match std::fs::create_dir(&path) {
             Ok(()) => {
                 self.toast(format!("Folder {name} created"));
-                self.refresh(vec![path]);
+                self.tree_reload(&dir);
+                if let Some(i) = self.tree.nodes.iter().position(|n| !n.header && crate::app::same_dir(&n.path, &dir)) {
+                    if !self.tree.nodes[i].expanded {
+                        self.tree.expand(i);
+                    }
+                }
+                if crate::app::same_dir(&dir, &self.listing.dir) {
+                    self.refresh(vec![path]);
+                }
             }
             Err(e) => {
                 active.error = Some(e.to_string());
@@ -377,34 +419,8 @@ impl App {
 
     pub fn delete_selected(&mut self, permanent: bool) {
         let paths = self.picked_paths();
-        if paths.is_empty() {
-            return;
-        }
-        let n = paths.len();
-        if permanent && !shell::confirm(self.hwnd, &format!("Delete {} permanently?\n\nThis can't be undone.", if n == 1 { paths[0].file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default() } else { format!("{n} items") })) {
-            return;
-        }
-        // Ask first (Settings > Viewer > "Ask before a file goes to the Recycle Bin"): Enter = yes, Esc = no.
-        if !permanent && self.settings.confirm_delete {
-            let what = if n == 1 { format!("\"{}\"", paths[0].file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default()) } else { format!("these {n} items") };
-            if !shell::confirm_yes(self.hwnd, &format!("Move {what} to the Recycle Bin?\n\nCtrl+Z brings {} back.", if n == 1 { "it" } else { "them" })) {
-                return;
-            }
-        }
-        let hint = self.sel.cursor;
-        match files::run(self.hwnd, if permanent { Op::Delete } else { Op::Recycle }, &paths, None, false) {
-            Ok(()) => {
-                if !permanent {
-                    let gone = crate::undo::gone(&paths);
-                    self.push_undo(crate::undo::Step::Deleted(gone));
-                }
-                self.toast(if permanent { format!("Deleted {n} item{}", if n == 1 { "" } else { "s" }) } else { format!("Moved {n} item{} to the Recycle Bin — Ctrl+Z to undo", if n == 1 { "" } else { "s" }) });
-                self.cursor_hint = hint;
-                self.refresh(Vec::new());
-            }
-            Err(e) if e == "cancelled" => self.refresh(Vec::new()),
-            Err(e) => self.toast(format!("Couldn't delete: {e}")),
-        }
+        self.cursor_hint = self.sel.cursor;
+        self.delete_paths(paths, permanent);
     }
 
     // ---- undo ------------------------------------------------------------------------------------------
@@ -473,6 +489,18 @@ impl App {
                 Err(e) => failed.push(e),
             },
         }
+        // Folders came back or went away: the tree follows.
+        let parents: Vec<PathBuf> = select.iter().filter_map(|p| p.parent().map(Path::to_path_buf)).collect();
+        for p in &parents {
+            self.tree_reload(p);
+        }
+        if let Step::Moved(pairs) = &step {
+            for (from, _) in pairs {
+                if let Some(par) = from.parent() {
+                    self.tree_reload(par);
+                }
+            }
+        }
         if failed.is_empty() {
             self.toast(format!("{} — done", step.label()));
         } else if done == 0 {
@@ -530,28 +558,8 @@ impl App {
     }
 
     pub fn paste(&mut self) {
-        let Some((paths, cut)) = files::clipboard_files(self.hwnd) else {
-            self.toast("There are no files on the clipboard");
-            return;
-        };
         let dir = self.listing.dir.clone();
-        let same_folder = paths.iter().all(|p| p.parent().map(|d| same_dir(d, &dir)).unwrap_or(false));
-        if cut && same_folder {
-            return;
-        }
-        let existed = crate::undo::names_in(&dir);
-        match files::run(self.hwnd, if cut { Op::Move } else { Op::Copy }, &paths, Some(&dir), same_folder) {
-            Ok(()) => {
-                if !same_folder {
-                    self.record_transfer(&paths, &dir, cut, &existed);
-                }
-                let select: Vec<PathBuf> = if same_folder { Vec::new() } else { paths.iter().filter_map(|p| p.file_name().map(|n| dir.join(n))).collect() };
-                self.toast(format!("Pasted {} item{}", paths.len(), if paths.len() == 1 { "" } else { "s" }));
-                self.refresh(select);
-            }
-            Err(e) if e == "cancelled" => self.refresh(Vec::new()),
-            Err(e) => self.toast(format!("Couldn't paste: {e}")),
-        }
+        self.paste_into(dir);
     }
 
     pub fn transfer_selected(&mut self, mv: bool) {
@@ -571,6 +579,11 @@ impl App {
             Ok(()) => {
                 self.record_transfer(&paths, &dest, mv, &existed);
                 self.toast(format!("{} {} item{} to {} — Ctrl+Z to undo", if mv { "Moved" } else { "Copied" }, paths.len(), if paths.len() == 1 { "" } else { "s" }, dest.display()));
+                self.tree_reload(&dest);
+                if mv {
+                    let from = self.listing.dir.clone();
+                    self.tree_reload(&from);
+                }
                 self.refresh(Vec::new());
             }
             Err(e) if e == "cancelled" => self.refresh(Vec::new()),
@@ -614,44 +627,6 @@ impl App {
         self.rubber = None;
         self.drag_from = None;
         nv_win::invalidate(self.hwnd);
-    }
-
-    /// Files dropped on the window from Explorer or another program: into the folder under the pointer, or into this
-    /// folder. Like Explorer: moved within a drive, copied between drives; Ctrl forces a copy, Shift a move.
-    pub fn on_drop(&mut self, dropped: Vec<String>, x: i32, y: i32) {
-        let target = match self.item_at(x, y).and_then(|i| self.listing.get(i)) {
-            Some(e) if e.is_dir() => e.path.clone(),
-            _ => self.listing.dir.clone(),
-        };
-        let paths: Vec<PathBuf> = dropped
-            .into_iter()
-            .map(PathBuf::from)
-            .filter(|p| !p.parent().map(|d| same_dir(d, &target)).unwrap_or(false) && !crate::tree::is_within(&target, p))
-            .collect();
-        if paths.is_empty() {
-            self.toast("Those files are already in that folder");
-            return;
-        }
-        let drive = |p: &Path| p.to_string_lossy().chars().next().map(|c| c.to_ascii_lowercase());
-        let m = nv_win::modifiers();
-        let op = if m.ctrl {
-            Op::Copy
-        } else if m.shift || drive(&paths[0]) == drive(&target) {
-            Op::Move
-        } else {
-            Op::Copy
-        };
-        let n = paths.len();
-        let existed = crate::undo::names_in(&target);
-        match files::run(self.hwnd, op, &paths, Some(&target), false) {
-            Ok(()) => {
-                self.record_transfer(&paths, &target, op == Op::Move, &existed);
-                self.toast(format!("{} {n} item{} to {}", if op == Op::Move { "Moved" } else { "Copied" }, if n == 1 { "" } else { "s" }, target.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| target.display().to_string())));
-                self.refresh(Vec::new());
-            }
-            Err(e) if e == "cancelled" => self.refresh(Vec::new()),
-            Err(e) => self.toast(format!("Couldn't drop the files: {e}")),
-        }
     }
 
     /// RAW files: the camera's own look (its embedded JPEG) <-> the sensor data. The picture in the details panel is made

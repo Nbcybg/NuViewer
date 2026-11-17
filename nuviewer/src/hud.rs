@@ -15,7 +15,7 @@ const HELP: &[&str] = &[
     "Ctrl+←  Ctrl+→     previous / next file (a document with pages: the keys and the wheel stay inside it, only Ctrl+←  Ctrl+→ leave it)",
     "Mouse wheel previous / next  ·  hold left button: zoom 100% (200% if small), drag to pan",
     "Ctrl + drag zoom into an area  ·  Ctrl + wheel zoom  ·  click while zoomed: back to the base view",
-    "F fit  ·  A 100%  (pressing the one that is on switches to the other)  ·  1 2 3 4 5 = that many times fit or 100%  ·  ` or Ctrl+0 resets",
+    "F or A: fit ⇄ 100% (one toggle; fit also enlarges small pictures unless Settings says not)  ·  1 2 3 4 5 = that many times fit or 100%  ·  ` or Ctrl+0 resets",
     "Ctrl + / Ctrl −  zoom in / out  ·  Alt or F10 (or the pointer on the top edge): menu bar  ·  Alt+F, Alt+E ... open a menu",
     "[  ]  rotate −45° / +45°  ·  Shift+[  Shift+]  rotate 90°  ·  Ctrl+S save the rotation  ·  Ctrl+Z take it back",
     "V  viewer controls (they also open when the pointer touches the left edge)  ·  E  NuEditor  ·  right-click: Edit in NuEditor / Edit with…",

@@ -46,6 +46,7 @@ const V_CONTROLS: u16 = 110;
 const V_DISK: u16 = 111;
 const V_MODEL_TEX: u16 = 112;
 const V_SIDEBAR: u16 = 113;
+const V_FIT_ENLARGE: u16 = 190;
 const V_ROTATE_SAVE: u16 = 114;
 const V_DOCS: u16 = 115;
 // Colour page.
@@ -264,6 +265,7 @@ pub fn edit(current: &Settings) -> Option<Settings> {
     form.label(28, 78, 230, 20, "Background colour (hex RRGGBB):");
     form.edit(V_CANVAS, 262, 74, 100, 24, &format!("{:06X}", c.canvas));
     form.button(V_PICK, 372, 73, 90, 26, "Choose…", false);
+    form.check(V_FIT_ENLARGE, 476, 74, 224, 22, "Fit also enlarges small pictures", c.fit_enlarge);
     form.check(V_FULLSCREEN, 28, 106, 660, 22, "Open pictures fullscreen (Alt+Enter or F11 switches)", c.start_fullscreen);
     form.check(V_DOCS, 28, 134, 660, 22, "List documents too (zip / cbz, docx / xlsx / pptx / odt, txt, Affinity): their preview, or a card with name and size", c.documents);
     form.label(28, 164, 150, 20, "Hold the left button:");
@@ -641,6 +643,7 @@ pub fn edit(current: &Settings) -> Option<Settings> {
                 s.documents = form.is_checked(V_DOCS);
                 s.wheel = WHEEL_VALUES[form.combo_index(M_WHEEL).min(WHEEL_VALUES.len() - 1)];
                 s.sidebar = form.is_checked(V_SIDEBAR);
+                s.fit_enlarge = form.is_checked(V_FIT_ENLARGE);
                 s.editor_save = EDITOR_VALUES[form.combo_index(ED_SAVE).min(EDITOR_VALUES.len() - 1)];
                 s.editor_ask = form.is_checked(ED_ASK);
                 s.editor_format = FORMAT_VALUES[form.combo_index(ED_FORMAT).min(FORMAT_VALUES.len() - 1)];
@@ -737,6 +740,8 @@ impl App {
         if !self.settings.sidebar {
             self.sidebar.hover = false;
         }
+        FIT_ENLARGE.store(self.settings.fit_enlarge, Ordering::Relaxed);
+        invalidate(self.hwnd);
         if documents_changed {
             // Another set of files belongs in the list: list the folder again, staying on the same picture.
             if let Some(cur) = self.folder.current().cloned() {

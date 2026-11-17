@@ -75,10 +75,26 @@ pub fn kind_of_ext(ext: &str) -> Kind {
     }
 }
 
+/// Thumbnails that were made the quick way (from the EXIF picture) and still owe their real version.
+fn provisional() -> &'static std::sync::Mutex<HashSet<PathBuf>> {
+    static SET: std::sync::OnceLock<std::sync::Mutex<HashSet<PathBuf>>> = std::sync::OnceLock::new();
+    SET.get_or_init(|| std::sync::Mutex::new(HashSet::new()))
+}
+
+/// Was the thumbnail just delivered for `path` the quick stand-in? (True once.)
+pub fn take_provisional(path: &Path) -> bool {
+    provisional().lock().unwrap().remove(path)
+}
+
 /// The thumbnail work: a picture's own thumbnail, or for a folder the thumbnail of the first picture in it (by name,
 /// ordinary pictures before RAW files). `Err` for a folder without pictures.
 pub fn thumb_work(path: &Path) -> Result<nv_codecs::Image, String> {
     if !path.is_dir() {
+        // A big photo on a slow disk: its own small picture first (a few KB read), the real thumbnail follows (see `refine`).
+        if let Some(img) = nv_core::thumbs::quick_thumb(path) {
+            provisional().lock().unwrap().insert(path.to_path_buf());
+            return Ok(img);
+        }
         return nv_core::thumbs::make_thumb(path);
     }
     let rd = std::fs::read_dir(path).map_err(|e| e.to_string())?;
@@ -119,6 +135,10 @@ pub fn scan(dir: &Path, show_hidden: bool) -> Result<Vec<Entry>, String> {
             continue; // hidden or system
         }
         let path = e.path();
+        // A file of an archive that is still being unpacked, and the marks the archive cache keeps in its folders.
+        if path.extension().is_some_and(|x| x == nv_core::archive_tools::PART_EXT) || matches!(e.file_name().to_str(), Some(".done" | ".want.txt" | ".touch")) {
+            continue;
+        }
         let is_dir = meta.is_dir() || (meta.file_type().is_symlink() && std::fs::metadata(&path).map(|m| m.is_dir()).unwrap_or(false));
         let name = e.file_name().to_string_lossy().into_owned();
         let ext = if is_dir { String::new() } else { path.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default() };

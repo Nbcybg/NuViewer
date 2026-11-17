@@ -16,3 +16,4 @@ nv-render = { path = "../crates/nv-render" }
 nv-win = { path = "../crates/nv-win" }
 nv-text = { path = "../crates/nv-text" }
 nv-editor = { path = "../crates/nv-editor" }
+nv-media = { path = "../crates/nv-media" }

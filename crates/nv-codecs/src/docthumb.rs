@@ -118,7 +118,7 @@ impl Zip {
                 }
                 x += 4 + sz;
             }
-            let name = if flags & 0x800 != 0 { String::from_utf8_lossy(name_bytes).into_owned() } else { name_bytes.iter().map(|&b| if b < 128 { b as char } else { '?' }).collect() };
+            let name = crate::zipscan::decode_name(name_bytes, flags);
             if !name.ends_with('/') {
                 entries.push(Entry { name: name.replace('\\', "/"), method, csize, size, offset });
             }
@@ -238,7 +238,16 @@ pub(crate) fn candidates(entries: &[Entry], ext: &str) -> Vec<usize> {
 }
 
 fn picture_from_zip(path: &Path, ext: &str, limit: u64) -> Result<(Image, usize, String), String> {
-    let mut zip = Zip::open(path)?;
+    let mut zip = match Zip::open(path) {
+        Ok(z) => z,
+        Err(first) => {
+            // No table of contents (a streamed or cut-off download): the first picture found by walking the entries from the front.
+            return match crate::zipscan::first_picture(path, limit, &is_image_name) {
+                Ok((name, bytes)) => crate::decode_image_bytes(&bytes, &ext_of(&name)).map(|img| (img, 0, name)).map_err(|e| format!("{first}; {e}")),
+                Err(_) => Err(first),
+            };
+        }
+    };
     let total = zip.entries.len();
     let list = candidates(&zip.entries, ext);
     if list.is_empty() {
@@ -490,7 +499,7 @@ pub(crate) fn decode(path: &Path, first_only: bool) -> Result<Image, String> {
     if ARCHIVE_EXTS.contains(&ext.as_str()) || OFFICE_EXTS.contains(&ext.as_str()) || OPENDOC_EXTS.contains(&ext.as_str()) {
         match picture_from_zip(path, &ext, limit) {
             Ok((mut img, total, entry)) => {
-                img.colour_note = Some(format!("{} preview: {entry} (of {total} files in the archive)", ext.to_uppercase()));
+                img.colour_note = Some(if total == 0 { format!("{} preview: {entry} (damaged archive, read from the front)", ext.to_uppercase()) } else { format!("{} preview: {entry} (of {total} files in the archive)", ext.to_uppercase()) });
                 img.profile_assumable = true;
                 return Ok(img);
             }

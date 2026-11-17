@@ -203,6 +203,8 @@ impl App {
         self.draw_right();
         self.draw_toolbar();
         self.draw_overlays(w, h, d);
+        self.draw_drag_label(w, h, d);
+        self.draw_tip(w, h, d);
         if let Some(r) = self.renderer.as_mut() {
             crate::gfx::draw_menubar(r, &mut self.text, &mut self.menubar, w, d);
             self.text.end_frame(r);
@@ -212,6 +214,10 @@ impl App {
             self.timing.first_frame_ms = Some(self.ms_since_start());
             // Tell the idle loop: the benchmark report may be due.
             (self.wake)();
+        }
+        if self.test_mode {
+            // The scripts read what is on the screen from the title.
+            self.update_title();
         }
     }
 
@@ -223,6 +229,7 @@ impl App {
         let area = self.chrome.area;
         let (name_x, size_right, type_x, date_x, _right) = columns(area, d);
         let cursor = self.sel.cursor;
+        let drag_target = self.drag.as_ref().and_then(|dr| dr.target.clone());
         let Some(r) = self.renderer.as_mut() else { return };
         // Items never draw into the details header strip or under docked panels.
         let top = area[1] + if mode == ViewMode::Details { 28.0 * d } else { 0.0 };
@@ -237,7 +244,10 @@ impl App {
             let selected = self.sel.ids.contains(&e.id);
             let failed = self.thumb_failed.contains(&e.id);
             let hovered = hover == Some(i);
-            let bg = if selected {
+            let is_drop = e.is_dir() && drag_target.as_ref().map(|t| crate::app::same_dir(t, &e.path)).unwrap_or(false);
+            let bg = if is_drop {
+                rgb(pal::ACCENT, 0.55)
+            } else if selected {
                 rgb(pal::ACCENT, 0.30)
             } else if hovered {
                 rgb(pal::TILE_HOVER, 1.0)
@@ -285,7 +295,9 @@ impl App {
                     self.text.draw(r, &name, name_px, rc[0] + 34.0 * d, ty, rgb(pal::TEXT, 1.0));
                 }
             }
-            if selected {
+            if is_drop {
+                outline(r, rc, (2.0 * d).max(1.0), rgb(0x7DB4FF, 1.0));
+            } else if selected {
                 outline(r, rc, (2.0 * d).max(1.0), rgb(pal::ACCENT, 1.0));
             } else if cursor == Some(i) {
                 outline(r, rc, 1.0, rgb(0xB8C4D8, 0.8));
@@ -501,6 +513,34 @@ impl App {
 
 /// A folder, a picture (from its thumbnail), or a card with the extension, fitted into `b` (with `pad` around it).
 fn draw_visual(r: &mut Renderer, text: &mut Text, e: &Entry, b: [f32; 4], pad: f32, failed: bool, d: f32) {
+    draw_visual_inner(r, text, e, b, pad, failed, d);
+    // An archive is told by a tag, whatever picture its thumbnail shows (the first picture inside it, or a card).
+    if !e.is_dir() && nv_core::archive_tools::ARCHIVE_EXTS.contains(&e.ext.as_str()) {
+        draw_archive_badge(r, text, b, &e.ext, d);
+    }
+}
+
+/// A small tag in the lower left corner of a picture: "ZIP", "RAR", "7Z" ...
+fn draw_archive_badge(r: &mut Renderer, text: &mut Text, b: [f32; 4], ext: &str, d: f32) {
+    let big = (b[2] - b[0]) >= 56.0 * d;
+    let size = px(if big { 11.0 } else { 8.0 }, d);
+    let label = ext.to_uppercase();
+    let w = text.width(&label, size) as f32 + if big { 10.0 } else { 4.0 } * d;
+    let h = line_h(size) + if big { 3.0 } else { 1.0 } * d;
+    let (x, y) = (b[0] + if big { 5.0 } else { 0.0 } * d, b[3] - h - if big { 5.0 } else { 0.0 } * d);
+    let _ = r.fill_rect([x, y, x + w, y + h], rgb(0xD9A400, 0.97));
+    // A zipper: a column of teeth along the tag's left edge.
+    if big {
+        let mut ty = y + 2.0 * d;
+        while ty + 2.0 * d < y + h - 1.0 {
+            let _ = r.fill_rect([x + 2.0 * d, ty, x + 4.0 * d, ty + 1.5 * d], rgb(0x1A1A1A, 0.75));
+            ty += 3.5 * d;
+        }
+    }
+    text.draw(r, &label, size, x + if big { 7.0 } else { 2.0 } * d, y + if big { 1.5 } else { 0.5 } * d, rgb(0x1A1A1A, 1.0));
+}
+
+fn draw_visual_inner(r: &mut Renderer, text: &mut Text, e: &Entry, b: [f32; 4], pad: f32, failed: bool, d: f32) {
     let inner = [b[0] + pad, b[1] + pad, b[2] - pad, b[3] - pad];
     if e.is_dir() {
         match r.thumb_size(e.id) {

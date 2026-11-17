@@ -119,6 +119,34 @@ pub fn forget(path: &Path) {
     }
 }
 
+/// Is the finished thumbnail of `path` in the disk cache already?
+pub fn is_cached(path: &Path) -> bool {
+    match (std::fs::metadata(path), cache_dir().as_ref()) {
+        (Ok(meta), Some(dir)) => dir.join(format!("{:016x}.jpg", cache_key(path, &meta))).is_file(),
+        _ => false,
+    }
+}
+
+/// A big JPEG is worth the quick path: reading it whole costs far more than its thumbnail is worth on a slow disk.
+const QUICK_MIN_BYTES: u64 = 1_500_000;
+
+/// The photo's own small picture from its EXIF block (see `nv_codecs::exif_thumbnail`), made ready as a thumbnail but NOT cached:
+/// it stands in until `make_thumb` has done the real one. Only for big JPEGs that have no cached thumbnail yet.
+pub fn quick_thumb(path: &Path) -> Option<Image> {
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    if !matches!(ext.as_str(), "jpg" | "jpeg" | "jpe" | "jfif") {
+        return None;
+    }
+    let meta = std::fs::metadata(path).ok()?;
+    if meta.len() < QUICK_MIN_BYTES || is_cached(path) || crate::pair::stamp(path) != 0 {
+        return None;
+    }
+    let small = nv_codecs::exif_thumbnail(path, 120)?;
+    let mut small = nv_codecs::downscale(&small, THUMB_MAX).finish_for_thumb();
+    small.srgb_to_output();
+    Some(small)
+}
+
 /// Thumbnail for `path`: from the disk cache if present, otherwise decoded, downscaled and cached.
 pub fn make_thumb(path: &Path) -> Result<Image, String> {
     let meta = std::fs::metadata(path).map_err(|e| format!("stat: {e}"))?;

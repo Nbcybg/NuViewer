@@ -14,11 +14,11 @@ struct Item {
 }
 
 /// In the order the bar shows them, top to bottom.
-const ITEMS: [Item; 16] = [
+const ITEMS: [Item; 15] = [
     Item { action: Action::Next, glyph: "\u{276F}", label: "Next picture" },
     Item { action: Action::Prev, glyph: "\u{276E}", label: "Previous picture" },
-    Item { action: Action::FitReset, glyph: "\u{26F6}", label: "Fit to screen" },
-    Item { action: Action::ActualSize, glyph: "1:1", label: "Actual size (100%)" },
+    // One button for both views: it shows (and does) the one that is not on now; `fit_toggle` gives the glyph and the words.
+    Item { action: Action::FitReset, glyph: "1:1", label: "Actual size (100%)" },
     Item { action: Action::Fullscreen, glyph: "\u{2922}", label: "Fullscreen" },
     Item { action: Action::Edit, glyph: "\u{270E}", label: "NuEditor" },
     Item { action: Action::RotatePlus45, glyph: "+45\u{00B0}", label: "Rotate +45\u{00B0}" },
@@ -130,16 +130,23 @@ impl App {
         let many = self.folder.files.len() > 1;
         match a {
             Action::Next | Action::Prev | Action::Slideshow | Action::FilmStrip | Action::ReadMode => many,
-            Action::FitReset | Action::ActualSize | Action::RotatePlus45 | Action::RotateMinus45 | Action::Edit => !self.is_model() || a == Action::FitReset || a == Action::ActualSize,
+            Action::FitReset | Action::RotatePlus45 | Action::RotateMinus45 | Action::Edit => !self.is_model() || a == Action::FitReset,
             _ => true,
+        }
+    }
+
+    /// The fit / 100% toggle: the glyph and the words of what a press does now (the view that is not on).
+    pub fn fit_toggle(&self) -> (&'static str, &'static str) {
+        if !self.view.base_actual && self.view.fit {
+            ("1:1", "Actual size (100%)")
+        } else {
+            ("\u{26F6}", "Fit to screen")
         }
     }
 
     /// Toggle buttons that are "on" right now.
     fn sidebar_active(&self, a: Action) -> bool {
         match a {
-            Action::FitReset => !self.view.base_actual,
-            Action::ActualSize => self.view.base_actual,
             Action::Fullscreen => nv_win::is_fullscreen(),
             Action::Slideshow => self.slide.on,
             Action::ToggleSequences => self.settings.sequences,
@@ -168,8 +175,9 @@ impl App {
             } else if hot == Some(i) && enabled {
                 let _ = self.renderer.fill_rect(r, srgb(0x3A3F4A, 0.95));
             }
-            let size = if item.glyph.chars().count() > 1 { 14.0 } else { 24.0 };
-            if let Some((key, tw, th)) = self.overlay_glyph(item.glyph, size) {
+            let glyph = if item.action == Action::FitReset { self.fit_toggle().0 } else { item.glyph };
+            let size = if glyph.chars().count() > 1 { 14.0 } else { 24.0 };
+            if let Some((key, tw, th)) = self.overlay_glyph(glyph, size) {
                 let _ = self.renderer.draw_overlay(key, r[0] + (r[2] - r[0] - tw) / 2.0, r[1] + (r[3] - r[1] - th) / 2.0, if enabled { text_c } else { dim_c });
             }
         }
@@ -177,7 +185,8 @@ impl App {
         if let Some(i) = hot {
             let item = &ITEMS[i];
             let hint = self.keymap.chords_of(item.action).first().map(|c| format!("    {}", c.format())).unwrap_or_default();
-            if let Some((key, tw, th)) = self.overlay_small(&[format!("{}{hint}", item.label)]) {
+            let label = if item.action == Action::FitReset { self.fit_toggle().1 } else { item.label };
+            if let Some((key, tw, th)) = self.overlay_small(&[format!("{label}{hint}")]) {
                 let r = buttons[i];
                 let (x, y) = (rect[2] + 8.0 * d, r[1] + (r[3] - r[1] - th) / 2.0);
                 let _ = self.renderer.fill_rect([x, y, x + tw, y + th], srgb(0x0E0E0E, 0.92));

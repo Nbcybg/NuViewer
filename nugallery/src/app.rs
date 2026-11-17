@@ -10,6 +10,7 @@ use crate::input::{Clip, Outcome, TextInput};
 use crate::model::{self, Entry, Listing, Order, Selection, Show};
 use crate::state::{Persist, ViewMode, CELL_DEFAULT, CELL_LEVELS, CELL_MAX, CELL_MIN};
 use crate::tree::Tree;
+use crate::treeui::DragState;
 use nv_core::folder::SortKey;
 use nv_core::settings::Settings;
 use nv_core::Loader;
@@ -48,6 +49,10 @@ pub enum Msg {
     JobDone(JobResult),
     /// An archive was unpacked (or the password was wrong): see `tools.rs`.
     Archive(Box<crate::tools::ArchiveDone>),
+    /// An archive's listing is known and its folder exists: show it now, it fills up while it is unpacked.
+    ArchiveShow { archive: PathBuf, dir: PathBuf, damaged: bool, files: usize, viewable: usize },
+    /// More of an archive has been unpacked: read the folder again.
+    ArchiveTick,
     /// The volume label of a drive, read on a worker thread (a sleeping disk can take a while to answer).
     DriveLabel { root: PathBuf, label: String },
     /// The folder tree's first rows (Quick access, the drives), built off the UI thread.
@@ -58,6 +63,17 @@ pub enum Msg {
     Mesh { id: u64, mesh: Arc<nv_codecs::model::Mesh> },
     /// The sharper decode of the focused picture, made after the preview was zoomed.
     BigPreview { id: u64, img: nv_codecs::Image },
+    /// The player of the focused video or sound is open (see `preview.rs`).
+    PreviewPlayer { id: u64, result: Result<nv_media::Player, String> },
+}
+
+/// Where the view was in a folder: Back and Forward return to exactly this (scroll, the focused item, the selection).
+#[derive(Clone, Debug)]
+pub struct NavPoint {
+    pub dir: PathBuf,
+    pub scroll: f32,
+    pub cursor: Option<PathBuf>,
+    pub selected: Vec<PathBuf>,
 }
 
 pub struct JobResult {
@@ -105,6 +121,9 @@ pub struct Timing {
     pub listing_ms: Option<f64>,
     pub gpu_ms: Option<f64>,
     pub first_thumb_ms: Option<f64>,
+    /// Thumbnails that were the EXIF stand-in first, and how many of them the real one has replaced since.
+    pub quick: usize,
+    pub refined: usize,
     /// Every visible thumbnail on screen after the last folder was opened, and how many that was.
     pub visible_ready_ms: Option<f64>,
     pub visible_count: usize,
@@ -150,8 +169,12 @@ pub struct App {
     /// A folder is being read (shown in the title).
     pub loading: Option<PathBuf>,
     pub scan_gen: u64,
-    pub back: Vec<PathBuf>,
-    pub forward: Vec<PathBuf>,
+    pub back: Vec<NavPoint>,
+    pub forward: Vec<NavPoint>,
+    /// The view to put back once the folder being opened (Back / Forward) has been read.
+    pub restore: Option<NavPoint>,
+    /// The "show only" filter that was in force before an archive of other things made it show everything.
+    pub archive_show: Option<Show>,
 
     pub panels: Panels,
     pub chrome: Chrome,
@@ -162,10 +185,34 @@ pub struct App {
     /// Drive labels that have arrived (kept for a tree that is not there yet).
     pub drive_labels: HashMap<PathBuf, String>,
     pub right_scroll: f32,
+    /// The keyboard works on the folder tree (set by clicking it) rather than on the items.
+    pub tree_focus: bool,
+    /// The tree row last clicked (the folder the keyboard and the menu act on).
+    pub tree_sel: Option<PathBuf>,
+    /// Dragging the tree's sideways scroll bar: where inside the thumb it was grabbed.
+    pub tree_hsb_drag: Option<f32>,
+    /// Files being dragged onto a folder inside the window.
+    pub drag: Option<DragState>,
+    /// The hover hint that shows, and the thing the pointer has been resting on while it waits to show.
+    pub tip: Option<crate::hints::Tip>,
+    pub tip_wait: u64,
+    /// The title of the right panel broken into lines (see `title_lines`).
+    pub title_cache: std::cell::RefCell<(u64, Vec<String>)>,
+    /// The button is down in the address or search box: moving selects text.
+    pub box_drag: bool,
+    /// `NUGALLERY_TEST=1` (see `test_suffix`).
+    pub test_mode: bool,
 
     pub tx: mpsc::Sender<Msg>,
     pub rx: mpsc::Receiver<Msg>,
     pub thumbs: Loader,
+    /// Makes the real thumbnail of a photo that got its quick stand-in first (see `model::thumb_work`), and the paths it owes.
+    pub refine: Loader,
+    pub refine_list: Vec<PathBuf>,
+    /// Makes thumbnails nobody asked for yet (the rest of the folder) while nothing else is waiting, so that scrolling finds
+    /// them in the cache. One worker, so a hard disk is read one file at a time.
+    pub warm: Loader,
+    pub warm_done: HashSet<u64>,
     /// Thumbnails decoded before the GPU was ready.
     pub staged: Vec<(u64, nv_codecs::Image)>,
     pub thumb_failed: HashSet<u64>,
@@ -253,6 +300,10 @@ impl App {
         listing.folders = persist.folders;
         listing.fold = settings.sequences.then_some(settings.sequence_min as usize);
         let chrome = chrome::layout(size.0 as f32, size.1 as f32, dpi, &panels);
+        let (refine, warm) = (
+            Loader::new(1, false, wake.clone(), Arc::new(|p: &Path| nv_core::thumbs::make_thumb(p))),
+            Loader::new(1, false, wake.clone(), Arc::new(|p: &Path| nv_core::thumbs::make_thumb(p))),
+        );
         let mut app = App {
             hwnd,
             renderer: None,
@@ -272,6 +323,8 @@ impl App {
             scan_gen: 1,
             back: Vec::new(),
             forward: Vec::new(),
+            restore: None,
+            archive_show: None,
             panels,
             chrome,
             edge: None,
@@ -280,8 +333,21 @@ impl App {
             drive_labels: HashMap::new(),
             tree_for: PathBuf::new(),
             right_scroll: 0.0,
+            tree_focus: false,
+            tree_sel: None,
+            tree_hsb_drag: None,
+            drag: None,
+            tip: None,
+            tip_wait: 0,
+            title_cache: std::cell::RefCell::new((0, Vec::new())),
+            box_drag: false,
+            test_mode: std::env::var_os("NUGALLERY_TEST").is_some(),
             tx,
             rx,
+            refine,
+            refine_list: Vec::new(),
+            warm,
+            warm_done: HashSet::new(),
             thumbs,
             staged: Vec::new(),
             thumb_failed: HashSet::new(),
@@ -434,7 +500,41 @@ impl App {
             _ => String::new(),
         };
         let loading = if self.loading.is_some() { " — opening…" } else { "" };
-        format!("{dir} — {n} items{sel}{ready}{loading} — NuGallery")
+        let test = if self.test_mode { self.test_suffix() } else { String::new() };
+        format!("{dir} — {n} items{sel}{ready}{loading} — NuGallery{test}")
+    }
+
+    /// `NUGALLERY_TEST=1`: what the scripts in tools/test need to know that is only on the screen (where the rows of the folder
+    /// tree are, which hint shows, what the video preview does, which folder a drag would drop into).
+    fn test_suffix(&self) -> String {
+        let mut s = String::new();
+        if let Some(tr) = self.tree_rect().filter(|_| self.panels.left_shown()) {
+            let (d, row_h) = (self.dpi, crate::draw::TREE_ROW * self.dpi);
+            let first = (self.tree.scroll / row_h).floor().max(0.0) as usize;
+            let rows = ((tr[3] - tr[1]) / row_h).ceil() as usize + 1;
+            for i in first..(first + rows).min(self.tree.nodes.len()) {
+                let n = &self.tree.nodes[i];
+                if !n.header {
+                    let (x, y) = (tr[0] + (10.0 + n.depth as f32 * 16.0 + 50.0) * d - self.tree.hscroll, tr[1] + i as f32 * row_h - self.tree.scroll + row_h / 2.0);
+                    s += &format!(" T[{}|{:.0}|{:.0}]", n.name, x, y);
+                }
+            }
+            s += &format!(" TH[{:.0}/{:.0}]", self.tree.hscroll, self.tree.content_w);
+        }
+        if let Some(t) = &self.tip {
+            s += &format!(" TIP[{}]", t.shown.join(" / "));
+        }
+        if let Some(m) = &self.pv.media {
+            let (playing, pos) = m.player.as_ref().map(|p| (p.is_playing(), p.position_ms())).unwrap_or((false, 0));
+            s += &format!(" MEDIA[open={} video={} frame={} playing={} pos={} dur={} err={}]", m.player.is_some(), m.has_video, m.got_frame, playing, pos, m.duration, m.error.clone().unwrap_or_default());
+        }
+        if let Some(dr) = &self.drag {
+            s += &format!(" DRAG[{}]", dr.target.as_ref().map(|t| t.display().to_string()).unwrap_or_default());
+        }
+        if let Some(a) = &self.archive {
+            s += &format!(" ARC[{}]", a.archive.display());
+        }
+        s
     }
 
     pub fn update_title(&self) {
@@ -452,12 +552,14 @@ impl App {
     /// Open `dir` (selecting `select` in it). `history`: remember where we were so Back works.
     pub fn go(&mut self, dir: PathBuf, select: Vec<PathBuf>, history: bool) {
         if history && !self.listing.dir.as_os_str().is_empty() && !same_dir(&self.listing.dir, &dir) {
-            self.back.push(self.listing.dir.clone());
+            let here = self.nav_point();
+            self.back.push(here);
             if self.back.len() > 200 {
                 self.back.remove(0);
             }
             self.forward.clear();
         }
+        self.restore = None;
         self.active = None;
         self.listing.search.clear();
         self.timing.nav_start = Some(Instant::now());
@@ -503,8 +605,17 @@ impl App {
         let same = same_dir(&self.listing.dir, &dir);
         let old_scroll = self.scroll;
         let cursor_id = self.sel.cursor.and_then(|c| self.listing.get(c)).map(|e| e.id);
-        let kept_ids: HashSet<u64> = if keep_view && same { self.sel.ids.clone() } else { HashSet::new() };
+        // A read that asks to select something (a new copy, a renamed file, the picture the viewer ended on) replaces the old
+        // selection; a plain refresh keeps it.
+        let kept_ids: HashSet<u64> = if keep_view && same && select.is_empty() { self.sel.ids.clone() } else { HashSet::new() };
+        let restore = self.restore.take().filter(|r| same_dir(&r.dir, &dir));
         self.listing.set_entries(dir.clone(), entries);
+        // An archive of things the current filter hides (documents, sounds ... under "pictures only") would look empty.
+        if self.archive.as_ref().is_some_and(|a| dir.starts_with(&a.dir)) && self.listing.len() == 0 && self.listing.all.iter().any(|e| !e.is_dir()) && self.listing.show != Show::All {
+            self.archive_show.get_or_insert(self.listing.show);
+            self.listing.show = Show::All;
+            self.listing.rearrange();
+        }
         self.sel = Selection::default();
         self.sel.ids = kept_ids;
         // Drop anything that is no longer in the folder.
@@ -531,6 +642,15 @@ impl App {
                 self.scroll = g.scroll_to_center(c);
             }
         }
+        if let Some(r) = restore {
+            // Back / Forward: the folder as it was left.
+            self.sel.ids = r.selected.iter().map(|p| model::path_id(p)).filter(|id| present.contains(id)).collect();
+            if let Some(c) = r.cursor.as_ref().and_then(|c| self.listing.position_of(model::path_id(c))) {
+                self.sel.cursor = Some(c);
+                self.sel.anchor = Some(c);
+            }
+            self.scroll = r.scroll;
+        }
         self.clamp_scroll();
         self.thumb_failed.clear();
         self.archive_check();
@@ -540,6 +660,10 @@ impl App {
         }
         self.persist.save(); // the next start (also from nuviewer.exe alone) opens this folder, even if we are killed
         if !(keep_view && same) {
+            self.warm_done.clear();
+            self.warm.request(Vec::new());
+            self.refine_list.clear();
+            self.refine.request(Vec::new());
             self.folder_size = FolderSize { gen: self.folder_size.gen + 1, ..Default::default() };
             self.start_folder_size(dir.clone());
             self.timing.visible_ready_ms = None;
@@ -597,19 +721,35 @@ impl App {
         }
     }
 
+    /// Where the view is now, for Back and Forward to return to.
+    pub fn nav_point(&self) -> NavPoint {
+        NavPoint {
+            dir: self.listing.dir.clone(),
+            scroll: self.scroll,
+            cursor: self.sel.cursor.and_then(|c| self.listing.get(c)).map(|e| e.path.clone()),
+            selected: self.sel.entries(&self.listing).into_iter().map(|e| e.path.clone()).collect(),
+        }
+    }
+
+    /// Open a folder from the history with the view the way it was left.
+    fn go_restore(&mut self, p: NavPoint) {
+        self.go(p.dir.clone(), Vec::new(), false);
+        self.restore = Some(p);
+    }
+
     pub fn go_back(&mut self) {
         if let Some(prev) = self.back.pop() {
-            let here = self.listing.dir.clone();
-            self.forward.push(here.clone());
-            self.go(prev, vec![here], false);
+            let here = self.nav_point();
+            self.forward.push(here);
+            self.go_restore(prev);
         }
     }
 
     pub fn go_forward(&mut self) {
         if let Some(next) = self.forward.pop() {
-            let here = self.listing.dir.clone();
+            let here = self.nav_point();
             self.back.push(here);
-            self.go(next, Vec::new(), false);
+            self.go_restore(next);
         }
     }
 
@@ -634,8 +774,7 @@ impl App {
         self.tree_for = self.listing.dir.clone();
         let dir = self.listing.dir.clone();
         if let Some(i) = self.tree.reveal(&dir) {
-            let (row_h, view_h) = (crate::draw::TREE_ROW * self.dpi, self.size.1 as f32 * 0.5);
-            self.tree.scroll_to_show(i, row_h, view_h);
+            self.tree_show_row(i);
         }
     }
 
@@ -727,7 +866,12 @@ impl App {
             .filter(|e| e.wants_thumb() && !self.has_thumb(e.id) && !self.thumb_failed.contains(&e.id))
             .map(|e| e.path.clone())
             .collect();
+        let foreground = !todo.is_empty();
         self.thumbs.request(todo);
+        if foreground {
+            // Something on screen needs a thumbnail: the warming gives way (its job in progress is cancelled).
+            self.warm.request(Vec::new());
+        }
         self.check_visible_ready();
     }
 
@@ -741,10 +885,17 @@ impl App {
                 continue;
             }
             let id = model::path_id(&l.path);
+            let quick = model::take_provisional(&l.path);
             match l.result {
                 Ok(img) => {
                     if !self.thumb_keep.contains(&id) {
                         continue; // scrolled far away meanwhile
+                    }
+                    if quick {
+                        self.timing.quick += 1;
+                        // A stand-in: the real thumbnail is made next, in the background, and replaces it.
+                        self.refine_list.push(l.path.clone());
+                        self.refine.request(self.refine_list.clone());
                     }
                     if self.timing.first_thumb_ms.is_none() {
                         self.timing.first_thumb_ms = Some(self.ms_since_start());
@@ -769,8 +920,71 @@ impl App {
         if changed {
             self.check_visible_ready();
             invalidate(self.hwnd);
+            self.request_warm();
         }
         changed
+    }
+
+    /// The real thumbnails of photos that were shown by their stand-ins arrive.
+    pub fn drain_refine(&mut self) {
+        while let Some(l) = self.refine.try_recv() {
+            self.refine_list.retain(|p| p != &l.path);
+            if l.cancelled {
+                continue;
+            }
+            let id = model::path_id(&l.path);
+            if let (Ok(img), true) = (l.result, self.thumb_keep.contains(&id)) {
+                self.timing.refined += 1;
+                match self.renderer.as_mut() {
+                    Some(r) => {
+                        let _ = r.upload_thumb(id, &img);
+                    }
+                    None => {
+                        self.staged.retain(|(i, _)| *i != id);
+                        self.staged.push((id, img));
+                        self.cpu_thumb(id);
+                    }
+                }
+                invalidate(self.hwnd);
+            }
+        }
+        // What the warming made is in the disk cache; the pictures themselves are not wanted here.
+        while let Some(l) = self.warm.try_recv() {
+            if !l.cancelled {
+                self.warm_done.insert(model::path_id(&l.path));
+            }
+        }
+    }
+
+    /// Nothing is waiting for the screen: make the thumbnails of the rest of the folder, nearest first (forward, then back), so
+    /// that scrolling there finds them in the disk cache. A folder of over 4000 pictures is left alone.
+    pub fn request_warm(&mut self) {
+        if self.thumbs.pending() > 0 || !self.refine_list.is_empty() || self.warm.pending() > 0 {
+            return;
+        }
+        let n = self.listing.len();
+        if n == 0 || n > 4000 {
+            return;
+        }
+        let g = self.grid();
+        let range = g.visible_with_margin(g.clamp(self.scroll), KEEP_ROWS);
+        let (lo, hi) = (range.start.min(n), range.end.min(n));
+        let mut order: Vec<usize> = (hi..n.min(hi + 80)).collect();
+        order.extend((lo.saturating_sub(40)..lo).rev());
+        let mut todo: Vec<PathBuf> = Vec::new();
+        for i in order {
+            let Some(e) = self.listing.get(i) else { continue };
+            if e.is_dir() || !e.has_thumb() || self.warm_done.contains(&e.id) {
+                continue;
+            }
+            todo.push(e.path.clone());
+            if todo.len() >= 40 {
+                break;
+            }
+        }
+        if !todo.is_empty() {
+            self.warm.request(todo);
+        }
     }
 
     pub fn upload_staged(&mut self) {
@@ -1060,6 +1274,7 @@ impl App {
                 Msg::AnimFrame { id, img, delay, total, label } => self.pv_frame(id, img, delay, total, label),
                 Msg::Mesh { id, mesh } => self.pv_mesh(id, mesh),
                 Msg::BigPreview { id, img } => self.pv_big(id, img),
+                Msg::PreviewPlayer { id, result } => self.pv_media_ready(id, result),
                 Msg::DriveLabel { root, label } => {
                     self.tree.set_drive_label(&root, &label);
                     self.drive_labels.insert(root, label);
@@ -1083,6 +1298,12 @@ impl App {
                     invalidate(self.hwnd);
                 }
                 Msg::Archive(d) => self.archive_pending = Some(d),
+                Msg::ArchiveShow { archive, dir, damaged, files, viewable } => self.enter_archive(archive, dir, damaged, Some((files, viewable))),
+                Msg::ArchiveTick => {
+                    if self.archive.is_some() && self.loading.is_none() {
+                        self.refresh(Vec::new());
+                    }
+                }
                 Msg::JobDone(r) => {
                     self.job = None;
                     self.job_text.clear();
@@ -1099,7 +1320,9 @@ impl App {
             }
         }
         self.drain_thumbs();
+        self.drain_refine();
         self.drain_previews();
+        self.pv_media_pump();
         // A frame is waiting for the GPU: draw it as soon as it exists.
         if self.renderer.is_some() && self.timing.first_frame_ms.is_none() {
             invalidate(self.hwnd);
@@ -1117,7 +1340,9 @@ impl App {
         self.timing.reported = true;
         let f = |v: Option<f64>| v.map(|x| format!("{x:.1}")).unwrap_or_else(|| "n/a".into());
         let text = format!(
-            "window_ms={}\nlisting_ms={}\ngpu_ms={}\nfirst_thumb_ms={}\ncpu_frame_ms={}\nfirst_frame_ms={}\nvisible_ready_ms={}\nvisible_count={}\nitems={}\n",
+            "quick={} refined={}\nwindow_ms={}\nlisting_ms={}\ngpu_ms={}\nfirst_thumb_ms={}\ncpu_frame_ms={}\nfirst_frame_ms={}\nvisible_ready_ms={}\nvisible_count={}\nitems={}\n",
+            self.timing.quick,
+            self.timing.refined,
             f(self.timing.window_ms),
             f(self.timing.listing_ms),
             f(self.timing.gpu_ms),
@@ -1142,6 +1367,8 @@ impl App {
                 invalidate(self.hwnd);
             }
             TIMER_INFO => self.load_info(),
+            crate::hints::TIMER_TIP => self.tip_tick(),
+            crate::treeui::TIMER_DRAG => self.drag_tick(),
             crate::preview::TIMER_PREVIEW => self.pv_tick(),
             TIMER_EDGE => self.edge_tick(),
             TIMER_TASKBAR => self.taskbar_tick(),
@@ -1506,29 +1733,7 @@ impl App {
                 true
             }
             Outcome::Clipboard(op) => {
-                let hwnd = self.hwnd;
-                let Some(a) = self.active.as_mut() else { return true };
-                match op {
-                    Clip::Copy => {
-                        let t = a.ti.selected_text();
-                        if !t.is_empty() {
-                            let _ = nv_win::shell::clipboard_copy_text(hwnd, &t);
-                        }
-                    }
-                    Clip::Cut => {
-                        let t = a.ti.cut();
-                        if !t.is_empty() {
-                            let _ = nv_win::shell::clipboard_copy_text(hwnd, &t);
-                        }
-                    }
-                    Clip::Paste => {
-                        if let Some(t) = nv_win::files::clipboard_text(hwnd) {
-                            a.ti.insert_str(&t);
-                        }
-                    }
-                }
-                a.error = None;
-                self.after_text_change();
+                self.box_clip(op);
                 true
             }
         }
@@ -1560,7 +1765,17 @@ impl App {
     // ---- keyboard ---------------------------------------------------------------------------------------
 
     fn on_key(&mut self, vk: u32) {
+        self.tip_hide();
         if self.input_key(vk) {
+            return;
+        }
+        if vk == 0x1B && self.drag.is_some() {
+            self.drag = None;
+            nv_win::kill_timer(self.hwnd, crate::treeui::TIMER_DRAG);
+            nv_win::invalidate(self.hwnd);
+            return;
+        }
+        if self.tree_focus && self.panels.left_shown() && self.tree_key(vk) {
             return;
         }
         let m = nv_win::modifiers();
@@ -1687,13 +1902,22 @@ impl App {
     // ---- mouse ----------------------------------------------------------------------------------------------
 
     fn on_wheel(&mut self, delta: i32, x: i32, y: i32, ctrl: bool) {
+        self.tip_hide();
         let (fx, fy) = (x as f32, y as f32);
         // Over a panel the wheel scrolls that panel.
         if let Some(l) = self.chrome.left.filter(|l| crate::gfx::contains(*l, fx, fy)) {
             let _ = l;
-            self.tree.scroll -= delta as f32 / 120.0 * 3.0 * crate::draw::TREE_ROW * self.dpi;
             let (row_h, view_h) = (crate::draw::TREE_ROW * self.dpi, self.chrome.left.map(|l| l[3] - l[1]).unwrap_or(400.0) - crate::draw::TREE_FOOT * self.dpi - 36.0 * self.dpi);
-            self.tree.clamp(row_h, view_h);
+            if nv_win::modifiers().shift {
+                // Shift + wheel (or a sideways wheel): the deep rows scroll sideways.
+                self.tree.hscroll -= delta as f32 / 120.0 * 60.0 * self.dpi;
+                let w = self.tree_rect().map(|r| r[2] - r[0]).unwrap_or(300.0);
+                self.tree.clamp_h(w);
+            } else {
+                self.tree.scroll -= delta as f32 / 120.0 * 3.0 * crate::draw::TREE_ROW * self.dpi;
+                self.tree.clamp(row_h, view_h);
+            }
+            self.tip_hide();
             invalidate(self.hwnd);
             return;
         }
@@ -1743,6 +1967,8 @@ impl App {
         self.last_mouse = (x, y);
         if moved {
             self.on_edge_move(x, y);
+            let busy = left_down || self.drag.is_some() || self.rubber.is_some() || self.menubar.keyboard();
+            self.tip_move(x, y, busy);
         }
         if left_down {
             self.drag_move(x, y);
@@ -1782,6 +2008,11 @@ impl App {
     fn on_mouse_up(&mut self) {
         self.sb_drag = None;
         self.tree_sb_drag = None;
+        self.tree_hsb_drag = None;
+        self.box_drag = false;
+        if self.drag.is_some() {
+            self.finish_drag();
+        }
         self.preview_release();
         self.drag_from = None;
         if self.rubber.take().is_some() {
@@ -1792,6 +2023,21 @@ impl App {
 
     fn drag_move(&mut self, x: i32, y: i32) {
         if (self.pv.drag.is_some() || self.pv.scrubbing) && self.preview_drag(x, y) {
+            return;
+        }
+        if self.box_drag {
+            self.box_drag_to(x);
+            return;
+        }
+        if let Some(grab) = self.tree_hsb_drag {
+            if let Some(tr) = self.tree_rect() {
+                self.tree.hscroll_thumb_to(tr, self.dpi, x as f32 - grab);
+                invalidate(self.hwnd);
+            }
+            return;
+        }
+        if self.drag.is_some() {
+            self.drag_update(x, y);
             return;
         }
         if let Some(grab) = self.tree_sb_drag {
@@ -1809,7 +2055,7 @@ impl App {
             let (dx, dy) = ((x - sx) as f32, (y - sy) as f32);
             if (dx * dx + dy * dy).sqrt() > 8.0 * self.dpi {
                 self.drag_from = None;
-                self.start_drag();
+                self.begin_drag();
             }
             return;
         }
@@ -1845,6 +2091,10 @@ impl App {
     fn on_mouse_down(&mut self, x: i32, y: i32, ctrl: bool, double: bool) {
         let (fx, fy) = (x as f32, y as f32);
         self.last_mouse = (x, y);
+        self.tip_hide();
+        if !self.chrome.left.map(|r| crate::gfx::contains(r, fx, fy)).unwrap_or(false) {
+            self.tree_focus = false;
+        }
         // A click anywhere else ends text editing (Enter commits, a click elsewhere does not).
         if let Some(a) = &self.active {
             let inside = match a.focus {
@@ -1853,7 +2103,7 @@ impl App {
                 _ => false,
             };
             if inside {
-                self.click_in_box(x);
+                self.click_in_box(x, double);
                 return;
             }
             if !matches!(a.focus, Focus::Meta(_)) || !self.chrome.right.map(|r| crate::gfx::contains(r, fx, fy)).unwrap_or(false) {
@@ -1869,12 +2119,12 @@ impl App {
             return;
         }
         if self.chrome.top.map(|r| crate::gfx::contains(r, fx, fy)).unwrap_or(false) {
+            // The first click puts the box in use with everything selected (like Explorer's address bar); the next ones place
+            // the caret, drag to select, and a double click takes a word.
             if crate::gfx::contains(self.chrome.path_box, fx, fy) {
                 self.focus_path_box();
-                self.click_in_box(x);
             } else if crate::gfx::contains(self.chrome.search_box, fx, fy) {
                 self.focus_search();
-                self.click_in_box(x);
             }
             return;
         }
@@ -1955,37 +2205,127 @@ impl App {
         }
     }
 
-    fn click_in_box(&mut self, x: i32) {
+    /// The character boundary of the text box in use that is closest to window x (the way the box is drawn: scrolled so that
+    /// the caret stays in view).
+    fn box_index_at(&mut self, x: i32) -> Option<usize> {
         let px = (15.0 * self.dpi).round() as i32;
-        let (rect, pad) = match self.active.as_ref().map(|a| &a.focus) {
-            Some(Focus::Path) => (self.chrome.path_box, 8.0 * self.dpi),
-            Some(Focus::Search) => (self.chrome.search_box, 8.0 * self.dpi),
-            _ => return,
+        let pad = 8.0 * self.dpi;
+        let rect = match self.active.as_ref().map(|a| &a.focus) {
+            Some(Focus::Path) => self.chrome.path_box,
+            Some(Focus::Search) => self.chrome.search_box,
+            _ => return None,
         };
-        let rel = x as f32 - rect[0] - pad;
-        let Some(a) = self.active.as_mut() else { return };
-        // Which character boundary is closest to the click?
+        let chars = self.active.as_ref()?.ti.chars.clone();
+        let cursor = self.active.as_ref()?.ti.cursor.min(chars.len());
+        let view_w = (rect[2] - rect[0]) - 2.0 * pad;
+        let caret_x = self.text.width(&chars[..cursor].iter().collect::<String>(), px) as f32;
+        let shift = (caret_x - view_w + 2.0).max(0.0);
+        let rel = x as f32 - rect[0] - pad + shift;
         let (mut best, mut best_d) = (0usize, f32::MAX);
-        let chars = a.ti.chars.clone();
         for i in 0..=chars.len() {
-            let prefix: String = chars[..i].iter().collect();
-            let w = self.text.width(&prefix, px) as f32 - self.box_scroll(i == 0);
+            let w = self.text.width(&chars[..i].iter().collect::<String>(), px) as f32;
             let d = (w - rel).abs();
             if d < best_d {
                 best_d = d;
                 best = i;
             }
         }
-        let extend = nv_win::modifiers().shift;
+        Some(best)
+    }
+
+    /// A press inside the text box that is in use: put the caret there (Shift extends the selection), or take a word on a
+    /// double click. Moving on with the button down selects.
+    fn click_in_box(&mut self, x: i32, double: bool) {
+        let Some(best) = self.box_index_at(x) else { return };
+        let shift = nv_win::modifiers().shift;
         if let Some(a) = self.active.as_mut() {
-            a.ti.click_at(best, extend);
+            if double {
+                a.ti.select_word_at(best.min(a.ti.chars.len().saturating_sub(1)));
+            } else {
+                a.ti.click_at(best, shift);
+                self.box_drag = true;
+            }
         }
         invalidate(self.hwnd);
     }
 
-    /// Horizontal scroll of the text in a box (0: the text is shown from its start). Kept simple: the caret end is kept in view when drawing.
-    fn box_scroll(&self, _at_start: bool) -> f32 {
-        0.0
+    /// The button is down and the pointer moves over the text box: the selection grows to it.
+    fn box_drag_to(&mut self, x: i32) {
+        let Some(best) = self.box_index_at(x) else { return };
+        if let Some(a) = self.active.as_mut() {
+            a.ti.click_at(best, true);
+        }
+        invalidate(self.hwnd);
+    }
+
+    /// Cut / copy / paste in the text box in use.
+    pub fn box_clip(&mut self, op: Clip) {
+        let hwnd = self.hwnd;
+        let Some(a) = self.active.as_mut() else { return };
+        match op {
+            Clip::Copy => {
+                let t = a.ti.selected_text();
+                if !t.is_empty() {
+                    let _ = nv_win::shell::clipboard_copy_text(hwnd, &t);
+                }
+            }
+            Clip::Cut => {
+                let t = a.ti.cut();
+                if !t.is_empty() {
+                    let _ = nv_win::shell::clipboard_copy_text(hwnd, &t);
+                }
+            }
+            Clip::Paste => {
+                if let Some(t) = nv_win::files::clipboard_text(hwnd) {
+                    a.ti.insert_str(&t);
+                }
+            }
+        }
+        a.error = None;
+        self.after_text_change();
+    }
+
+    /// Right click in the address or search box: Cut, Copy, Paste, Select all.
+    pub fn box_menu(&mut self, x: i32, y: i32) {
+        let path = crate::gfx::contains(self.chrome.path_box, x as f32, y as f32);
+        let wanted = if path { Focus::Path } else { Focus::Search };
+        if self.active.as_ref().map(|a| a.focus.clone()) != Some(wanted) {
+            if path {
+                self.focus_path_box();
+            } else {
+                self.focus_search();
+            }
+        }
+        let Some(a) = self.active.as_ref() else { return };
+        let (has_sel, has_text) = (a.ti.selection().is_some(), !a.ti.chars.is_empty());
+        let paste_ok = nv_win::files::clipboard_text(self.hwnd).is_some();
+        use nv_win::menu::Entry as Item;
+        let menu = vec![
+            Item::item(1, "Cut\tCtrl+X").enabled(has_sel),
+            Item::item(2, "Copy\tCtrl+C").enabled(has_sel),
+            Item::item(3, "Paste\tCtrl+V").enabled(paste_ok),
+            Item::item(4, "Delete").enabled(has_sel),
+            Item::Separator,
+            Item::item(5, "Select all\tCtrl+A").enabled(has_text),
+        ];
+        match nv_win::menu::popup(self.hwnd, x, y, &menu) {
+            Some(1) => self.box_clip(Clip::Cut),
+            Some(2) => self.box_clip(Clip::Copy),
+            Some(3) => self.box_clip(Clip::Paste),
+            Some(4) => {
+                if let Some(a) = self.active.as_mut() {
+                    let _ = a.ti.cut();
+                }
+                self.after_text_change();
+            }
+            Some(5) => {
+                if let Some(a) = self.active.as_mut() {
+                    a.ti.select_all();
+                }
+                invalidate(self.hwnd);
+            }
+            _ => {}
+        }
     }
 
     pub fn on_button(&mut self, b: Btn) {
@@ -2017,6 +2357,22 @@ impl App {
 
     fn on_right_click(&mut self, x: i32, y: i32) {
         self.last_mouse = (x, y);
+        self.tip_hide();
+        if self.tree_row_at(x as f32, y as f32).is_some() {
+            self.tree_right_click(x, y);
+            return;
+        }
+        if self.chrome.left.map(|r| crate::gfx::contains(r, x as f32, y as f32)).unwrap_or(false) {
+            return;
+        }
+        self.tree_focus = false;
+        if let Some(b) = self.chrome.top.filter(|r| crate::gfx::contains(*r, x as f32, y as f32)).and(Some(())) {
+            let _ = b;
+            if crate::gfx::contains(self.chrome.path_box, x as f32, y as f32) || crate::gfx::contains(self.chrome.search_box, x as f32, y as f32) {
+                self.box_menu(x, y);
+            }
+            return;
+        }
         if let Some(i) = self.item_at(x, y) {
             let id = self.listing.get(i).map(|e| e.id).unwrap_or(0);
             if !self.sel.is_selected(id) {

@@ -58,6 +58,7 @@ mod webpage;
 #[cfg(windows)]
 mod wic;
 mod webpdec;
+pub mod zipscan;
 
 pub use dims::peek_size;
 pub use codepage::is_code_ext;
@@ -816,6 +817,7 @@ pub fn encode_jpeg_rgb(rgb: &[u8], width: u32, height: u32, quality: u8) -> Resu
 }
 
 pub use jpegmeta::{jpeg_info, JpegInfo};
+pub use jpeg::exif_thumbnail;
 
 /// Encode a thumbnail as JPEG for the on-disk cache. Alpha is flattened over `bg`.
 pub fn encode_thumb_jpeg(img: &Image, bg: [u8; 3]) -> Result<Vec<u8>, String> {

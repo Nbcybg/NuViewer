@@ -117,6 +117,8 @@ function Make-Picture([string]$path, [int]$w, [int]$h, [int]$sq, $bgc = [System.
 }
 # A settings file for one scenario; the viewer reads it through NUVIEWER_SETTINGS (never touches your real settings).
 function Use-Settings([string]$path, [string]$text) {
+    # Fit enlarges small pictures by default now; the older scripts measure small pictures at their own size.
+    if ($text -notmatch 'fit_enlarge') { $text = $text + "`nfit_enlarge = 0" }
     Set-Content -Path $path -Value $text -Encoding ASCII
     $env:NUVIEWER_SETTINGS = $path
 }

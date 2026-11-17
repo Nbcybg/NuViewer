@@ -704,3 +704,20 @@ generic); PSD transparency rule + layer-free read; the first picture is now a CP
 the view changes (`display.rs` `Proxy`), so nothing changes when the GPU takes over; big JPEGs (>= 24 MP) paint from a DCT-scaled decode; seen pictures stay on the
 GPU. Benchmark gotchas: set `fullscreen = 1` in `%APPDATA%\NuViewer\window.ini` (restore after), `NV_EXE` picks the build, the first run of a new exe is slow (Defender),
 the disk badge used to be the only late change. Open: `.lip` is a guess, `.oci` picture data unreadable, installed build still old.
+
+## Session 18 (2026-11-17) - the 16 gallery bugs, 2 viewer bugs and the video check
+
+Full table of causes and changes: `docs/session18.md`. CHANGELOG 0.3.2. Highlights to remember:
+
+- **The frozen-video bug was the CPU first-frame "proxy"** (`display.rs::proxy_rect`): it kept covering the real texture when it matched its rectangle. Real texture first now; the proxy is
+  dropped at the first real draw. Any new "stand-in" texture must be dropped the same way.
+- **Zip**: `crates/nv-codecs/src/zipscan.rs` (walk local headers; tests with streamed / cut-off zips), `nv-core/archive_tools.rs` (`list_ex`, `recover_*`, `.nvpart` temp names, `PART_EXT`),
+  `nugallery/src/tools.rs` (job: list -> `ArchiveShow` -> extract with `ArchiveTick` refreshes -> `.done` only for whole archives). The user's file is a streamed zip with no table of
+  contents; `crates/nv-core/examples/arclist.rs <zip> [dest]` lists / unpacks like the gallery does (47 ms list, 111 ms unpack, 21 files like 7-Zip).
+- **Gallery files**: `treeui.rs` (tree as file manager + drag state), `hints.rs` (hover hints, drag label), `preview.rs` (video player bar), `app.rs` (`NavPoint`, test hooks, refine / warm
+  thumbnail loaders), `nv-win/src/openwith.rs`. `NUGALLERY_TEST=1` puts tree rows / hint / media / drag / archive state into the window title for `tools/test/e2e-fixes.ps1`.
+- **Viewer**: `fit_scale_for` + `Settings.fit_enlarge`; one fit / 100% toggle (`App::fit_toggle`); Open with / Properties menu entries.
+- **Not done / not verified**: bug 2 (thumbnail of an image that is not in the zip) could not be reproduced; zip names written in Shift-JIS without the UTF-8 flag are shown as Latin-1 / '?'
+  (see the open item below); no real mouse drag into Explorer from the gallery was run (OLE path unchanged); sound in the gallery preview untested (no sound device in the tool session);
+  NuQuick still previews a video as a poster (no player there); DPI > 100% untested.
+- Open item: decode zip names with the Japanese / Chinese code pages when the UTF-8 flag is missing (Windows `MultiByteToWideChar` 932, 936, 949, 950 tried in that order).

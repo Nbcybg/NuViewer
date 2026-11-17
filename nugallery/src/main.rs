@@ -17,6 +17,7 @@ mod colour;
 mod cpu;
 mod draw;
 mod gfx;
+mod hints;
 mod grid;
 mod info;
 mod input;
@@ -28,6 +29,7 @@ mod preview;
 mod state;
 mod tools;
 mod tree;
+mod treeui;
 mod undo;
 
 use app::{App, Msg, Options};

@@ -239,6 +239,11 @@ pub fn open_default(hwnd: HWND, path: &Path) -> Result<(), String> {
     verb(hwnd, w!("open"), path)
 }
 
+/// "Open with > Choose another app": Windows' own program picker for the file.
+pub fn open_as(hwnd: HWND, path: &Path) -> Result<(), String> {
+    verb(hwnd, w!("openas"), path)
+}
+
 /// Explorer's Properties window for the file.
 pub fn properties(hwnd: HWND, path: &Path) -> Result<(), String> {
     verb(hwnd, w!("properties"), path)

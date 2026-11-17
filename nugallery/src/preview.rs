@@ -36,6 +36,49 @@ fn big_key(id: u64) -> u64 {
     info::preview_key(id) ^ 0x4249_4721_4249_4721
 }
 
+fn media_key(id: u64) -> u64 {
+    info::preview_key(id) ^ 0x4D45_4449_4131_5051
+}
+
+/// A video or sound in the preview: its player (opened off the UI thread), and what the bar shows.
+pub struct MediaPv {
+    pub player: Option<nv_media::Player>,
+    pub loading: bool,
+    pub error: Option<String>,
+    pub has_video: bool,
+    pub duration: u64,
+    pub volume: f32,
+    pub muted: bool,
+    /// A frame of the video is on the GPU (until then the poster shows).
+    pub got_frame: bool,
+}
+
+/// Where the controls of a video sit in the preview box `r`: a strip along its bottom.
+pub struct MediaBar {
+    pub strip: [f32; 4],
+    pub play: [f32; 4],
+    pub track: [f32; 4],
+    pub time_right: f32,
+    pub vol: [f32; 4],
+}
+
+pub fn media_bar(r: [f32; 4], d: f32) -> MediaBar {
+    let h = 30.0 * d;
+    let strip = [r[0], r[3] - h, r[2], r[3]];
+    let b = 24.0 * d;
+    let y0 = strip[1] + (h - b) / 2.0;
+    let play = [strip[0] + 6.0 * d, y0, strip[0] + 6.0 * d + b, y0 + b];
+    let vol = [strip[2] - 6.0 * d - 34.0 * d, y0, strip[2] - 6.0 * d, y0 + b];
+    let time_right = vol[0] - 6.0 * d;
+    let track = [play[2] + 8.0 * d, strip[1] + h / 2.0 - 2.0 * d, time_right - 84.0 * d, strip[1] + h / 2.0 + 2.0 * d];
+    MediaBar { strip, play, track, time_right, vol }
+}
+
+fn fmt_ms(ms: u64) -> String {
+    let s = ms / 1000;
+    if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{}:{:02}", s / 60, s % 60) }
+}
+
 /// The frames of an animation or sequence that are on the GPU, and where playback is.
 pub struct Anim {
     pub keys: Vec<u64>,
@@ -57,6 +100,7 @@ pub struct Preview {
     pub anim: Option<Anim>,
     pub scrubbing: bool,
     pub mesh: Option<Arc<Mesh>>,
+    pub media: Option<MediaPv>,
     pub orbit: Orbit,
     /// A sharper decode was asked for / has arrived.
     pub big_asked: bool,
@@ -65,13 +109,13 @@ pub struct Preview {
 
 impl Preview {
     pub fn new(id: Option<u64>) -> Preview {
-        Preview { id, zoom: 1.0, pan: (0.0, 0.0), drag: None, anim: None, scrubbing: false, mesh: None, orbit: Orbit::default(), big_asked: false, big_ready: false }
+        Preview { id, zoom: 1.0, pan: (0.0, 0.0), drag: None, anim: None, scrubbing: false, mesh: None, media: None, orbit: Orbit::default(), big_asked: false, big_ready: false }
     }
 
     /// The texture keys this state put on the GPU (so they can be dropped when the item changes).
     fn keys(&self) -> Vec<u64> {
         let Some(id) = self.id else { return Vec::new() };
-        let mut v = vec![mesh_key(id), big_key(id)];
+        let mut v = vec![mesh_key(id), big_key(id), media_key(id)];
         if let Some(a) = &self.anim {
             v.extend(a.keys.iter().copied());
         }
@@ -135,6 +179,8 @@ pub fn draw(r: &mut Renderer, text: &mut Text, pv: &Preview, rect: [f32; 4], cli
     // What to show: the current frame of an animation, the turned model, the sharp decode, or the small preview.
     let shown = if let (true, Some(a)) = (mine, pv.anim.as_ref().filter(|a| !a.keys.is_empty())) {
         Some(a.keys[a.index.min(a.keys.len() - 1)])
+    } else if mine && pv.media.as_ref().is_some_and(|m| m.got_frame) && r.has_thumb(media_key(id)) {
+        Some(media_key(id))
     } else if mine && pv.mesh.is_some() && r.has_thumb(mesh_key(id)) {
         Some(mesh_key(id))
     } else if mine && pv.big_ready && r.has_thumb(big_key(id)) {
@@ -170,6 +216,33 @@ pub fn draw(r: &mut Renderer, text: &mut Text, pv: &Preview, rect: [f32; 4], cli
         let tag = text.width(&a.label, small) as f32 + 12.0 * d;
         let _ = r.fill_rect([rect[0] + 6.0 * d, rect[1] + 6.0 * d, rect[0] + 6.0 * d + tag, rect[1] + 6.0 * d + line_h(small) + 4.0 * d], rgb(0x000000, 0.7));
         text.draw(r, &a.label, small, rect[0] + 12.0 * d, rect[1] + 8.0 * d, rgb(pal::TEXT, 1.0));
+    } else if let (true, Some(m)) = (mine, pv.media.as_ref()) {
+        let bar = media_bar(rect, d);
+        let _ = r.fill_rect(bar.strip, rgb(0x000000, 0.7));
+        let playing = m.player.as_ref().is_some_and(|p| p.is_playing());
+        let glyph = if m.player.is_none() { "…" } else if playing { "❚❚" } else { "▶" };
+        let _ = r.fill_rect(bar.play, rgb(0x2B2E33, 0.95));
+        text.draw_centered(r, glyph, small, (bar.play[0] + bar.play[2]) / 2.0, bar.play[1] + (bar.play[3] - bar.play[1] - line_h(small)) / 2.0, rgb(pal::TEXT, 1.0));
+        if let Some(e) = &m.error {
+            let msg = text.fit(&format!("Can't play: {e}"), small, (bar.strip[2] - bar.play[2] - 20.0 * d) as i32);
+            text.draw(r, &msg, small, bar.play[2] + 8.0 * d, bar.strip[1] + (bar.strip[3] - bar.strip[1] - line_h(small)) / 2.0, rgb(pal::ERROR, 1.0));
+        } else {
+            let pos = m.player.as_ref().map(|p| p.position_ms()).unwrap_or(0);
+            let frac = if m.duration > 0 { (pos as f32 / m.duration as f32).clamp(0.0, 1.0) } else { 0.0 };
+            let _ = r.fill_rect(bar.track, rgb(0xFFFFFF, 0.2));
+            let knob = bar.track[0] + (bar.track[2] - bar.track[0]) * frac;
+            let _ = r.fill_rect([bar.track[0], bar.track[1], knob, bar.track[3]], rgb(pal::ACCENT, 1.0));
+            let _ = r.fill_rect([knob - 4.0 * d, bar.track[1] - 5.0 * d, knob + 4.0 * d, bar.track[3] + 5.0 * d], rgb(0xE8E8E8, 1.0));
+            let label = if m.player.is_some() { format!("{} / {}", fmt_ms(pos), fmt_ms(m.duration)) } else { "opening…".to_string() };
+            text.draw_right(r, &label, small, bar.time_right, bar.strip[1] + (bar.strip[3] - bar.strip[1] - line_h(small)) / 2.0, rgb(pal::DIM, 1.0));
+        }
+        let (vl, vc) = if m.muted || m.volume <= 0.01 { ("Mute", pal::ERROR) } else { ("Vol", pal::TEXT) };
+        let _ = r.fill_rect(bar.vol, rgb(0x2B2E33, 0.95));
+        text.draw_centered(r, vl, (10.0 * d).round() as i32, (bar.vol[0] + bar.vol[2]) / 2.0, bar.vol[1] + (bar.vol[3] - bar.vol[1] - line_h((10.0 * d).round() as i32)) / 2.0, rgb(vc, 1.0));
+        let tag = if m.has_video { "Video" } else { "Sound" };
+        let tw = text.width(tag, small) as f32 + 12.0 * d;
+        let _ = r.fill_rect([rect[0] + 6.0 * d, rect[1] + 6.0 * d, rect[0] + 6.0 * d + tw, rect[1] + 6.0 * d + line_h(small) + 4.0 * d], rgb(0x000000, 0.7));
+        text.draw(r, tag, small, rect[0] + 12.0 * d, rect[1] + 8.0 * d, rgb(pal::TEXT, 1.0));
     } else if mine && pv.mesh.is_some() {
         let hint = "drag: turn · wheel: zoom · double-click: reset";
         let w = text.width(hint, small) as f32 + 12.0 * d;
@@ -240,6 +313,8 @@ impl App {
                     wake();
                 }
             });
+        } else if kind == Kind::Picture && nv_codecs::media::media_kind(ext).is_some() {
+            self.pv_media_open(id, path);
         } else if kind == Kind::Model {
             std::thread::spawn(move || {
                 if let Ok(img) = nv_codecs::decode_file(&path) {
@@ -252,8 +327,91 @@ impl App {
         }
     }
 
+    /// Open a player for a video or sound (off the UI thread: Media Foundation can take a while).
+    fn pv_media_open(&mut self, id: u64, path: PathBuf) {
+        let (tx, wake) = (self.tx.clone(), self.wake.clone());
+        let src = nv_codecs::media::media_kind_of(&path);
+        let path2 = path.clone();
+        self.pv.media = Some(MediaPv { player: None, loading: true, error: None, has_video: !matches!(src, Some(nv_codecs::media::MediaKind::Audio)), duration: 0, volume: 0.8, muted: false, got_frame: false });
+        std::thread::spawn(move || {
+            // A professional clip is played from the proxy beside it; the sounds of MIDI files from their rendered WAV.
+            let source = match src {
+                Some(nv_codecs::media::MediaKind::Pro) => nv_codecs::media::proxy_for(&path2).ok_or_else(|| "no proxy file beside it".to_string()),
+                _ if path2.extension().and_then(|e| e.to_str()).is_some_and(nv_codecs::midi::is_ext) => nv_codecs::midi::playable_wav(&path2).map_err(|e| e.to_string()),
+                _ => Ok(path2.clone()),
+            };
+            let result = source.and_then(|p| nv_media::Player::open(&p, wake.clone()));
+            let _ = tx.send(Msg::PreviewPlayer { id, result });
+            wake();
+        });
+    }
+
+    /// The player is ready (or could not be made).
+    pub fn pv_media_ready(&mut self, id: u64, result: Result<nv_media::Player, String>) {
+        let mine = self.pv.id == Some(id) && self.pv.media.is_some();
+        match result {
+            Ok(p) if mine => {
+                p.set_loop(true);
+                p.set_volume(0.8);
+                if let Some(m) = self.pv.media.as_mut() {
+                    m.loading = false;
+                    m.has_video = p.info.has_video;
+                    m.duration = p.info.duration_ms;
+                    m.player = Some(p);
+                }
+            }
+            Ok(p) => {
+                std::thread::spawn(move || drop(p));
+            }
+            Err(e) if mine => {
+                if let Some(m) = self.pv.media.as_mut() {
+                    m.loading = false;
+                    m.error = Some(e);
+                }
+            }
+            Err(_) => {}
+        }
+        if self.test_mode {
+            self.update_title();
+        }
+        nv_win::invalidate(self.hwnd);
+    }
+
+    /// New video frames: copy the newest one to the GPU (small: it is shown in the preview box).
+    pub fn pv_media_pump(&mut self) {
+        let Some(id) = self.pv.id else { return };
+        let Some(m) = self.pv.media.as_mut() else { return };
+        let Some(p) = m.player.as_ref() else { return };
+        let mut got_first = false;
+        if let Some(e) = p.error() {
+            m.error = Some(e);
+        }
+        if let Some(f) = p.take_frame() {
+            let mut rgba = f.bgra;
+            for px in rgba.chunks_exact_mut(4) {
+                px.swap(0, 2);
+            }
+            let img = Image::new(f.width, f.height, rgba);
+            let img = if f.width.max(f.height) > 720 { nv_codecs::downscale(&img, 720) } else { img };
+            if let Some(r) = self.renderer.as_mut() {
+                if r.upload_thumb(media_key(id), &img).is_ok() && !m.got_frame {
+                    m.got_frame = true;
+                    got_first = true;
+                }
+            }
+            nv_win::invalidate(self.hwnd);
+        }
+        if got_first && self.test_mode {
+            self.update_title();
+        }
+    }
+
     /// Drop the GPU textures of the preview state that is being replaced.
     pub fn pv_drop_textures(&mut self) {
+        // A player waits for its threads when it is dropped: do that away from the window.
+        if let Some(p) = self.pv.media.take().and_then(|m| m.player) {
+            std::thread::spawn(move || drop(p));
+        }
         let keys = self.pv.keys();
         if keys.is_empty() {
             return;
@@ -338,6 +496,15 @@ impl App {
 
     /// The animation timer: next frame.
     pub fn pv_tick(&mut self) {
+        if let Some(m) = &self.pv.media {
+            // A sound has no frames to wake us: the time shown moves with this.
+            if m.player.as_ref().is_some_and(|p| p.is_playing()) {
+                nv_win::invalidate(self.hwnd);
+            } else {
+                nv_win::kill_timer(self.hwnd, TIMER_PREVIEW);
+            }
+            return;
+        }
         let Some(a) = self.pv.anim.as_mut() else {
             nv_win::kill_timer(self.hwnd, TIMER_PREVIEW);
             return;
@@ -362,6 +529,16 @@ impl App {
             return false;
         }
         let notches = delta as f32 / 120.0;
+        if let Some(m) = self.pv.media.as_mut() {
+            // The wheel is the volume.
+            m.volume = (m.volume + notches * 0.05).clamp(0.0, 1.0);
+            m.muted = m.volume <= 0.001;
+            if let Some(p) = &m.player {
+                p.set_volume(m.volume);
+            }
+            nv_win::invalidate(self.hwnd);
+            return true;
+        }
         if self.pv.mesh.is_some() {
             self.pv.orbit.zoom_by(notches);
             self.pv_render_mesh();
@@ -398,6 +575,38 @@ impl App {
             return false;
         }
         let d = self.dpi;
+        // A video or sound: the bar, or a click on the picture to play and pause.
+        if self.pv.media.is_some() {
+            let bar = media_bar(rect, d);
+            let hwnd = self.hwnd;
+            let Some(m) = self.pv.media.as_mut() else { return true };
+            if contains(bar.vol, x, y) {
+                m.muted = !m.muted;
+                if m.volume <= 0.01 {
+                    m.volume = 0.8;
+                    m.muted = false;
+                }
+                if let Some(p) = &m.player {
+                    p.set_volume(if m.muted { 0.0 } else { m.volume });
+                }
+            } else if contains([bar.track[0] - 4.0 * d, bar.strip[1], bar.track[2] + 4.0 * d, bar.strip[3]], x, y) {
+                self.pv.scrubbing = true;
+                self.pv_scrub(x, rect);
+            } else if let Some(p) = m.player.as_ref().filter(|_| !contains(bar.strip, x, y) || contains(bar.play, x, y)) {
+                if p.is_playing() {
+                    p.pause();
+                    nv_win::kill_timer(hwnd, TIMER_PREVIEW);
+                } else {
+                    p.play();
+                    nv_win::set_timer(hwnd, TIMER_PREVIEW, 150);
+                }
+            }
+            if self.test_mode {
+                self.update_title();
+            }
+            nv_win::invalidate(self.hwnd);
+            return true;
+        }
         // The animation bar.
         if let Some(a) = self.pv.anim.as_mut() {
             let bar = anim_bar(rect, d);
@@ -455,6 +664,14 @@ impl App {
     }
 
     fn pv_scrub(&mut self, x: f32, rect: [f32; 4]) {
+        if let Some(m) = self.pv.media.as_ref() {
+            let bar = media_bar(rect, self.dpi);
+            let t = ((x - bar.track[0]) / (bar.track[2] - bar.track[0]).max(1.0)).clamp(0.0, 1.0);
+            if let Some(p) = &m.player {
+                p.seek((t * m.duration as f32) as u64);
+            }
+            return;
+        }
         let bar = anim_bar(rect, self.dpi);
         if let Some(a) = self.pv.anim.as_mut() {
             let t = ((x - bar.track[0]) / (bar.track[2] - bar.track[0]).max(1.0)).clamp(0.0, 1.0);

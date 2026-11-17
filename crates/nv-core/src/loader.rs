@@ -160,6 +160,12 @@ impl Loader {
         q.jobs.iter().find(|(p, _)| p == path).map(|(_, j)| LoadState { queued: true, progress: j.snapshot() })
     }
 
+    /// Jobs waiting for a worker plus jobs being worked on.
+    pub fn pending(&self) -> usize {
+        let q = self.shared.q.lock().unwrap();
+        q.jobs.len() + q.in_flight.len()
+    }
+
     pub fn try_recv(&self) -> Option<Loaded> {
         self.rx.try_recv().ok()
     }

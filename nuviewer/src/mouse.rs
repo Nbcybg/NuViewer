@@ -12,6 +12,10 @@ const EXTERNAL_BASE: u32 = 0x3000_0000;
 const MENU_FILE_TYPES: u32 = 0x1000_0002;
 const MENU_CHOOSE_PROGRAM: u32 = 0x1000_0004;
 const MENU_SET_UP_PROGRAMS: u32 = 0x1000_0005;
+/// "Open with": Windows' own program picker, Explorer's Properties window, and `OPEN_WITH_BASE + n` for the n-th program listed.
+const MENU_OPEN_AS: u32 = 0x1000_0006;
+const MENU_PROPERTIES: u32 = 0x1000_0007;
+const OPEN_WITH_BASE: u32 = 0x4000_0000;
 /// "Sort by" submenu: `MENU_SORT + index in SortKey::ALL`, then ascending / descending.
 const MENU_SORT: u32 = 0x1000_0010;
 const MENU_SORT_ASC: u32 = 0x1000_0020;
@@ -100,6 +104,9 @@ impl App {
             self.view.drag_last = Some((x, y));
         } else {
             let Some(target) = self.settings.hold_scale(img, nv_win::monitor_size(self.hwnd)) else { return };
+            // A small picture that "fit" has enlarged is already bigger than 100% or 200%: holding zooms in from there.
+            let shown = self.view.scale(img, win);
+            let target = if target <= shown * 1.05 { (shown * 2.0).min(64.0) } else { target };
             self.view.held = Some((self.view.fit, self.view.zoom, self.view.pan));
             self.view.zoom_to(img, win, (x, y), target);
             self.view.drag_last = Some((x, y));
@@ -264,6 +271,23 @@ impl App {
         .to_string()
     }
 
+    /// "Open with": the programs Windows offers for this kind of file (the list Explorer's Open with menu shows), then the picker
+    /// for any other program. The ids of the programs are kept for `menu_pick`.
+    fn open_with_entry(&self, enabled: bool) -> Entry {
+        let file = self.target().and_then(|t| self.folder.files.get(t)).cloned();
+        let handlers = match (&file, enabled) {
+            (Some(f), true) => nv_win::openwith::handlers(f),
+            _ => Vec::new(),
+        };
+        *self.open_with_ids.borrow_mut() = handlers.iter().map(|h| h.id.clone()).collect();
+        let mut items: Vec<Entry> = handlers.iter().enumerate().take(14).map(|(i, h)| Entry::item(OPEN_WITH_BASE + i as u32, h.name.clone())).collect();
+        if !items.is_empty() {
+            items.push(Entry::Separator);
+        }
+        items.push(Entry::item(MENU_OPEN_AS, "Choose another app…"));
+        Entry::Submenu { text: "Open with".into(), items, enabled: enabled && file.is_some() }
+    }
+
     /// "Edit with": the programs set up in Settings, any program chosen on the spot, and the way to set the list up.
     fn edit_with_entry(&self, enabled: bool) -> Entry {
         let mut items: Vec<Entry> = self.settings.external.iter().enumerate().map(|(i, e)| Entry::item(EXTERNAL_BASE + i as u32, e.name.clone())).collect();
@@ -286,10 +310,12 @@ impl App {
         };
         match i {
             0 => vec![
+                self.open_with_entry(has),
                 self.action_entry(Action::Rename, "Rename…").enabled(has),
                 self.action_entry(Action::CopyTo, "Copy to…").enabled(has),
                 self.action_entry(Action::MoveTo, "Move to…").enabled(has),
                 self.action_entry(Action::Reveal, "Show in Explorer").enabled(has),
+                Entry::item(MENU_PROPERTIES, "Properties").enabled(has),
                 Entry::Separator,
                 self.action_entry(Action::ConvertPng, nv_core::i18n::t("menu.convert_png")).enabled(has && viewer),
                 self.action_entry(Action::ConvertJpeg, nv_core::i18n::t("menu.convert_jpeg")).enabled(has && viewer),
@@ -319,8 +345,7 @@ impl App {
                 self.action_entry(Action::SaveRotation, "Save the rotation").enabled(viewer),
             ],
             2 => vec![
-                self.action_entry(Action::FitReset, "Fit to screen").enabled(viewer),
-                self.action_entry(Action::ActualSize, "Actual size (100%)").enabled(viewer),
+                self.action_entry(Action::FitReset, self.fit_toggle().1).enabled(viewer),
                 self.action_entry(Action::ZoomIn, "Zoom in").enabled(viewer),
                 self.action_entry(Action::ZoomOut, "Zoom out").enabled(viewer),
                 Entry::Separator,
@@ -385,7 +410,8 @@ impl App {
             Entry::Item { id, text, enabled, .. } => Entry::Item { id, text, checked: on, enabled },
             other => other,
         };
-        let open_with = self.edit_with_entry(has_file);
+        let edit_with = self.edit_with_entry(has_file);
+        let open_with = self.open_with_entry(has_file);
         let order = self.folder.order;
         let sort_menu = {
             let mut items: Vec<Entry> = nv_core::SortKey::ALL.iter().enumerate().map(|(i, k)| Entry::checked(MENU_SORT + i as u32, k.label(), order.shuffle.is_none() && order.key == *k)).collect();
@@ -398,8 +424,7 @@ impl App {
             self.action_entry(Action::Prev, "Previous picture").enabled(viewer && many),
             self.action_entry(Action::Next, "Next picture").enabled(viewer && many),
             Entry::Separator,
-            self.action_entry(Action::FitReset, "Fit to screen").enabled(viewer),
-            self.action_entry(Action::ActualSize, "Actual size (100%)").enabled(viewer),
+            self.action_entry(Action::FitReset, self.fit_toggle().1).enabled(viewer),
             checked(self.action_entry(Action::Gallery, "Gallery").enabled(has_file), !viewer),
             checked(self.action_entry(Action::Fullscreen, "Fullscreen"), nv_win::is_fullscreen()),
             checked(self.action_entry(Action::Slideshow, "Slideshow").enabled(many), self.slide.on),
@@ -421,6 +446,7 @@ impl App {
             self.action_entry(Action::CopyImage, "Copy picture").enabled(has_file),
             self.action_entry(Action::CopyPath, "Copy file path").enabled(has_file),
             self.action_entry(Action::Reveal, "Show in Explorer").enabled(has_file),
+            Entry::item(MENU_PROPERTIES, "Properties").enabled(has_file),
             self.action_entry(Action::ConvertPng, nv_core::i18n::t("menu.convert_png")).enabled(has_file && viewer),
             self.action_entry(Action::ConvertJpeg, nv_core::i18n::t("menu.convert_jpeg")).enabled(has_file && viewer),
             self.action_entry(Action::Snapshot, nv_core::i18n::t("menu.snapshot")).enabled(viewer && (self.media_current() || self.controller().is_some())),
@@ -429,6 +455,7 @@ impl App {
             Entry::Separator,
             self.action_entry(Action::Edit, "Edit in NuEditor").enabled(has_file && viewer),
             open_with,
+            edit_with,
             Entry::Separator,
             self.action_entry(Action::Settings, "Settings…"),
             Entry::item(MENU_FILE_TYPES, "File types…"),
@@ -450,6 +477,28 @@ impl App {
                 }
             }
             MENU_SET_UP_PROGRAMS => self.open_settings(),
+            MENU_OPEN_AS => {
+                if let Some(f) = self.target().and_then(|t| self.folder.files.get(t)).cloned() {
+                    if let Err(e) = nv_win::openwith::choose(self.hwnd, &f) {
+                        self.toast(format!("Can't open it: {e}"));
+                    }
+                }
+            }
+            MENU_PROPERTIES => {
+                if let Some(f) = self.target().and_then(|t| self.folder.files.get(t)).cloned() {
+                    if let Err(e) = nv_win::files::properties(self.hwnd, &f) {
+                        self.toast(format!("Can't show the properties: {e}"));
+                    }
+                }
+            }
+            i if (OPEN_WITH_BASE..OPEN_WITH_BASE + 64).contains(&i) => {
+                let program = self.open_with_ids.borrow().get((i - OPEN_WITH_BASE) as usize).cloned();
+                if let (Some(id), Some(f)) = (program, self.target().and_then(|t| self.folder.files.get(t)).cloned()) {
+                    if let Err(e) = nv_win::openwith::open(&f, &id) {
+                        self.toast(format!("Can't open it: {e}"));
+                    }
+                }
+            }
             // In this process, so the chooser is owned by the viewer window like every other dialog.
             MENU_FILE_TYPES => associate_dialog(),
             MENU_SORT_ASC | MENU_SORT_DESC => {

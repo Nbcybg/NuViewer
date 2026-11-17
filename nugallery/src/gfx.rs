@@ -133,6 +133,24 @@ impl Text {
     }
 }
 
+/// `s` broken into lines no wider than `max_w` pixels. A file name has no spaces to break at, so it is cut between characters.
+pub fn wrap(s: &str, px: i32, max_w: i32) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for c in s.chars() {
+        cur.push(c);
+        if cur.chars().count() > 1 && text::measure(&cur, px) > max_w {
+            let last = cur.pop().unwrap_or(' ');
+            out.push(std::mem::take(&mut cur));
+            cur.push(last);
+        }
+    }
+    if !cur.is_empty() || out.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
 /// Line height used for text at `px` (matches `nv_win::text`).
 pub fn line_h(px: i32) -> f32 {
     (px as f32 * 1.35).round()

@@ -9,6 +9,7 @@ pub mod files;
 pub mod instance;
 pub mod menu;
 pub mod menubar;
+pub mod openwith;
 pub mod props;
 pub mod regionpick;
 pub mod quick;

@@ -119,6 +119,30 @@ fn decode_zune(bytes: &[u8], fallback_orientation: Option<u32>) -> Result<Image,
     Ok(img)
 }
 
+/// The small picture cameras keep in a photo's EXIF block (usually 160 x 120), read from the first 128 KB of the file only: a
+/// 20 MB photo on a slow disk gives its thumbnail in the time it takes to read 128 KB instead of the whole file. Orientation is
+/// carried like in `decode`. `None` when there is none, or it is not a JPEG, or it is smaller than `min_edge` on its long side.
+pub fn exif_thumbnail(path: &std::path::Path, min_edge: u32) -> Option<Image> {
+    use std::io::Read;
+    let mut head = Vec::with_capacity(128 * 1024);
+    std::fs::File::open(path).ok()?.take(128 * 1024).read_to_end(&mut head).ok()?;
+    if head.len() < 4 || head[0] != 0xFF || head[1] != 0xD8 {
+        return None;
+    }
+    let exif = exif::Reader::new().read_from_container(&mut std::io::Cursor::new(&head[..])).ok()?;
+    let off = exif.get_field(exif::Tag::JPEGInterchangeFormat, exif::In::THUMBNAIL)?.value.get_uint(0)? as usize;
+    let len = exif.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::THUMBNAIL)?.value.get_uint(0)? as usize;
+    let tiff = exif.buf();
+    let bytes = tiff.get(off..off.checked_add(len)?)?;
+    let mut img = decode(bytes, None).ok()?;
+    if img.width.max(img.height) < min_edge {
+        return None;
+    }
+    // The picture is turned like the photo it was made from; the thumbnail carries no tag of its own worth reading.
+    img.orientation = exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY).and_then(|f| f.value.get_uint(0)).unwrap_or(1).clamp(1, 8) as u8;
+    Some(img)
+}
+
 /// A JPEG for a thumbnail: decoded with the DCT scaled down (1/2, 1/4 or 1/8, whichever still leaves at least `want` pixels on
 /// the long side), which skips most of the inverse-transform work and, above all, the memory traffic of a full-size picture.
 /// `None` when the file isn't a plain three-component or grey JPEG (CMYK, 12-bit, ...) or the scaled decode fails: the caller

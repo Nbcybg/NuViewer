@@ -247,6 +247,8 @@ pub struct Settings {
     pub wheel: WheelAction,
     /// The viewer controls (a vertical bar) appear when the pointer touches the left edge.
     pub sidebar: bool,
+    /// "Fit to screen" also makes a picture that is smaller than the window larger (up to 8 times); off = never enlarged.
+    pub fit_enlarge: bool,
     pub top_bar: bool,
     pub taskbar_edge: bool,
     // Image sequences and playback
@@ -318,6 +320,7 @@ impl Default for Settings {
             small_pct: 50,
             wheel: WheelAction::Pages,
             sidebar: true,
+            fit_enlarge: true,
             top_bar: true,
             taskbar_edge: true,
             sequences: false,
@@ -439,6 +442,7 @@ impl Settings {
                     }
                 }
                 "sidebar" => s.sidebar = parse_bool(v).unwrap_or(s.sidebar),
+                "fit_enlarge" => s.fit_enlarge = parse_bool(v).unwrap_or(s.fit_enlarge),
                 "top_bar" => s.top_bar = parse_bool(v).unwrap_or(s.top_bar),
                 "taskbar_edge" => s.taskbar_edge = parse_bool(v).unwrap_or(s.taskbar_edge),
                 "sequences" => s.sequences = parse_bool(v).unwrap_or(s.sequences),
@@ -549,7 +553,7 @@ impl Settings {
             b(self.taskbar_edge)
         );
         out += &format!("sequences = {}\nsequence_min = {}\nfps = {}\ncontrols_always = {}\n", b(self.sequences), self.sequence_min, self.fps, b(self.controls_always));
-        out += &format!("disk_monitor = {}\nmodel_textures = {}\n", b(self.disk_monitor), b(self.model_textures));
+        out += &format!("disk_monitor = {}\nmodel_textures = {}\nfit_enlarge = {}\n", b(self.disk_monitor), b(self.model_textures), b(self.fit_enlarge));
         out += &format!(
             "rotate_save = {}\n",
             match self.rotate_save {

@@ -30,12 +30,17 @@ pub struct Node {
     /// A section title ("Quick access", "This PC"), not a folder.
     pub header: bool,
     pub icon: Icon,
+    /// Width of the name in logical pixels once it has been measured (0 until then): what the sideways scroll bar needs.
+    pub text_w: f32,
 }
 
 pub struct Tree {
     pub nodes: Vec<Node>,
     /// Pixels scrolled.
     pub scroll: f32,
+    /// Pixels scrolled sideways, and how wide the rows are (the widest name and its indent), for deep folders.
+    pub hscroll: f32,
+    pub content_w: f32,
 }
 
 fn norm(p: &Path) -> String {
@@ -68,7 +73,7 @@ impl Tree {
     /// No rows yet: the real tree is built on a worker thread (`Tree::new` asks Windows for the known folders and checks that they
     /// exist, which can take a while on a cold start with a OneDrive or network folder) and handed over when it is ready.
     pub fn empty() -> Tree {
-        Tree { nodes: Vec::new(), scroll: 0.0 }
+        Tree { nodes: Vec::new(), scroll: 0.0, hscroll: 0.0, content_w: 0.0 }
     }
 
     /// The usual roots: Quick access and the drives.
@@ -76,7 +81,7 @@ impl Tree {
         let mut nodes = vec![header("Quick access")];
         for (key, name, icon) in [("pictures", "Pictures", Icon::Pictures), ("desktop", "Desktop", Icon::Desktop), ("downloads", "Downloads", Icon::Downloads), ("documents", "Documents", Icon::Documents)] {
             if let Some(p) = nv_win::files::known_folder(key).filter(|p| p.is_dir()) {
-                nodes.push(Node { path: p, name: name.into(), depth: 0, expanded: false, loaded: false, kids: true, header: false, icon });
+                nodes.push(Node { path: p, name: name.into(), depth: 0, expanded: false, loaded: false, kids: true, header: false, icon, text_w: 0.0 });
             }
         }
         nodes.push(header("This PC"));
@@ -89,9 +94,9 @@ impl Tree {
                 DriveKind::Optical => (format!("Disc ({letter})"), Icon::Removable),
                 DriveKind::Other => (format!("Drive ({letter})"), Icon::Drive),
             };
-            nodes.push(Node { path: root, name: label, depth: 0, expanded: false, loaded: false, kids: true, header: false, icon });
+            nodes.push(Node { path: root, name: label, depth: 0, expanded: false, loaded: false, kids: true, header: false, icon, text_w: 0.0 });
         }
-        Tree { nodes, scroll: 0.0 }
+        Tree { nodes, scroll: 0.0, hscroll: 0.0, content_w: 0.0 }
     }
 
     /// The drive's volume label arrived (read on a worker thread): show it the way Explorer does, "Games (D:)".
@@ -117,6 +122,36 @@ impl Tree {
         Some((track, [track[0], y, track[2], y + thumb_h]))
     }
 
+    /// The sideways scroll bar for a view `view` that is `d` times the logical size: (track, thumb), or None when the rows fit.
+    pub fn hscrollbar(&self, view: [f32; 4], d: f32) -> Option<([f32; 4], [f32; 4])> {
+        let w = view[2] - view[0];
+        if self.content_w <= w + 0.5 || w <= 0.0 {
+            return None;
+        }
+        let track = [view[0], view[3] - 11.0 * d, view[2] - 12.0 * d, view[3] - 3.0 * d];
+        let tw = track[2] - track[0];
+        let thumb_w = (tw * w / self.content_w).clamp(30.0 * d, tw);
+        let max = self.content_w - w;
+        let x = track[0] + (self.hscroll / max).clamp(0.0, 1.0) * (tw - thumb_w);
+        Some((track, [x, track[1], x + thumb_w, track[3]]))
+    }
+
+    /// Put the left end of the sideways thumb at window x `thumb_left` (dragging it).
+    pub fn hscroll_thumb_to(&mut self, view: [f32; 4], d: f32, thumb_left: f32) {
+        let Some((track, thumb)) = self.hscrollbar(view, d) else { return };
+        let range = (track[2] - track[0]) - (thumb[2] - thumb[0]);
+        if range <= 0.0 {
+            return;
+        }
+        let max = self.content_w - (view[2] - view[0]);
+        self.hscroll = ((thumb_left - track[0]) / range).clamp(0.0, 1.0) * max;
+    }
+
+    pub fn clamp_h(&mut self, view_w: f32) {
+        let max = (self.content_w - view_w).max(0.0);
+        self.hscroll = self.hscroll.clamp(0.0, max);
+    }
+
     /// Put the top of the scroll thumb at window y `thumb_top` (dragging it).
     pub fn scroll_thumb_to(&mut self, view: [f32; 4], row_h: f32, d: f32, thumb_top: f32) {
         let Some((track, thumb)) = self.scrollbar(view, row_h, d) else { return };
@@ -131,7 +166,7 @@ impl Tree {
     /// A tree with the given roots (tests).
     #[cfg(test)]
     pub fn with_roots(roots: &[PathBuf]) -> Tree {
-        Tree { nodes: roots.iter().map(|p| Node { path: p.clone(), name: p.display().to_string(), depth: 0, expanded: false, loaded: false, kids: true, header: false, icon: Icon::Folder }).collect(), scroll: 0.0 }
+        Tree { nodes: roots.iter().map(|p| Node { path: p.clone(), name: p.display().to_string(), depth: 0, expanded: false, loaded: false, kids: true, header: false, icon: Icon::Folder, text_w: 0.0 }).collect(), scroll: 0.0, hscroll: 0.0, content_w: 0.0 }
     }
 
     /// Open row `i`: read its sub-folders and show them below it.
@@ -144,7 +179,7 @@ impl Tree {
         let kids = subfolders(&path);
         let new: Vec<Node> = kids
             .into_iter()
-            .map(|(p, name)| Node { path: p, name, depth: depth + 1, expanded: false, loaded: false, kids: true, header: false, icon: Icon::Folder })
+            .map(|(p, name)| Node { path: p, name, depth: depth + 1, expanded: false, loaded: false, kids: true, header: false, icon: Icon::Folder, text_w: 0.0 })
             .collect();
         let n = &mut self.nodes[i];
         n.expanded = true;
@@ -211,7 +246,7 @@ impl Tree {
 }
 
 fn header(name: &str) -> Node {
-    Node { path: PathBuf::new(), name: name.into(), depth: 0, expanded: true, loaded: true, kids: false, header: true, icon: Icon::Folder }
+    Node { path: PathBuf::new(), name: name.into(), depth: 0, expanded: true, loaded: true, kids: false, header: true, icon: Icon::Folder, text_w: 0.0 }
 }
 
 #[cfg(test)]

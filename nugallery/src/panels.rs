@@ -56,6 +56,25 @@ impl App {
         let (shown, all) = (self.listing.len(), self.listing.all.len());
         let fs = self.folder_size.clone();
         let loading = self.loading.is_some();
+        // The widest row decides how far the tree scrolls sideways (names that were not drawn yet are estimated).
+        {
+            let first = (self.tree.scroll / row_h).floor().max(0.0) as usize;
+            let last = (first + (view_h / row_h).ceil() as usize + 1).min(self.tree.nodes.len());
+            for i in first..last {
+                if !self.tree.nodes[i].header && self.tree.nodes[i].text_w == 0.0 {
+                    let w = self.text.width(&self.tree.nodes[i].name, font) as f32 / d;
+                    self.tree.nodes[i].text_w = w.max(1.0);
+                }
+            }
+            let widest = self.tree.nodes.iter().filter(|n| !n.header).map(|n| 10.0 + n.depth as f32 * 16.0 + 44.0 + if n.text_w > 0.0 { n.text_w } else { n.name.chars().count() as f32 * 7.5 } + 14.0).fold(0.0f32, f32::max);
+            self.tree.content_w = widest * d;
+            self.tree.clamp_h(tree_rect[2] - tree_rect[0]);
+        }
+        let hscroll = self.tree.hscroll;
+        let (tree_focus, tree_sel) = (self.tree_focus, self.tree_sel.clone());
+        let drag_target = self.drag.as_ref().and_then(|dr| dr.target.clone());
+        let hsb = self.tree.hscrollbar(tree_rect, d);
+        let hsb_hot = self.tree_hsb_drag.is_some() || hsb.map(|(t, _)| contains([t[0], t[1] - 4.0 * d, t[2], t[3] + 3.0 * d], mx, my)).unwrap_or(false);
         let sb = self.tree.scrollbar(tree_rect, row_h, d);
         let sb_hot = self.tree_sb_drag.is_some() || sb.map(|(t, _)| contains([t[0] - 4.0 * d, t[1], t[2] + 3.0 * d, t[3]], mx, my)).unwrap_or(false);
         let Some(r) = self.renderer.as_mut() else { return };
@@ -75,16 +94,23 @@ impl App {
             let y = tree_rect[1] + i as f32 * row_h - self.tree.scroll;
             let row = [tree_rect[0], y, tree_rect[2], y + row_h];
             if n.header {
-                self.text.draw(r, &n.name.to_uppercase(), small, l[0] + 12.0 * d, y + (row_h - line_h(small)) / 2.0 + 3.0 * d, rgb(pal::DIM, 1.0));
+                self.text.draw(r, &n.name.to_uppercase(), small, l[0] + 12.0 * d - hscroll, y + (row_h - line_h(small)) / 2.0 + 3.0 * d, rgb(pal::DIM, 1.0));
                 continue;
             }
             let is_current = crate::app::same_dir(&n.path, &current);
-            if is_current {
+            let is_target = drag_target.as_ref().map(|t| crate::app::same_dir(&n.path, t)).unwrap_or(false);
+            if is_target {
+                let _ = r.fill_rect(row, rgb(pal::ACCENT, 0.5));
+                outline(r, row, 1.5 * d, rgb(0x7DB4FF, 1.0));
+            } else if is_current {
                 let _ = r.fill_rect(row, rgb(pal::ACCENT, 0.28));
             } else if contains(row, mx, my) {
                 let _ = r.fill_rect(row, rgb(pal::TILE_HOVER, 1.0));
             }
-            let ix = l[0] + 10.0 * d + n.depth as f32 * 16.0 * d;
+            if tree_focus && !is_target && tree_sel.as_ref().map(|t| crate::app::same_dir(&n.path, t)).unwrap_or(false) {
+                outline(r, row, 1.0, rgb(0xB8C4D8, 0.85));
+            }
+            let ix = l[0] + 10.0 * d + n.depth as f32 * 16.0 * d - hscroll;
             if n.kids {
                 self.text.draw(r, if n.expanded { "▾" } else { "▸" }, small, ix + 2.0 * d, y + (row_h - line_h(small)) / 2.0, rgb(pal::DIM, 1.0));
             }
@@ -99,14 +125,18 @@ impl App {
                     let _ = r.fill_rect([icon[0] + 2.0 * d, icon[1] + 3.0 * d, icon[2] - 2.0 * d, icon[3] - 2.0 * d], rgb(0x6C93C9, 1.0));
                 }
             }
-            let name = self.text.fit(&n.name, font, (tree_rect[2] - (ix + 44.0 * d) - 8.0 * d - if sb.is_some() { 12.0 * d } else { 0.0 }) as i32);
-            self.text.draw(r, &name, font, ix + 42.0 * d, y + (row_h - line_h(font)) / 2.0, rgb(pal::TEXT, 1.0));
+            // The whole name: what does not fit is reached with the sideways scroll bar (or Shift + wheel).
+            self.text.draw(r, &n.name, font, ix + 42.0 * d, y + (row_h - line_h(font)) / 2.0, rgb(pal::TEXT, 1.0));
         }
         r.set_clip(None);
         // The tree's scroll bar (the folder list is longer than the panel once a few folders are open).
         if let Some((track, thumb)) = sb {
             let _ = r.fill_rect(track, rgb(0xFFFFFF, 0.05));
             let _ = r.fill_rect(thumb, rgb(0xFFFFFF, if sb_hot { 0.55 } else { 0.28 }));
+        }
+        if let Some((track, thumb)) = hsb {
+            let _ = r.fill_rect(track, rgb(0xFFFFFF, 0.05));
+            let _ = r.fill_rect(thumb, rgb(0xFFFFFF, if hsb_hot { 0.55 } else { 0.28 }));
         }
         // Folder data and size.
         let foot_top = l[3] - TREE_FOOT * d;
@@ -146,34 +176,7 @@ impl App {
         if !contains(tr, x, y) {
             return;
         }
-        let d = self.dpi;
-        let row_h = TREE_ROW * d;
-        // On the scroll bar: grab the thumb (or jump there by clicking the track).
-        if let Some((track, thumb)) = self.tree.scrollbar(tr, row_h, d) {
-            if contains([track[0] - 4.0 * d, track[1], track[2] + 3.0 * d, track[3]], x, y) {
-                let grab = if contains(thumb, x, y) { y - thumb[1] } else { (thumb[3] - thumb[1]) / 2.0 };
-                self.tree_sb_drag = Some(grab);
-                self.tree.scroll_thumb_to(tr, row_h, d, y - grab);
-                nv_win::invalidate(self.hwnd);
-                return;
-            }
-        }
-        let i = ((y - tr[1] + self.tree.scroll) / row_h).floor() as usize;
-        let Some(n) = self.tree.nodes.get(i) else { return };
-        if n.header {
-            return;
-        }
-        let (path, depth, kids) = (n.path.clone(), n.depth, n.kids);
-        let ix = self.chrome.left.map(|l| l[0]).unwrap_or(0.0) + 10.0 * d + depth as f32 * 16.0 * d;
-        if kids && x < ix + 22.0 * d {
-            self.tree.toggle(i);
-        } else {
-            if double && kids {
-                self.tree.toggle(i);
-            }
-            self.go(path, Vec::new(), true);
-        }
-        nv_win::invalidate(self.hwnd);
+        self.tree_press(x, y, double);
     }
 
     // ---- right panel ---------------------------------------------------------------------------------------
@@ -190,7 +193,7 @@ impl App {
         let preview = [p[0] + pad, y, p[2] - pad, y + preview_h];
         y += preview_h + 10.0 * d;
         let name_y = y;
-        y += line_h(px(16.0, d)) + 4.0 * d;
+        y += line_h(px(16.0, d)) * self.title_lines((w - 2.0 * pad) as i32).len() as f32 + 4.0 * d;
         let facts_y = y;
         y += 2.0 * (line_h(px(12.0, d)) + 2.0 * d) + 8.0 * d;
         let hist = [p[0] + pad, y, p[2] - pad, y + 74.0 * d];
@@ -215,6 +218,34 @@ impl App {
         let n_exif = self.info.as_ref().map(|i| i.exif.len()).unwrap_or(0);
         y += n_exif as f32 * row_h + 20.0 * d;
         Some(RightGeo { panel: p, preview, name_y, facts_y, hist, meta_head_y, fields, exif_head_y, exif_y, row_h, content_h: y - top, view_h: p[3] - p[1] - HEAD * d })
+    }
+
+    /// What the right panel is titled: the name of the focused item (all of it), or how many are selected.
+    fn panel_title(&self) -> String {
+        let n = self.sel.count(&self.listing);
+        if n > 1 {
+            return format!("{n} items selected");
+        }
+        self.sel.cursor.and_then(|c| self.listing.get(c)).map(|e| e.name.clone()).unwrap_or_default()
+    }
+
+    /// The title broken into lines that fit the panel (remembered, so asking again costs nothing).
+    pub fn title_lines(&self, width: i32) -> Vec<String> {
+        let title = self.panel_title();
+        let big = px(16.0, self.dpi);
+        let key = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (&title, width, big).hash(&mut h);
+            h.finish()
+        };
+        let mut cache = self.title_cache.borrow_mut();
+        if cache.0 != key || cache.1.is_empty() {
+            let mut lines = crate::gfx::wrap(&title, big, width);
+            lines.truncate(4);
+            *cache = (key, lines);
+        }
+        cache.1.clone()
     }
 
     pub fn draw_right(&mut self) {
@@ -244,6 +275,7 @@ impl App {
         let preview_ok = focus.as_ref().map(|f| self.preview_id == Some(f.0)).unwrap_or(false);
         let active = self.active.as_ref().map(|a| (a.focus.clone(), a.ti.clone(), a.error.is_some()));
         let (mx, my) = (self.last_mouse.0 as f32, self.last_mouse.1 as f32);
+        let title_lines = self.title_lines((p[2] - p[0] - 2.0 * pad) as i32);
         let Some(r) = self.renderer.as_mut() else { return };
         let _ = r.fill_rect(p, rgb(pal::PANEL, 1.0));
         let _ = r.fill_rect([p[0], p[1], p[0] + 1.0, p[3]], rgb(pal::PANEL_EDGE, 1.0));
@@ -267,9 +299,10 @@ impl App {
                     crate::preview::draw(r, &mut self.text, &self.pv, pv, clip, *id, key, ext, d);
                 }
                 // Name and facts.
-                let title = if n_sel > 1 { format!("{n_sel} items selected") } else { name.clone() };
-                let title = self.text.fit(&title, big, width);
-                self.text.draw(r, &title, big, p[0] + pad, geo.name_y, rgb(pal::TEXT, 1.0));
+                // The whole name, over as many lines as it needs.
+                for (k, line) in title_lines.iter().enumerate() {
+                    self.text.draw(r, line, big, p[0] + pad, geo.name_y + k as f32 * line_h(big), rgb(pal::TEXT, 1.0));
+                }
                 let mut l1 = Vec::new();
                 let mut l2 = Vec::new();
                 if n_sel > 1 {
