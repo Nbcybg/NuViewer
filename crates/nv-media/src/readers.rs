@@ -97,29 +97,84 @@ pub struct VideoReader {
     pub width: u32,
     pub height: u32,
     stride: i32,
+    /// The frame read to find out that the graphics decoder works: handed out by the next `read` (a seek drops it).
+    first: std::sync::Mutex<Option<Frame>>,
+}
+
+/// The size to ask Media Foundation for: the picture shrunk so its long side is at most `max_edge` (0 = as it is), even numbers.
+fn fit_edge(w: u32, h: u32, max_edge: u32) -> Option<(u32, u32)> {
+    let long = w.max(h);
+    if max_edge == 0 || long <= max_edge || w == 0 || h == 0 {
+        return None;
+    }
+    let k = max_edge as f64 / long as f64;
+    Some((((w as f64 * k) as u32 & !1).max(2), ((h as f64 * k) as u32 & !1).max(2)))
 }
 
 impl VideoReader {
+    /// Full size, decoded in software (stills and the seek-bar pictures: one frame each, no need for the graphics card).
     pub fn open(path: &Path) -> Result<VideoReader, String> {
+        Self::open_with(path, false, 0)
+    }
+
+    /// For playing: the graphics card decodes and scales (a 4K clip at 60 frames a second is out of reach of the CPU
+    /// decoder), the CPU path is the fallback. `max_edge` is the longest side wanted (0 = the clip's own size).
+    pub fn open_for_playback(path: &Path, max_edge: u32) -> Result<VideoReader, String> {
+        match Self::open_with(path, true, max_edge) {
+            Ok(v) => {
+                // The graphics path can open and then fail on the first frame (a codec its decoder lacks): find out now.
+                match v.read() {
+                    Read::Item(f) => {
+                        *v.first.lock().unwrap() = Some(f);
+                        return Ok(v);
+                    }
+                    Read::End => return Ok(v),
+                    Read::Error(_) => {}
+                }
+            }
+            Err(_) => {}
+        }
+        Self::open_with(path, false, 0)
+    }
+
+    fn open_with(path: &Path, gpu: bool, max_edge: u32) -> Result<VideoReader, String> {
         let api = mf()?;
-        let r = api.reader(path)?;
+        let r = api.reader_with(path, gpu)?;
         select_only(&r, VIDEO)?;
-        set_type(api, &r, VIDEO, |t| unsafe {
-            t.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
-            t.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)
-        })?;
+        let native = unsafe { r.GetNativeMediaType(VIDEO, 0).ok().and_then(|t| t.GetUINT64(&MF_MT_FRAME_SIZE).ok()).map(unpack).unwrap_or((0, 0)) };
+        // Only the graphics path can shrink while converting; the CPU one refuses a size that differs from the clip's.
+        let size = if gpu { fit_edge(native.0, native.1, max_edge) } else { None };
+        let build = |size: Option<(u32, u32)>| {
+            move |t: &IMFMediaType| -> windows::core::Result<()> {
+                unsafe {
+                    t.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
+                    t.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)?;
+                    if let Some((w, h)) = size {
+                        t.SetUINT64(&MF_MT_FRAME_SIZE, ((w as u64) << 32) | h as u64)?;
+                    }
+                }
+                Ok(())
+            }
+        };
+        if size.is_none() || set_type(api, &r, VIDEO, build(size)).is_err() {
+            set_type(api, &r, VIDEO, build(None))?;
+        }
         let cur = unsafe { r.GetCurrentMediaType(VIDEO).map_err(|e| e.to_string())? };
         let (width, height) = unsafe { cur.GetUINT64(&MF_MT_FRAME_SIZE).map(unpack).map_err(|e| e.to_string())? };
         let stride = unsafe { cur.GetUINT32(&MF_MT_DEFAULT_STRIDE).map(|s| s as i32).unwrap_or(width as i32 * 4) };
-        Ok(VideoReader { r, width, height, stride })
+        Ok(VideoReader { r, width, height, stride, first: std::sync::Mutex::new(None) })
     }
 
     pub fn seek(&self, ms: u64) {
+        *self.first.lock().unwrap() = None;
         seek_reader(&self.r, ms);
     }
 
     /// The next frame. Stream-tick gaps and format changes are skipped over.
     pub fn read(&self) -> Read<Frame> {
+        if let Some(f) = self.first.lock().unwrap().take() {
+            return Read::Item(f);
+        }
         loop {
             let (mut flags, mut ts, mut sample) = (0u32, 0i64, None);
             if let Err(e) = unsafe { self.r.ReadSample(VIDEO, 0, None, Some(&mut flags), Some(&mut ts), Some(&mut sample)) } {
@@ -143,16 +198,17 @@ impl VideoReader {
             buf.Lock(&mut p, Some(&mut max), Some(&mut cur)).map_err(|e| e.to_string())?;
             let (w, h) = (self.width as usize, self.height as usize);
             let stride = self.stride.unsigned_abs().max(w as u32 * 4) as usize;
-            let mut out = vec![0u8; w * h * 4];
+            let mut out: Vec<u8> = Vec::with_capacity(w * h * 4);
             if (cur as usize) >= stride * h - (stride - w * 4) {
                 for y in 0..h {
                     let src_row = if self.stride < 0 { h - 1 - y } else { y };
-                    let src = std::slice::from_raw_parts(p.add(src_row * stride), w * 4);
-                    out[y * w * 4..(y + 1) * w * 4].copy_from_slice(src);
+                    out.extend_from_slice(std::slice::from_raw_parts(p.add(src_row * stride), w * 4));
                 }
                 for px in out.chunks_exact_mut(4) {
                     px[3] = 255;
                 }
+            } else {
+                out.resize(w * h * 4, 0);
             }
             let _ = buf.Unlock();
             Ok(Frame { width: self.width, height: self.height, bgra: out, ms })

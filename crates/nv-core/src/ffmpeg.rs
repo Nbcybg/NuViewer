@@ -49,6 +49,25 @@ fn quiet(c: &mut Command) -> &mut Command {
 /// One picture of the clip (a second in, or the first frame for a short one), as a JPEG-decoded image.
 pub fn poster(src: &Path) -> Result<nv_codecs::Image, String> {
     let ff = find().ok_or("this video needs a decoder Windows doesn't have; install ffmpeg (winget install Gyan.FFmpeg) to see it")?;
+    // A clip with an alpha channel keeps it: a PNG, not a JPEG.
+    if nv_media::has_alpha(src) == Some(true) {
+        for ss in ["1", "0"] {
+            let mut c = Command::new(&ff);
+            c.args(["-v", "error", "-ss", ss, "-i"]).arg(src).args(["-frames:v", "1", "-vf", "scale='min(1920,iw)':-2,format=rgba", "-f", "image2pipe", "-vcodec", "png", "-compression_level", "1", "-"]).stdout(Stdio::piped());
+            let out = quiet(&mut c).output().map_err(|e| e.to_string())?;
+            if out.status.success() && out.stdout.len() > 64 {
+                let mut dec = png::Decoder::new(std::io::Cursor::new(&out.stdout));
+                dec.set_transformations(png::Transformations::EXPAND);
+                let mut r = dec.read_info().map_err(|e| e.to_string())?;
+                let mut buf = vec![0u8; r.output_buffer_size().ok_or("picture too large")?];
+                let info = r.next_frame(&mut buf).map_err(|e| e.to_string())?;
+                if info.bit_depth == png::BitDepth::Eight && info.color_type == png::ColorType::Rgba {
+                    buf.truncate(info.buffer_size());
+                    return Ok(nv_codecs::Image::new(info.width, info.height, buf));
+                }
+            }
+        }
+    }
     for ss in ["1", "0"] {
         let mut c = Command::new(&ff);
         c.args(["-v", "error", "-ss", ss, "-i"]).arg(src).args(["-frames:v", "1", "-vf", "scale='min(1920,iw)':-2", "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "3", "-"]).stdout(Stdio::piped());

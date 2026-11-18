@@ -14,11 +14,13 @@ type StartupFn = unsafe extern "system" fn(u32, u32) -> HRESULT;
 type CreateAttrFn = unsafe extern "system" fn(*mut *mut c_void, u32) -> HRESULT;
 type CreateTypeFn = unsafe extern "system" fn(*mut *mut c_void) -> HRESULT;
 type CreateReaderFn = unsafe extern "system" fn(PCWSTR, *mut c_void, *mut *mut c_void) -> HRESULT;
+type CreateDxgiManagerFn = unsafe extern "system" fn(*mut u32, *mut *mut c_void) -> HRESULT;
 
 pub struct Mf {
     create_attributes: CreateAttrFn,
     create_media_type: CreateTypeFn,
     create_reader: CreateReaderFn,
+    create_dxgi_manager: CreateDxgiManagerFn,
 }
 
 fn wide(s: &str) -> Vec<u16> {
@@ -46,7 +48,7 @@ pub fn mf() -> Result<&'static Mf, String> {
         if startup(windows::Win32::Media::MediaFoundation::MF_VERSION, 0).is_err() {
             return None;
         }
-        Some(Mf { create_attributes: sym(plat, "MFCreateAttributes")?, create_media_type: sym(plat, "MFCreateMediaType")?, create_reader: sym(rw, "MFCreateSourceReaderFromURL")? })
+        Some(Mf { create_attributes: sym(plat, "MFCreateAttributes")?, create_media_type: sym(plat, "MFCreateMediaType")?, create_reader: sym(rw, "MFCreateSourceReaderFromURL")?, create_dxgi_manager: sym(plat, "MFCreateDXGIDeviceManager")? })
     })
     .as_ref()
     .ok_or_else(|| "Media Foundation is not available on this PC".to_string())
@@ -78,15 +80,67 @@ impl Mf {
 
     /// A source reader for `path` with software colour conversion switched on.
     pub fn reader(&self, path: &std::path::Path) -> Result<IMFSourceReader, String> {
-        use windows::Win32::Media::MediaFoundation::MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING;
+        self.reader_with(path, false)
+    }
+
+    /// `gpu`: decode (and convert to RGB) on the graphics card through a Direct3D 11 device handed to the reader.
+    pub fn reader_with(&self, path: &std::path::Path, gpu: bool) -> Result<IMFSourceReader, String> {
+        use windows::Win32::Media::MediaFoundation::{MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SOURCE_READER_D3D_MANAGER, MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING};
         let attrs = self.attributes()?;
         let w = wide(&path.to_string_lossy());
         unsafe {
-            attrs.SetUINT32(&MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, 1).map_err(|e| e.to_string())?;
+            if let (true, Some(m)) = (gpu, self.dxgi_manager()) {
+                attrs.SetUnknown(&MF_SOURCE_READER_D3D_MANAGER, &m).map_err(|e| e.to_string())?;
+                attrs.SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1).map_err(|e| e.to_string())?;
+                attrs.SetUINT32(&MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, 1).map_err(|e| e.to_string())?;
+            } else {
+                attrs.SetUINT32(&MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, 1).map_err(|e| e.to_string())?;
+            }
             let mut p = std::ptr::null_mut();
             (self.create_reader)(PCWSTR(w.as_ptr()), attrs.as_raw(), &mut p).ok().map_err(|e| format!("this file can't be played here ({e})"))?;
             Ok(IMFSourceReader::from_raw(p))
         }
+    }
+}
+
+// ---- a Direct3D 11 device for hardware decoding -----------------------------------------------------------------------
+
+type D3d11CreateFn = unsafe extern "system" fn(*mut c_void, i32, *mut c_void, u32, *const i32, u32, u32, *mut *mut c_void, *mut i32, *mut *mut c_void) -> HRESULT;
+
+struct Gpu {
+    manager: windows::Win32::Media::MediaFoundation::IMFDXGIDeviceManager,
+}
+unsafe impl Send for Gpu {}
+unsafe impl Sync for Gpu {}
+
+static GPU: OnceLock<Option<Gpu>> = OnceLock::new();
+
+impl Mf {
+    /// The DXGI device manager of one shared D3D11 device (None when there is no usable graphics decoder path).
+    fn dxgi_manager(&self) -> Option<windows::Win32::Media::MediaFoundation::IMFDXGIDeviceManager> {
+        use windows::Win32::Graphics::Direct3D10::ID3D10Multithread;
+        use windows::Win32::Graphics::Direct3D11::ID3D11Device;
+        GPU.get_or_init(|| unsafe {
+            let d3d = lib("d3d11.dll")?;
+            let create: D3d11CreateFn = sym(d3d, "D3D11CreateDevice")?;
+            let (mut dev, mut ctx, mut level) = (std::ptr::null_mut(), std::ptr::null_mut(), 0i32);
+            // hardware driver, BGRA + video support
+            create(std::ptr::null_mut(), 1, std::ptr::null_mut(), 0x20 | 0x800, std::ptr::null(), 0, 7, &mut dev, &mut level, &mut ctx).ok().ok()?;
+            let device = ID3D11Device::from_raw(dev);
+            if !ctx.is_null() {
+                drop(windows::Win32::Graphics::Direct3D11::ID3D11DeviceContext::from_raw(ctx));
+            }
+            if let Ok(mt) = device.cast::<ID3D10Multithread>() {
+                let _ = mt.SetMultithreadProtected(true);
+            }
+            let (mut token, mut p) = (0u32, std::ptr::null_mut());
+            (self.create_dxgi_manager)(&mut token, &mut p).ok().ok()?;
+            let manager = windows::Win32::Media::MediaFoundation::IMFDXGIDeviceManager::from_raw(p);
+            manager.ResetDevice(&device, token).ok()?;
+            Some(Gpu { manager })
+        })
+        .as_ref()
+        .map(|g| g.manager.clone())
     }
 }
 

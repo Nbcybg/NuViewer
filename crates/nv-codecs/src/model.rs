@@ -655,6 +655,122 @@ fn shrink_for_preview(t: &ModelTexture, limit: u32) -> (u32, u32, Vec<u8>) {
     (w, h, out)
 }
 
+// ---- a light copy for turning the model ----------------------------------------------------------
+
+/// A hasher for cell keys that are already well mixed integers (SipHash costs more than the rest of the weld).
+#[derive(Default)]
+struct KeyHasher(u64);
+
+impl std::hash::Hasher for KeyHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for b in bytes {
+            self.0 = (self.0 ^ *b as u64).wrapping_mul(0x100_0000_01B3);
+        }
+    }
+    fn write_u64(&mut self, v: u64) {
+        self.0 = (v ^ (v >> 29)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+}
+
+/// The colour a vertex shows once its texture and material are applied (sRGB numbers), for a copy that has no textures.
+fn bake_vertex_colors(mesh: &Mesh) -> Vec<[u8; 4]> {
+    if !mesh.colors.is_empty() && mesh.parts.is_empty() {
+        return mesh.colors.clone();
+    }
+    let mut out = vec![[255u8, 255, 255, 255]; mesh.positions.len()];
+    let small: Vec<(u32, u32, Vec<u8>)> = mesh.textures.iter().map(|t| shrink_for_preview(t, 256)).collect();
+    let has_uv = !mesh.uvs.is_empty();
+    let plain = Part { first: 0, count: mesh.indices.len() as u32, texture: None, color: BASE_COLOR, alpha_cut: false, normal_map: None };
+    let runs: Vec<&Part> = if mesh.parts.is_empty() { vec![&plain] } else { mesh.parts.iter().collect() };
+    for part in runs {
+        let tex = part.texture.filter(|_| has_uv).and_then(|t| small.get(t));
+        let end = ((part.first + part.count) as usize).min(mesh.indices.len());
+        for &vi in &mesh.indices[(part.first as usize).min(end)..end] {
+            let mut rgb = part.color;
+            if let Some((tw, th, px8)) = tex {
+                let uv = mesh.uvs[vi as usize];
+                let (fu, fv) = (uv[0] - uv[0].floor(), uv[1] - uv[1].floor());
+                let (tx, ty) = (((fu * *tw as f32) as u32).min(tw - 1), ((fv * *th as f32) as u32).min(th - 1));
+                let o = ((ty * tw + tx) * 4) as usize;
+                for ch in 0..3 {
+                    rgb[ch] *= px8[o + ch] as f32 / 255.0;
+                }
+            }
+            if let Some(c) = mesh.colors.get(vi as usize) {
+                for ch in 0..3 {
+                    rgb[ch] *= c[ch] as f32 / 255.0;
+                }
+            }
+            out[vi as usize] = [(rgb[0] * 255.0).clamp(0.0, 255.0) as u8, (rgb[1] * 255.0).clamp(0.0, 255.0) as u8, (rgb[2] * 255.0).clamp(0.0, 255.0) as u8, 255];
+        }
+    }
+    out
+}
+
+/// A light copy of a big model for drawing while it is being turned: vertices that fall in the same cell of a grid are
+/// welded into one (position and normal averaged) and the triangles that collapse are dropped, so the picture keeps its
+/// whole outline with a few tens of thousands of triangles. Textures are baked into vertex colours. None when the model
+/// is light enough already (`max_tris` triangles or fewer).
+pub fn proxy_mesh(mesh: &Mesh, max_tris: usize) -> Option<Mesh> {
+    let tris = mesh.triangles();
+    if tris <= max_tris || mesh.positions.is_empty() {
+        return None;
+    }
+    let colors = bake_vertex_colors(mesh);
+    let ext = [(mesh.max[0] - mesh.min[0]).max(1e-12), (mesh.max[1] - mesh.min[1]).max(1e-12), (mesh.max[2] - mesh.min[2]).max(1e-12)];
+    let longest = ext[0].max(ext[1]).max(ext[2]);
+    let mut res = ((max_tris as f32 / 2.5).sqrt()).clamp(24.0, 400.0);
+    for attempt in 0..4 {
+        let cell = longest / res;
+        let mut ids: HashMap<u64, u32, std::hash::BuildHasherDefault<KeyHasher>> = HashMap::with_capacity_and_hasher(max_tris * 2, Default::default());
+        let mut remap: Vec<u32> = Vec::with_capacity(mesh.positions.len());
+        // per cluster: summed position, normal, colour and the count
+        let mut acc: Vec<([f64; 3], [f64; 3], [u32; 3], u32)> = Vec::new();
+        for (i, p) in mesh.positions.iter().enumerate() {
+            let c = [((p[0] - mesh.min[0]) / cell) as i64, ((p[1] - mesh.min[1]) / cell) as i64, ((p[2] - mesh.min[2]) / cell) as i64];
+            let key = (c[0] as u64 & 0x1F_FFFF) | ((c[1] as u64 & 0x1F_FFFF) << 21) | ((c[2] as u64 & 0x1F_FFFF) << 42);
+            let id = *ids.entry(key).or_insert_with(|| {
+                acc.push(([0.0; 3], [0.0; 3], [0; 3], 0));
+                acc.len() as u32 - 1
+            });
+            remap.push(id);
+            let a = &mut acc[id as usize];
+            let n = mesh.normals.get(i).copied().unwrap_or([0.0, 0.0, 1.0]);
+            for k in 0..3 {
+                a.0[k] += p[k] as f64;
+                a.1[k] += n[k] as f64;
+                a.2[k] += colors[i][k] as u32;
+            }
+            a.3 += 1;
+        }
+        let mut indices: Vec<u32> = Vec::with_capacity(max_tris * 3);
+        for t in mesh.indices.chunks_exact(3) {
+            let (a, b, c) = (remap[t[0] as usize], remap[t[1] as usize], remap[t[2] as usize]);
+            if a != b && b != c && a != c {
+                indices.extend_from_slice(&[a, b, c]);
+            }
+        }
+        if indices.len() / 3 > max_tris * 2 && attempt < 3 {
+            res *= 0.7; // too many triangles survived: a coarser grid
+            continue;
+        }
+        let mut positions = Vec::with_capacity(acc.len());
+        let mut normals = Vec::with_capacity(acc.len());
+        let mut cols = Vec::with_capacity(acc.len());
+        for (p, n, c, k) in &acc {
+            let k = (*k).max(1) as f64;
+            positions.push([(p[0] / k) as f32, (p[1] / k) as f32, (p[2] / k) as f32]);
+            normals.push(normalize([n[0] as f32, n[1] as f32, n[2] as f32]));
+            cols.push([(c[0] / k as u32) as u8, (c[1] / k as u32) as u8, (c[2] / k as u32) as u8, 255]);
+        }
+        return Some(Mesh { positions, normals, indices, min: mesh.min, max: mesh.max, y_up: mesh.y_up, uvs: Vec::new(), colors: cols, textures: Vec::new(), parts: Vec::new() });
+    }
+    None
+}
+
 // ---- entry point ---------------------------------------------------------------------------------
 
 /// Extensions handled here.

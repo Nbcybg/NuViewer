@@ -11,7 +11,7 @@ use nv_codecs::model::{Mesh, Orbit};
 use nv_codecs::Image;
 use nv_render::Renderer;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 pub const TIMER_PREVIEW: u32 = 6;
@@ -19,6 +19,8 @@ pub const TIMER_PREVIEW: u32 = 6;
 const MAX_FRAMES: usize = 120;
 /// Longest edge of a preview frame.
 const FRAME_EDGE: u32 = 480;
+/// Longest edge of a video frame in the preview (the graphics card shrinks it while decoding).
+const PLAYER_EDGE: u32 = 720;
 /// Longest edge of the sharper picture decoded when you zoom in.
 const BIG_EDGE: u32 = 3072;
 pub const ZOOM_MAX: f32 = 8.0;
@@ -89,6 +91,108 @@ pub struct Anim {
     pub label: String,
 }
 
+/// What the model's render thread is asked: where to look from and how big to draw.
+#[derive(Clone, Copy)]
+struct MeshJob {
+    orbit: Orbit,
+    w: u32,
+    h: u32,
+}
+
+struct MeshJobs {
+    slot: Mutex<(Option<MeshJob>, bool)>,
+    cv: Condvar,
+}
+
+/// Draws a model off the UI thread. Asks overwrite each other (only the newest counts), so turning a heavy model never
+/// queues work or stops the window: a light copy of the model is drawn at once for the turning, and when the pointer has
+/// rested for a moment the full picture follows.
+pub struct MeshWorker {
+    jobs: Arc<MeshJobs>,
+}
+
+/// Triangles in the light copy that is drawn while the model turns.
+const PROXY_TRIS: usize = 45_000;
+/// Triangles in the copy drawn when the pointer rests.
+const FINE_TRIS: usize = 260_000;
+/// Longest edge of the picture drawn while turning.
+const TURN_EDGE: u32 = 420;
+/// How long the pointer rests before the full picture is drawn.
+const REST: Duration = Duration::from_millis(140);
+
+impl MeshWorker {
+    fn start(id: u64, mesh: Arc<Mesh>, tx: std::sync::mpsc::Sender<Msg>, wake: Arc<dyn Fn() + Send + Sync>) -> MeshWorker {
+        let jobs = Arc::new(MeshJobs { slot: Mutex::new((None, false)), cv: Condvar::new() });
+        let j = jobs.clone();
+        std::thread::spawn(move || {
+            let proxy = nv_codecs::model::proxy_mesh(&mesh, PROXY_TRIS);
+            let light: &Mesh = proxy.as_ref().unwrap_or(&mesh);
+            let mut fine_proxy: Option<Option<Mesh>> = None;
+            let send = |job: &MeshJob, m: &Mesh, scale: f32| {
+                let (w, h) = (((job.w as f32 * scale) as u32).max(64), ((job.h as f32 * scale) as u32).max(64));
+                let mut img = Image::new(w, h, nv_codecs::model::render_preview(m, &job.orbit, w, h));
+                img.srgb_to_output();
+                let _ = tx.send(Msg::MeshFrame { id, img });
+                wake();
+            };
+            let take = |wait: Option<Duration>| -> Option<Option<MeshJob>> {
+                let mut g = j.slot.lock().unwrap();
+                loop {
+                    if g.1 {
+                        return None; // asked to stop
+                    }
+                    if let Some(job) = g.0.take() {
+                        return Some(Some(job));
+                    }
+                    match wait {
+                        None => g = j.cv.wait(g).unwrap(),
+                        Some(d) => {
+                            let (ng, to) = j.cv.wait_timeout(g, d).unwrap();
+                            g = ng;
+                            if to.timed_out() && g.0.is_none() {
+                                return Some(None);
+                            }
+                        }
+                    }
+                }
+            };
+            while let Some(Some(mut job)) = take(None) {
+                loop {
+                    let turn = TURN_EDGE as f32 / job.w.max(job.h) as f32;
+                    send(&job, light, turn.min(1.0));
+                    match take(Some(REST)) {
+                        None => return,
+                        Some(Some(newer)) => job = newer, // still moving: draw the light picture again
+                        Some(None) => {
+                            // At rest: a denser copy at the box's size (the full model is drawn from a sample of its
+                            // triangles when it has millions, which leaves holes; a welded copy has none), unless
+                            // something new comes in meanwhile.
+                            if proxy.is_some() || turn < 1.0 {
+                                let fine = fine_proxy.get_or_insert_with(|| nv_codecs::model::proxy_mesh(&mesh, FINE_TRIS));
+                                send(&job, fine.as_ref().unwrap_or(&mesh), 1.0);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+        MeshWorker { jobs }
+    }
+
+    fn ask(&self, orbit: Orbit, w: u32, h: u32) {
+        *self.jobs.slot.lock().unwrap() = (Some(MeshJob { orbit, w, h }), false);
+        self.jobs.cv.notify_all();
+    }
+}
+
+impl Drop for MeshWorker {
+    fn drop(&mut self) {
+        self.jobs.slot.lock().unwrap().1 = true;
+        self.jobs.cv.notify_all();
+    }
+}
+
 pub struct Preview {
     /// The item this state belongs to.
     pub id: Option<u64>,
@@ -100,6 +204,7 @@ pub struct Preview {
     pub anim: Option<Anim>,
     pub scrubbing: bool,
     pub mesh: Option<Arc<Mesh>>,
+    mesh_worker: Option<MeshWorker>,
     pub media: Option<MediaPv>,
     pub orbit: Orbit,
     /// A sharper decode was asked for / has arrived.
@@ -109,7 +214,7 @@ pub struct Preview {
 
 impl Preview {
     pub fn new(id: Option<u64>) -> Preview {
-        Preview { id, zoom: 1.0, pan: (0.0, 0.0), drag: None, anim: None, scrubbing: false, mesh: None, media: None, orbit: Orbit::default(), big_asked: false, big_ready: false }
+        Preview { id, zoom: 1.0, pan: (0.0, 0.0), drag: None, anim: None, scrubbing: false, mesh: None, mesh_worker: None, media: None, orbit: Orbit::default(), big_asked: false, big_ready: false }
     }
 
     /// The texture keys this state put on the GPU (so they can be dropped when the item changes).
@@ -340,7 +445,9 @@ impl App {
                 _ if path2.extension().and_then(|e| e.to_str()).is_some_and(nv_codecs::midi::is_ext) => nv_codecs::midi::playable_wav(&path2).map_err(|e| e.to_string()),
                 _ => Ok(path2.clone()),
             };
-            let result = source.and_then(|p| nv_media::Player::open(&p, wake.clone()));
+            // Frames no bigger than the box shows; a clip Windows cannot decode, or one with an alpha channel, comes through ffmpeg.
+            let opts = nv_media::Opts { max_edge: PLAYER_EDGE, ffmpeg_fallback: true };
+            let result = source.and_then(|p| nv_media::Player::open_with(&p, wake.clone(), opts));
             let _ = tx.send(Msg::PreviewPlayer { id, result });
             wake();
         });
@@ -392,7 +499,7 @@ impl App {
                 px.swap(0, 2);
             }
             let img = Image::new(f.width, f.height, rgba);
-            let img = if f.width.max(f.height) > 720 { nv_codecs::downscale(&img, 720) } else { img };
+            let img = if f.width.max(f.height) > PLAYER_EDGE { nv_codecs::downscale(&img, PLAYER_EDGE) } else { img };
             if let Some(r) = self.renderer.as_mut() {
                 if r.upload_thumb(media_key(id), &img).is_ok() && !m.got_frame {
                     m.got_frame = true;
@@ -448,8 +555,21 @@ impl App {
         if self.pv.id != Some(id) {
             return;
         }
+        self.pv.mesh_worker = Some(MeshWorker::start(id, mesh.clone(), self.tx.clone(), self.wake.clone()));
         self.pv.mesh = Some(mesh);
         self.pv_render_mesh();
+    }
+
+    /// The render thread finished a picture of the model.
+    pub fn pv_mesh_frame(&mut self, id: u64, mut img: Image) {
+        if self.pv.id != Some(id) || self.pv.mesh.is_none() {
+            return;
+        }
+        if let Some(r) = self.renderer.as_mut() {
+            let _ = r.upload_thumb(mesh_key(id), &img);
+            img.rgba = Vec::new();
+        }
+        nv_win::invalidate(self.hwnd);
     }
 
     /// The sharper picture (decoded after the user zoomed in) arrived.
@@ -465,16 +585,11 @@ impl App {
         }
     }
 
-    /// Render the model at the box's size from where it is looked at now.
+    /// Ask the render thread for the model at the box's size from where it is looked at now (it answers with `MeshFrame`).
     fn pv_render_mesh(&mut self) {
-        let (Some(mesh), Some(id), Some((rect, _))) = (self.pv.mesh.clone(), self.pv.id, self.preview_visible()) else { return };
-        let (w, h) = (((rect[2] - rect[0]) as u32).clamp(64, 640), ((rect[3] - rect[1]) as u32).clamp(64, 640));
-        let mut img = Image::new(w, h, nv_codecs::model::render_preview(&mesh, &self.pv.orbit, w, h));
-        img.srgb_to_output();
-        if let Some(r) = self.renderer.as_mut() {
-            let _ = r.upload_thumb(mesh_key(id), &img);
-        }
-        nv_win::invalidate(self.hwnd);
+        let (Some(w), Some((rect, _))) = (self.pv.mesh_worker.as_ref(), self.preview_visible()) else { return };
+        let (bw, bh) = (((rect[2] - rect[0]) as u32).clamp(64, 640), ((rect[3] - rect[1]) as u32).clamp(64, 640));
+        w.ask(self.pv.orbit, bw, bh);
     }
 
     /// Ask for a sharper decode of the focused picture (once, the first time it is zoomed in).

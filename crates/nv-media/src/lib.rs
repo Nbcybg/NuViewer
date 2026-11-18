@@ -3,8 +3,11 @@
 //! pictures that appear over the seek bar. Everything is Media Foundation (decoding) + waveOut (sound), bound late (`load`).
 
 mod audio;
+mod ffreader;
 mod load;
 mod readers;
+
+pub use ffreader::{has_alpha, set_ffmpeg};
 
 pub use readers::{audio_peaks, poster_frame, probe, Frame};
 use readers::{AudioReader, Read, VideoReader, CHANNELS, RATE};
@@ -104,6 +107,26 @@ impl Shared {
     }
 }
 
+/// How a clip is opened for playing.
+#[derive(Clone, Copy, Debug)]
+pub struct Opts {
+    /// Longest side of the frames (0 = the clip's own size). The graphics card shrinks while it converts, so a 4K clip
+    /// costs little more than a 1080p one; the frames of a small preview need no more than their box.
+    pub max_edge: u32,
+    /// A clip Media Foundation cannot decode is given to ffmpeg (no sound from it) instead of failing. A clip with an
+    /// alpha channel always goes to ffmpeg: Windows would show it without the transparency, or not at all.
+    pub ffmpeg_fallback: bool,
+}
+
+impl Default for Opts {
+    fn default() -> Opts {
+        Opts { max_edge: DEFAULT_EDGE, ffmpeg_fallback: false }
+    }
+}
+
+/// Longest side of frames the player hands out unless asked otherwise (QHD: 4K video is shrunk on the graphics card).
+pub const DEFAULT_EDGE: u32 = 2560;
+
 pub struct Player {
     pub info: Info,
     path: PathBuf,
@@ -115,6 +138,10 @@ impl Player {
     /// Open `path` for playback, paused at the start. `wake` is called (from another thread) when there is a new frame or
     /// the state changed.
     pub fn open(path: &Path, wake: Arc<dyn Fn() + Send + Sync>) -> Result<Player, String> {
+        Self::open_with(path, wake, Opts::default())
+    }
+
+    pub fn open_with(path: &Path, wake: Arc<dyn Fn() + Send + Sync>, opts: Opts) -> Result<Player, String> {
         let p = probe(path)?;
         if !p.has_video && !p.has_audio {
             return Err("nothing in this file can be played".into());
@@ -145,7 +172,8 @@ impl Player {
         let mut threads = Vec::new();
         if p.has_video {
             let (s, path) = (sh.clone(), path.to_path_buf());
-            threads.push(std::thread::spawn(move || video_loop(&path, &s)));
+            let (w, h, fps) = (p.width, p.height, p.fps);
+            threads.push(std::thread::spawn(move || video_loop(&path, &s, opts, (w, h, fps))));
         }
         if p.has_audio {
             let (s, path) = (sh.clone(), path.to_path_buf());
@@ -267,9 +295,58 @@ fn fail(sh: &Shared, msg: String) {
     (sh.wake)();
 }
 
-fn video_loop(path: &Path, sh: &Shared) {
+/// Where the frames come from: Media Foundation, or ffmpeg for what it cannot do.
+enum Source {
+    Mf(VideoReader),
+    Ff(ffreader::FfReader),
+}
+
+impl Source {
+    fn seek(&self, ms: u64) {
+        match self {
+            Source::Mf(v) => v.seek(ms),
+            Source::Ff(v) => v.seek(ms),
+        }
+    }
+
+    fn read(&self) -> Read<Frame> {
+        match self {
+            Source::Mf(v) => v.read(),
+            Source::Ff(v) => v.read(),
+        }
+    }
+}
+
+/// Open the video of `path` for playing: the graphics card through Media Foundation, else ffmpeg where allowed.
+fn open_source(path: &Path, opts: Opts, (w, h, fps): (u32, u32, f32)) -> Result<Source, String> {
+    // A clip with an alpha channel (a MOV or WebM; MP4 does not carry one) is played by ffmpeg so the transparency is kept.
+    let ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).unwrap_or_default();
+    let may_alpha = matches!(ext.as_str(), "mov" | "webm" | "mkv" | "avi" | "mxf" | "qt");
+    // A clip of more than ~35 frames a second leaves a third less time per frame: QHD is then shrunk to full HD.
+    let edge = if opts.max_edge >= 2560 && fps > 35.0 { 1920 } else { opts.max_edge };
+    let ff = |why: &str| ffreader::FfReader::open(path, w, h, fps, edge).map(Source::Ff).map_err(|e| format!("{why}; {e}"));
+    match VideoReader::open_for_playback(path, edge) {
+        Ok(v) => {
+            if may_alpha && ffreader::ffmpeg().is_some() && ffreader::has_alpha(path) == Some(true) {
+                if let Ok(f) = ff("") {
+                    return Ok(f);
+                }
+            }
+            Ok(Source::Mf(v))
+        }
+        Err(e) => {
+            if ffreader::ffmpeg().is_some() && (opts.ffmpeg_fallback || (may_alpha && ffreader::has_alpha(path) == Some(true))) {
+                ff(&e)
+            } else {
+                Err(e)
+            }
+        }
+    }
+}
+
+fn video_loop(path: &Path, sh: &Shared, opts: Opts, dims: (u32, u32, f32)) {
     load::init_thread();
-    let vr = match VideoReader::open(path) {
+    let vr = match open_source(path, opts, dims) {
         Ok(v) => v,
         Err(e) => return fail(sh, e),
     };
@@ -329,9 +406,10 @@ fn video_loop(path: &Path, sh: &Shared) {
                     }
                     sh.nap(((ahead / sh.speed().max(0.1)) as u64).clamp(1, 20));
                 }
-                // Far behind: drop it, but never go longer than a quarter of a second without showing one.
+                // Behind: drop it, but never go longer than a tenth of a second without showing one (a slow decoder then
+                // still moves at its own speed instead of one picture in a quarter of a second).
                 let late = sh.now_ms() - f.ms as f64;
-                if sh.playing.load(Ordering::SeqCst) && late > 120.0 && last_shown.elapsed() < Duration::from_millis(250) {
+                if sh.playing.load(Ordering::SeqCst) && late > 70.0 && last_shown.elapsed() < Duration::from_millis(100) {
                     continue;
                 }
                 sh.last_ms.store(f.ms, Ordering::SeqCst);
@@ -374,6 +452,12 @@ fn audio_loop(path: &Path, sh: &Shared) {
     load::init_thread();
     let ar = match AudioReader::open(path) {
         Ok(a) => a,
+        // A video whose sound Windows cannot decode (or that has none it can read) plays on without it.
+        Err(e) if sh.has_video => {
+            *sh.notice.lock().unwrap() = Some(format!("{e}: playing without sound"));
+            (sh.wake)();
+            return;
+        }
         Err(e) => return fail(sh, e),
     };
     let mut out = match audio::AudioOut::open() {
@@ -587,4 +671,24 @@ fn silent_loop(sh: &Shared) {
         }
         sh.nap(30);
     }
+}
+
+/// Dev tool (`examples/decodebench.rs`): how many frames a second the reader gives when nothing paces it, and the last
+/// frame it gave.
+#[doc(hidden)]
+pub fn bench_decode(path: &Path, frames: usize, max_edge: u32, gpu: bool) -> Result<(usize, f64, Option<Frame>), String> {
+    load::init_thread();
+    let vr = if gpu { VideoReader::open_for_playback(path, max_edge)? } else { VideoReader::open(path)? };
+    let t0 = Instant::now();
+    let (mut n, mut last) = (0, None);
+    while n < frames {
+        match vr.read() {
+            Read::Item(f) => {
+                n += 1;
+                last = Some(f);
+            }
+            _ => break,
+        }
+    }
+    Ok((n, t0.elapsed().as_secs_f64() * 1000.0, last))
 }

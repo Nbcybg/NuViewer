@@ -61,6 +61,8 @@ pub enum Msg {
     AnimFrame { id: u64, img: nv_codecs::Image, delay: u32, total: usize, label: String },
     /// The geometry of the focused 3D model.
     Mesh { id: u64, mesh: Arc<nv_codecs::model::Mesh> },
+    /// A picture of the model drawn by the preview's render thread.
+    MeshFrame { id: u64, img: nv_codecs::Image },
     /// The sharper decode of the focused picture, made after the preview was zoomed.
     BigPreview { id: u64, img: nv_codecs::Image },
     /// The picture read for the colour picker / palette.
@@ -1281,6 +1283,7 @@ impl App {
                 }
                 Msg::AnimFrame { id, img, delay, total, label } => self.pv_frame(id, img, delay, total, label),
                 Msg::Mesh { id, mesh } => self.pv_mesh(id, mesh),
+                Msg::MeshFrame { id, img } => self.pv_mesh_frame(id, img),
                 Msg::BigPreview { id, img } => self.pv_big(id, img),
                 Msg::PickLoaded { id, data } => self.pick_loaded(id, *data),
                 Msg::PreviewPlayer { id, result } => self.pv_media_ready(id, result),

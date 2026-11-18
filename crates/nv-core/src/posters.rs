@@ -44,5 +44,6 @@ fn poster(path: &Path) -> Result<Image, String> {
 }
 
 pub fn register() {
+    nv_media::set_ffmpeg(crate::ffmpeg::find);
     nv_codecs::media::set_poster(poster);
 }
