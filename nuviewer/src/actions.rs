@@ -28,6 +28,10 @@ impl App {
 
     pub fn perform(&mut self, a: Action) {
         let gallery = self.mode == Mode::Gallery;
+        // A skeleton on screen is drawn again at the size it is zoomed to: its zoom keys are the player's own.
+        if !gallery && matches!(a, Action::ZoomIn | Action::ZoomOut | Action::Zoom1 | Action::Zoom2 | Action::Zoom3 | Action::Zoom4 | Action::Zoom5 | Action::ZoomReset | Action::FitReset | Action::ActualSize) && self.spine_zoom_action(a) {
+            return;
+        }
         let files = self.folder.files.len();
         let cur = self.folder.index as isize;
         match a {

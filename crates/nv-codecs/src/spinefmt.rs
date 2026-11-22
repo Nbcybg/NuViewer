@@ -80,11 +80,17 @@ pub fn load(path: &Path) -> Result<Arc<Rig>, String> {
 
 /// The canvas size and view that show the whole of `anim` of `rig`: the long side is at most `max` pixels.
 pub fn canvas_for(rig: &Rig, skin: usize, anim: Option<usize>, max: usize) -> (usize, usize, View) {
-    let b = rig.bounds(skin, anim, 16).or_else(|| (rig.width > 0.0 && rig.height > 0.0).then(|| [rig.x, rig.y, rig.x + rig.width, rig.y + rig.height])).unwrap_or([-100.0, -100.0, 100.0, 100.0]);
+    let b = bounds_for(rig, skin, anim);
     let (bw, bh) = ((b[2] - b[0]).max(1.0), (b[3] - b[1]).max(1.0));
     let k = max as f32 / bw.max(bh);
     let (w, h) = (((bw * k).round() as usize).clamp(16, max), ((bh * k).round() as usize).clamp(16, max));
     (w, h, View::fit(b, w, h, 0.0))
+}
+
+/// The box (x0, y0, x1, y1 in skeleton units) that holds the whole of an animation's motion (the skeleton's own box when it has no
+/// geometry): what a view fits to the window.
+pub fn bounds_for(rig: &Rig, skin: usize, anim: Option<usize>) -> [f32; 4] {
+    rig.bounds(skin, anim, 16).or_else(|| (rig.width > 0.0 && rig.height > 0.0).then(|| [rig.x, rig.y, rig.x + rig.width, rig.y + rig.height])).unwrap_or([-100.0, -100.0, 100.0, 100.0])
 }
 
 pub fn decode(path: &Path, first_only: bool) -> Result<Image, String> {

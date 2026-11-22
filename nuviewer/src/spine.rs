@@ -1,5 +1,9 @@
-//! The Spine player: a skeleton on screen is posed and drawn by `nv-anim` (on the CPU) every few milliseconds and the result replaces the
-//! picture's texture, so the ordinary picture view gives wheel zoom, drag to pan and double click to fit.
+//! The Spine player: a skeleton on screen is posed and drawn by `nv-anim` (on the CPU) every few milliseconds, **at the size of the window**
+//! (one texel per screen pixel, so it is sharp at any window size and any zoom), and the result replaces the picture's texture. Zoom and pan
+//! live in the player (wheel, drag, the zoom keys), not in the picture view, because a zoomed skeleton is drawn again at the new size.
+//!
+//! How much is drawn per frame adapts: while it plays the frame has a budget of about 28 ms (the resolution drops a little on a huge window
+//! or a slow PC); when it stands still, or a moment after a zoom or a drag stops, it is drawn once more with 2x supersampling for smooth edges.
 //!
 //! Playback uses the viewer's shared settings: speed (`anim_speed`, Shift+. / the panel), loop (Shift+L) and ping-pong (Shift+K); `P` / Space
 //! play and pause. The animation, skin and slot (layer) choices are in the layer panel (`Ctrl+L`, `layers_ui.rs`), which also exports a
@@ -23,8 +27,18 @@ pub struct Player {
     pub playing: bool,
     /// +1 forward, -1 backward (ping-pong).
     pub dir: f32,
-    pub canvas: (usize, usize),
-    pub view: nv_anim::View,
+    /// The box of the whole animation (skeleton units); the view fits it to the window.
+    pub bounds: [f32; 4],
+    /// 1 = fitted to the window; the zoom keys and the wheel change it.
+    pub zoom: f32,
+    /// How far the picture is moved from the middle of the window, in window pixels.
+    pub pan: (f32, f32),
+    /// Milliseconds to draw one megapixel at 1x supersampling (0 = not measured yet): what the quality choice rests on.
+    pub cost: f32,
+    /// When to draw the crisp version (after a zoom or a drag, or at a standstill).
+    pub settle: Option<Instant>,
+    /// The window size the last frame was drawn for.
+    pub win: (u32, u32),
     /// What the layer panel says per slot (0 = off, 1 = as the file has it).
     pub slot_alpha: Vec<f32>,
     pub last: Instant,
@@ -82,12 +96,48 @@ impl Player {
         self.time = 0.0;
         self.dir = 1.0;
         self.sim.reset();
-        let (w, h, view) = spinefmt::canvas_for(&self.rig, self.skin, anim, 1024);
-        self.canvas = (w, h);
-        self.view = view;
+        self.bounds = spinefmt::bounds_for(&self.rig, self.skin, anim);
+        self.zoom = 1.0;
+        self.pan = (0.0, 0.0);
+        self.dirty = true;
+    }
+
+    /// Screen pixels per skeleton unit when fitted to a `win` window (a little air round the picture).
+    pub fn base_scale(&self, win: (u32, u32)) -> f32 {
+        let (bw, bh) = ((self.bounds[2] - self.bounds[0]).max(1.0), (self.bounds[3] - self.bounds[1]).max(1.0));
+        (win.0.max(1) as f32 / bw).min(win.1.max(1) as f32 / bh) * 0.94
+    }
+
+    /// The view for a texture of `tex` pixels standing for a `win` window.
+    pub fn rig_view(&self, win: (u32, u32), tex: (usize, usize)) -> nv_anim::View {
+        let k = tex.0 as f32 / win.0.max(1) as f32; // texture pixels per window pixel
+        let scale = self.base_scale(win) * self.zoom * k;
+        let (cx, cy) = ((self.bounds[0] + self.bounds[2]) / 2.0, (self.bounds[1] + self.bounds[3]) / 2.0);
+        nv_anim::View { cx: cx - self.pan.0 * k / scale, cy: cy + self.pan.1 * k / scale, scale }
+    }
+
+    /// Zoom by `factor` about the window point `at` (the point under it stays where it is).
+    pub fn zoom_about(&mut self, win: (u32, u32), at: (f32, f32), factor: f32) {
+        // The point zoomed about is never outside the picture: over the empty window it becomes the nearest edge of the skeleton.
+        let s = self.base_scale(win) * self.zoom;
+        let (hw, hh) = ((self.bounds[2] - self.bounds[0]).max(1.0) * s / 2.0, (self.bounds[3] - self.bounds[1]).max(1.0) * s / 2.0);
+        let (mx, my) = (win.0 as f32 / 2.0 + self.pan.0, win.1 as f32 / 2.0 + self.pan.1);
+        let at = (at.0.clamp(mx - hw, mx + hw), at.1.clamp(my - hh, my + hh));
+        let new = (self.zoom * factor).clamp(0.2, 60.0);
+        let f = new / self.zoom;
+        let (dx, dy) = (at.0 - win.0 as f32 / 2.0, at.1 - win.1 as f32 / 2.0);
+        self.pan = (dx * (1.0 - f) + self.pan.0 * f, dy * (1.0 - f) + self.pan.1 * f);
+        self.zoom = new;
         self.dirty = true;
     }
 }
+
+/// The most pixels one live frame has (a 4K window is drawn a little smaller and the graphics card stretches it).
+const LIVE_MAX_MPX: f32 = 4.2;
+/// Budget of a frame while it plays / while the picture is being zoomed or dragged / for the crisp frame at rest (milliseconds).
+const BUDGET_PLAY: f32 = 28.0;
+const BUDGET_MOVE: f32 = 70.0;
+const BUDGET_REST: f32 = 450.0;
 
 impl App {
     pub fn spine_active(&self) -> bool {
@@ -110,9 +160,10 @@ impl App {
                     if self.renderer.has(id) && self.renderer.current() == Some(id) {
                         let skin = 0;
                         let anim = if rig.animations.is_empty() { None } else { Some(rig.animation_index("idle").or_else(|| rig.animation_index("Idle")).unwrap_or(0)) };
-                        let (w, h, view) = spinefmt::canvas_for(&rig, skin, anim, 1024);
+                        let bounds = spinefmt::bounds_for(&rig, skin, anim);
                         let n = rig.slots.len();
-                        self.spine.player = Some(Player { id, path, rig, skin, anim, time: 0.0, playing: true, dir: 1.0, canvas: (w, h), view, slot_alpha: vec![1.0; n], last: Instant::now(), dirty: true, sim: nv_anim::PhysicsSim::new(), fade: None });
+                        self.view = self.view.fresh();
+                        self.spine.player = Some(Player { id, path, rig, skin, anim, time: 0.0, playing: true, dir: 1.0, bounds, zoom: 1.0, pan: (0.0, 0.0), cost: 0.0, settle: None, win: (0, 0), slot_alpha: vec![1.0; n], last: Instant::now(), dirty: true, sim: nv_anim::PhysicsSim::new(), fade: None });
                         set_timer(self.hwnd, TIMER_SPINE, TICK_MS);
                         self.toast("Spine skeleton: P plays / pauses, wheel zooms, drag pans, Ctrl+L = animations, skins and layers");
                     }
@@ -161,24 +212,65 @@ impl App {
             }
             p.dirty = true;
         }
-        if p.dirty {
-            self.spine_render();
+        // A resized window needs a frame of its own size.
+        let win = self.renderer.size();
+        if p.win != win {
+            p.dirty = true;
+        }
+        let settle_due = !p.playing && p.settle.is_some_and(|t| now >= t);
+        if settle_due {
+            p.settle = None;
+            self.spine_render_with(true);
+        } else if p.dirty {
+            self.spine_render_with(false);
         }
     }
 
     pub fn spine_render(&mut self) {
+        self.spine_render_with(false);
+    }
+
+    /// Draw the skeleton for the window as it is now. `rest`: the crisp version (the quality that fits a long budget).
+    pub fn spine_render_with(&mut self, rest: bool) {
+        let win = self.renderer.size();
         let Some(p) = self.spine.player.as_mut() else { return };
         p.dirty = false;
-        let (w, h) = p.canvas;
+        let (ww, wh) = (win.0.max(1) as f32, win.1.max(1) as f32);
+        let mpx = ww * wh / 1.0e6;
+        let q_cap = (LIVE_MAX_MPX / mpx).sqrt().min(1.0);
+        let budget = if rest { BUDGET_REST } else if p.playing { BUDGET_PLAY } else { BUDGET_MOVE };
+        // The best of these that fits the budget, by what the last frame cost (unknown: the cheap full-size one).
+        let mut pick = (q_cap, 1usize);
+        if p.cost > 0.0 {
+            let ladder: [(f32, usize); 6] = [(1.0, 2), (1.0, 1), (0.85, 1), (0.7, 1), (0.55, 1), (0.4, 1)];
+            for (i, (q, ss)) in ladder.iter().enumerate() {
+                let q = q.min(q_cap);
+                if p.cost * mpx * q * q * (ss * ss) as f32 <= budget || i == ladder.len() - 1 {
+                    pick = (q, *ss);
+                    break;
+                }
+            }
+        }
+        let (q, ss) = pick;
+        let tex = (((ww * q).round() as usize).max(16), ((wh * q).round() as usize).max(16));
+        let view = p.rig_view(win, tex);
         let (from, mix) = match p.fade {
             Some((fa, ft, el)) => (Some((fa, ft)), (el / FADE_SECONDS).clamp(0.0, 1.0)),
             None => (None, 1.0),
         };
-        let rgba = render_pose_mix(&p.rig, p.skin, from, p.anim, p.time, mix, &p.slot_alpha, w, h, p.view, 1, None, Some(&mut p.sim));
-        let mut img = nv_codecs::Image::new(w as u32, h as u32, rgba);
-        img.profile_assumable = false;
+        let t0 = Instant::now();
+        let rgba = render_pose_mix(&p.rig, p.skin, from, p.anim, p.time, mix, &p.slot_alpha, tex.0, tex.1, view, ss, None, Some(&mut p.sim));
         let id = p.id;
-        if self.renderer.upload(id, &img).is_ok() {
+        let ok = self.renderer.upload_live(id, tex.0 as u32, tex.1 as u32, &rgba).is_ok();
+        let ms = t0.elapsed().as_secs_f32() * 1000.0;
+        if let Some(p) = self.spine.player.as_mut() {
+            p.win = win;
+            let unit = ms / ((tex.0 * tex.1) as f32 / 1.0e6 * (ss * ss) as f32).max(0.01);
+            p.cost = if p.cost > 0.0 { p.cost * 0.6 + unit * 0.4 } else { unit };
+            // Not the crisp quality yet (a zoom or a drag, a heavy frame): draw it once more when things have been still for a moment.
+            p.settle = if !rest && !p.playing && (ss < 2 || q < 1.0) { Some(Instant::now() + std::time::Duration::from_millis(160)) } else { None };
+        }
+        if ok {
             self.renderer.show(id);
             invalidate(self.hwnd);
         }
@@ -211,6 +303,7 @@ impl App {
         let Some(p) = self.spine.player.as_mut() else { return };
         let n = p.rig.skins.len();
         p.skin = (p.skin + 1) % n.max(1);
+        p.bounds = spinefmt::bounds_for(&p.rig, p.skin, p.anim);
         p.dirty = true;
         self.spine_render();
     }
@@ -249,8 +342,14 @@ impl App {
         if !self.anim_active() {
             return false;
         }
+        let win = self.renderer.size();
+        if let Some(p) = self.spine.player.as_mut() {
+            p.zoom_about(win, (x as f32, y as f32), 1.15f32.powf(delta as f32 / 120.0));
+            self.spine_render_with(false);
+            return true;
+        }
         if let Some(i) = self.view_size() {
-            self.view.zoom_at(i, self.renderer.size(), (x, y), delta as f32 / 120.0);
+            self.view.zoom_at(i, win, (x, y), delta as f32 / 120.0);
             invalidate(self.hwnd);
         }
         true
@@ -273,6 +372,13 @@ impl App {
             self.view.drag_last = None;
             return true;
         }
+        if let Some(p) = self.spine.player.as_mut() {
+            p.pan = (p.pan.0 + (x - lx) as f32, p.pan.1 + (y - ly) as f32);
+            p.dirty = true;
+            self.view.drag_last = Some((x, y));
+            self.spine_render_with(false);
+            return true;
+        }
         self.view.pan = (self.view.pan.0 + (x - lx) as f32, self.view.pan.1 + (y - ly) as f32);
         self.view.drag_last = Some((x, y));
         invalidate(self.hwnd);
@@ -287,8 +393,55 @@ impl App {
         if !self.anim_active() {
             return false;
         }
+        if let Some(p) = self.spine.player.as_mut() {
+            p.zoom = 1.0;
+            p.pan = (0.0, 0.0);
+            self.spine_render_with(false);
+            return true;
+        }
         self.view = self.view.fresh();
         invalidate(self.hwnd);
+        true
+    }
+
+    /// The zoom keys while a skeleton is in front: they change the player's own zoom (the skeleton is drawn again at that size).
+    /// True when the key was taken.
+    pub fn spine_zoom_action(&mut self, a: nv_core::keys::Action) -> bool {
+        use nv_core::keys::Action;
+        if !self.spine_active() {
+            return false;
+        }
+        let win = self.renderer.size();
+        let mid = (win.0 as f32 / 2.0, win.1 as f32 / 2.0);
+        let Some(p) = self.spine.player.as_mut() else { return false };
+        match a {
+            Action::ZoomIn => p.zoom_about(win, mid, 1.15),
+            Action::ZoomOut => p.zoom_about(win, mid, 1.0 / 1.15),
+            Action::Zoom1 | Action::ZoomReset | Action::FitReset => {
+                p.zoom = 1.0;
+                p.pan = (0.0, 0.0);
+            }
+            Action::Zoom2 | Action::Zoom3 | Action::Zoom4 | Action::Zoom5 => {
+                let n = match a {
+                    Action::Zoom2 => 2.0,
+                    Action::Zoom3 => 3.0,
+                    Action::Zoom4 => 4.0,
+                    _ => 5.0,
+                };
+                p.zoom = 1.0;
+                p.pan = (0.0, 0.0);
+                p.zoom_about(win, mid, n);
+            }
+            Action::ActualSize => {
+                // One skeleton unit per screen pixel.
+                let f = 1.0 / p.base_scale(win);
+                p.zoom = 1.0;
+                p.pan = (0.0, 0.0);
+                p.zoom_about(win, mid, f);
+            }
+            _ => return false,
+        }
+        self.spine_render_with(false);
         true
     }
 

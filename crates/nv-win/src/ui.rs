@@ -37,6 +37,31 @@ pub struct Form {
     /// The sidebar entries (drawn by `draw_side_tab`) and which one is selected.
     side: std::cell::RefCell<Vec<SideTab>>,
     side_selected: std::cell::Cell<u16>,
+    /// The scrolling area of the pages (see `set_scroll_area`), when there is one.
+    scroll: std::cell::RefCell<Option<Scroll>>,
+    /// How many dips the form was made lower than asked, because the screen is not that high (the caller moves its bottom row up).
+    shrink: std::cell::Cell<i32>,
+}
+
+/// The part of the form the pages scroll in: a pane that clips them, and a scroll bar for when a page is longer than the pane.
+struct Scroll {
+    /// (x, y, w, h) of the pane in dips, form coordinates.
+    area: (i32, i32, i32, i32),
+    pane: HWND,
+    bar: HWND,
+    /// Pixels the current page is scrolled by.
+    offset: i32,
+    page: u8,
+    items: Vec<ScrollItem>,
+}
+
+/// A control inside the pane: its page, window, and where it sits (pixels, pane coordinates) when not scrolled.
+struct ScrollItem {
+    page: u8,
+    hwnd: HWND,
+    x: i32,
+    y: i32,
+    h: i32,
 }
 
 /// One entry of a sidebar: an icon (premultiplied BGRA bitmap) and a text.
@@ -137,6 +162,16 @@ impl Form {
                 ..Default::default()
             };
             RegisterClassExW(&wc); // 0 when the class already exists (a second form in one process): fine
+            let pane = WNDCLASSEXW {
+                cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+                lpfnWndProc: Some(pane_proc),
+                hInstance: hinst.into(),
+                hCursor: LoadCursorW(None, IDC_ARROW).map_err(|e| e.to_string())?,
+                hbrBackground: windows::Win32::Graphics::Gdi::HBRUSH((windows::Win32::Graphics::Gdi::COLOR_BTNFACE.0 + 1) as usize as *mut c_void),
+                lpszClassName: w!("NuViewerFormPane"),
+                ..Default::default()
+            };
+            RegisterClassExW(&pane);
 
             // The scale of the screen the form opens on (its owner's), not the main screen's: on a second monitor with another scale the
             // system value gave a form of the wrong size, and so a wrong centre.
@@ -148,14 +183,26 @@ impl Form {
             // (switching back lands on the form) and cannot be minimised separately.
             let owner = crate::dialog_parent();
             let style = if owner.is_some() { WS_CAPTION | WS_SYSMENU } else { WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX };
-            let mut rc = RECT { left: 0, top: 0, right: w * dpi as i32 / 96, bottom: h * dpi as i32 / 96 };
-            let _ = AdjustWindowRectExForDpi(&mut rc, style, false, WINDOW_EX_STYLE(0), dpi);
-            let (ww, wh) = (rc.right - rc.left, rc.bottom - rc.top);
             // Centred on the work area (what the taskbar leaves) of the monitor the owner is on; the main screen's when there is no owner.
             let (ml, mt, mr, mb) = match owner {
                 Some(o) => crate::monitor_work_rect(o),
                 None => crate::primary_work_rect(),
             };
+            let frame = |h: i32| {
+                let mut rc = RECT { left: 0, top: 0, right: w * dpi as i32 / 96, bottom: h * dpi as i32 / 96 };
+                let _ = AdjustWindowRectExForDpi(&mut rc, style, false, WINDOW_EX_STYLE(0), dpi);
+                (rc.right - rc.left, rc.bottom - rc.top)
+            };
+            // A form taller than the screen would lose its bottom row off the edge: it is made lower and its pages scroll.
+            let mut h = h;
+            let mut shrink = 0;
+            let (_, wh0) = frame(h);
+            let room = (mb - mt).max(300) - 8;
+            if wh0 > room {
+                shrink = ((wh0 - room) * 96 / dpi as i32) + 1;
+                h -= shrink;
+            }
+            let (ww, wh) = frame(h);
             let t = wide(title);
             let hwnd = CreateWindowExW(
                 WINDOW_EX_STYLE(0),
@@ -188,7 +235,7 @@ impl Form {
                 0,
                 w!("Segoe UI"),
             );
-            Ok(Form { hwnd, owner, owner_disabled: std::cell::Cell::new(false), previous_top: std::cell::Cell::new(0), top_registered: std::cell::Cell::new(false), font, dpi, page: std::cell::Cell::new(0), tracked: std::cell::RefCell::new(Vec::new()), origin: std::cell::Cell::new((0, 0)), side: std::cell::RefCell::new(Vec::new()), side_selected: std::cell::Cell::new(0) })
+            Ok(Form { hwnd, owner, owner_disabled: std::cell::Cell::new(false), previous_top: std::cell::Cell::new(0), top_registered: std::cell::Cell::new(false), font, dpi, page: std::cell::Cell::new(0), tracked: std::cell::RefCell::new(Vec::new()), origin: std::cell::Cell::new((0, 0)), side: std::cell::RefCell::new(Vec::new()), side_selected: std::cell::Cell::new(0), scroll: std::cell::RefCell::new(None), shrink: std::cell::Cell::new(shrink) })
         }
     }
 
@@ -226,16 +273,22 @@ impl Form {
             let is_text = class.to_string().map(|c| c == "STATIC" || c == "BUTTON").unwrap_or(false);
             let t = if is_text { wide(&nv_text::tr(text)) } else { wide(text) };
             let hinst = GetModuleHandleW(None).unwrap_or_default();
+            // A control of a page goes into the scrolling pane (when there is one), placed relative to it.
+            let pane = self.scroll.borrow().as_ref().filter(|_| self.page.get() != 0).map(|s| (s.pane, s.area));
+            let (parent, px_x, px_y) = match pane {
+                Some((pane, area)) => (pane, self.px(x + self.origin.get().0 - area.0), self.px(y + self.origin.get().1 - area.1)),
+                None => (self.hwnd, self.px(x + self.origin.get().0), self.px(y + self.origin.get().1)),
+            };
             let c = CreateWindowExW(
                 ex,
                 class,
                 PCWSTR(t.as_ptr()),
                 WS_CHILD | WS_VISIBLE | style,
-                self.px(x + self.origin.get().0),
-                self.px(y + self.origin.get().1),
+                px_x,
+                px_y,
                 self.px(w),
                 self.px(h),
-                Some(self.hwnd),
+                Some(parent),
                 Some(HMENU(id as usize as *mut c_void)),
                 Some(hinst.into()),
                 None,
@@ -243,6 +296,11 @@ impl Form {
             .unwrap_or_default();
             SendMessageW(c, WM_SETFONT, Some(WPARAM(self.font.0 as usize)), Some(LPARAM(1)));
             self.tracked.borrow_mut().push((self.page.get(), c));
+            if pane.is_some() {
+                if let Some(sc) = self.scroll.borrow_mut().as_mut() {
+                    sc.items.push(ScrollItem { page: self.page.get(), hwnd: c, x: px_x, y: px_y, h: self.px(h) });
+                }
+            }
             c
         }
     }
@@ -295,6 +353,83 @@ impl Form {
                 let _ = ShowWindow(*h, if *p == 0 || *p == page { SW_SHOW } else { SW_HIDE });
             }
         }
+        if let Some(sc) = self.scroll.borrow_mut().as_mut() {
+            sc.page = page;
+        }
+        self.scroll_to(0);
+    }
+
+    /// How many dips lower the form is than asked for (the screen was not high enough); 0 on a normal screen.
+    pub fn shrink(&self) -> i32 {
+        self.shrink.get()
+    }
+
+    /// The pages (every control made after `begin_page` with a page other than 0, from now on) live in a pane of this size (dips,
+    /// form coordinates) that clips them; a scroll bar at its right edge appears when a page is longer than the pane.
+    /// Call it before the pages are built, after the sidebar.
+    pub fn set_scroll_area(&self, x: i32, y: i32, w: i32, h: i32) {
+        unsafe {
+            let hinst = GetModuleHandleW(None).unwrap_or_default();
+            let bar_w = GetSystemMetrics(SM_CXVSCROLL);
+            let pane = CreateWindowExW(WS_EX_CONTROLPARENT, w!("NuViewerFormPane"), PCWSTR::null(), WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN, self.px(x), self.px(y), self.px(w) - bar_w, self.px(h), Some(self.hwnd), None, Some(hinst.into()), None).unwrap_or_default();
+            let bar = CreateWindowExW(WINDOW_EX_STYLE(0), w!("SCROLLBAR"), PCWSTR::null(), WS_CHILD | WINDOW_STYLE(1 /* SBS_VERT */), self.px(x) + self.px(w) - bar_w, self.px(y), bar_w, self.px(h), Some(self.hwnd), None, Some(hinst.into()), None).unwrap_or_default();
+            *self.scroll.borrow_mut() = Some(Scroll { area: (x, y, w, h), pane, bar, offset: 0, page: 1, items: Vec::new() });
+        }
+    }
+
+    /// (length of the current page, height of the pane), in pixels.
+    fn scroll_extent(&self) -> Option<(i32, i32)> {
+        let sc = self.scroll.borrow();
+        let sc = sc.as_ref()?;
+        let content = sc.items.iter().filter(|i| i.page == sc.page).map(|i| i.y + i.h).max().unwrap_or(0) + self.px(14);
+        Some((content, self.px(sc.area.3)))
+    }
+
+    /// Scroll the current page to `offset` pixels (kept inside what there is to see) and set the scroll bar to match.
+    fn scroll_to(&self, offset: i32) {
+        let Some((content, view)) = self.scroll_extent() else { return };
+        let max = (content - view).max(0);
+        let offset = offset.clamp(0, max);
+        let mut guard = self.scroll.borrow_mut();
+        let Some(sc) = guard.as_mut() else { return };
+        sc.offset = offset;
+        unsafe {
+            for it in sc.items.iter() {
+                // Every page is put back to the top when it is not the one shown, so a page always opens at its beginning.
+                let y = if it.page == sc.page { it.y - offset } else { it.y };
+                let _ = SetWindowPos(it.hwnd, None, it.x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            let si = SCROLLINFO { cbSize: std::mem::size_of::<SCROLLINFO>() as u32, fMask: SIF_RANGE | SIF_PAGE | SIF_POS, nMin: 0, nMax: content.max(1) - 1, nPage: view as u32, nPos: offset, nTrackPos: 0 };
+            windows::Win32::UI::Controls::SetScrollInfo(sc.bar, SB_CTL, &si, true);
+            let _ = ShowWindow(sc.bar, if max > 0 { SW_SHOW } else { SW_HIDE });
+            let _ = windows::Win32::Graphics::Gdi::InvalidateRect(Some(sc.pane), None, true);
+        }
+    }
+
+    /// A message from the scroll bar (`code` = the SB_ value) or the wheel (`wheel` in notches, positive = up).
+    fn scroll_by_message(&self, code: Option<u32>, wheel: i32) {
+        let Some((_, view)) = self.scroll_extent() else { return };
+        let (offset, bar) = match self.scroll.borrow().as_ref() {
+            Some(sc) => (sc.offset, sc.bar),
+            None => return,
+        };
+        let line = self.px(32);
+        let target = match code {
+            Some(0) => offset - line,               // SB_LINEUP
+            Some(1) => offset + line,               // SB_LINEDOWN
+            Some(2) => offset - view * 9 / 10,      // SB_PAGEUP
+            Some(3) => offset + view * 9 / 10,      // SB_PAGEDOWN
+            Some(6) => 0,                           // SB_TOP
+            Some(7) => i32::MAX,                    // SB_BOTTOM
+            Some(4) | Some(5) => unsafe {           // SB_THUMBPOSITION / SB_THUMBTRACK
+                let mut si = SCROLLINFO { cbSize: std::mem::size_of::<SCROLLINFO>() as u32, fMask: SIF_TRACKPOS, ..Default::default() };
+                let _ = GetScrollInfo(bar, SB_CTL, &mut si);
+                si.nTrackPos
+            },
+            Some(_) => return,
+            None => offset - wheel * line * 3 / 2,
+        };
+        self.scroll_to(target);
     }
 
     /// A label that can be found again by `id` (to change its text).
@@ -452,7 +587,13 @@ impl Form {
     }
 
     fn item(&self, id: u16) -> Option<HWND> {
-        unsafe { GetDlgItem(Some(self.hwnd), id as i32).ok() }
+        unsafe {
+            if let Ok(h) = GetDlgItem(Some(self.hwnd), id as i32) {
+                return Some(h);
+            }
+            let pane = self.scroll.borrow().as_ref().map(|s| s.pane)?;
+            GetDlgItem(Some(pane), id as i32).ok()
+        }
     }
 
     pub fn is_checked(&self, id: u16) -> bool {
@@ -583,6 +724,17 @@ unsafe fn draw_side_tab(form: &Form, d: &DRAWITEMSTRUCT) {
     SelectObject(dc, old_font);
 }
 
+/// The pane the pages sit in only passes on what its controls say, so the form's handler sees clicks, slider moves and the wheel as before.
+unsafe extern "system" fn pane_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    match msg {
+        WM_COMMAND | WM_NOTIFY | WM_DRAWITEM | WM_MEASUREITEM | WM_HSCROLL | WM_VSCROLL | WM_MOUSEWHEEL | 0x0132..=0x0138 /* WM_CTLCOLOR* */ => match GetParent(hwnd) {
+            Ok(parent) => SendMessageW(parent, msg, Some(wp), Some(lp)),
+            Err(_) => LRESULT(0),
+        },
+        _ => DefWindowProcW(hwnd, msg, wp, lp),
+    }
+}
+
 unsafe extern "system" fn form_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     let ctx = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Ctx;
     match msg {
@@ -611,6 +763,18 @@ unsafe extern "system" fn form_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
                         (*c.form).close();
                     }
                 }
+            }
+            LRESULT(0)
+        }
+        WM_VSCROLL => {
+            if let Some(c) = ctx.as_ref() {
+                (*c.form).scroll_by_message(Some((wp.0 & 0xFFFF) as u32), 0);
+            }
+            LRESULT(0)
+        }
+        WM_MOUSEWHEEL => {
+            if let Some(c) = ctx.as_ref() {
+                (*c.form).scroll_by_message(None, ((wp.0 >> 16) as u16 as i16 as i32) / 120);
             }
             LRESULT(0)
         }

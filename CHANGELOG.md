@@ -2,6 +2,13 @@
 
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
+## 0.7.1 - 2026-11-23
+
+### Fixed
+- **Spine was soft and jagged** (a skeleton looked blurry even in a small window): the player drew it once at 1024 pixels without edge smoothing and the graphics card stretched that to the window. It is now drawn **at the size of the window** (one texel per screen pixel, any window size, 4K too) and again at every zoom, so it stays sharp when zoomed; the wheel, drag and the zoom keys (`Ctrl+/-`, `1`-`5`, `` ` ``) are the player's own zoom. While it plays each frame has a budget of about 28 ms (the resolution only drops on a very big window or a slow PC); when it stands still, or a moment after a zoom or drag stops, it is drawn once more with 2x supersampling. This is how the other Spine viewers (SpineViewerWPF, spive2d, BD2-L2D-Viewer) work too: they draw the canvas at the window's pixel size.
+- The Spine rasteriser is about twice as fast (the final conversion runs on all cores, only the rectangle that holds the skeleton is drawn, a cheaper texture sampler), and the viewer writes a live frame into the same texture instead of making a new one every frame (`Renderer::upload_live`).
+- **Settings: the bottom of a page was cut off** (the Archives & tools page lost the Live2D buttons; a screen too low for the whole window lost the OK / Cancel row). The pages now scroll in a pane with a scroll bar (mouse wheel too), and the window is made lower when the screen is not high enough.
+
 ## 0.7.0 - 2026-11-23
 
 Sessions 23 - 25: layers, Spine and Live2D players, Unity bundles, Quick edit in the viewer. What was and was not checked: `docs/session23.md`, `docs/session24.md`, `docs/unityfs.md`.

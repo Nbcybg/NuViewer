@@ -66,6 +66,8 @@ pub struct Renderer {
     white: ID3D11ShaderResourceView,
     /// Full-size viewer images (with mips), keyed by caller-chosen id.
     textures: HashMap<u64, Texture>,
+    /// The textures `upload_live` writes again in place (with their size).
+    live: HashMap<u64, (ID3D11Texture2D, u32, u32)>,
     /// Gallery thumbnails (single mip), keyed by caller-chosen id.
     thumbs: HashMap<u64, Texture>,
     /// Text/HUD bitmaps (white + alpha), tinted when drawn. Separate from `thumbs` so gallery eviction can't touch them.
@@ -252,6 +254,7 @@ impl Renderer {
                 clip_rs: clip_rs.ok_or("rasterizer")?,
                 white,
                 textures: HashMap::new(),
+                live: HashMap::new(),
                 thumbs: HashMap::new(),
                 overlays: HashMap::new(),
                 current: None,
@@ -328,6 +331,43 @@ impl Renderer {
         let bytes = (img.width as usize * img.height as usize * 4) * 4 / 3 * frames.len();
         let orientation = if img.orientation >= 2 && img.orientation <= 8 && img.extra_frames.is_empty() { img.orientation } else { 1 };
         self.textures.insert(id, Texture { frames, delays, frame: 0, width: img.width, height: img.height, mips, bytes, orientation, video: false });
+        Ok(())
+    }
+
+    /// Replace the picture under `id` with `rgba` (`width` x `height`, straight RGBA8) over and over, many times a second (a playing
+    /// skeleton): one mip level, and a texture that already has this size is written in place instead of being made again.
+    pub fn upload_live(&mut self, id: u64, width: u32, height: u32, rgba: &[u8]) -> Result<(), String> {
+        if width == 0 || height == 0 || width > MAX_TEXTURE_DIM || height > MAX_TEXTURE_DIM || rgba.len() < width as usize * height as usize * 4 {
+            return Err(format!("live picture {width}x{height} can't be uploaded"));
+        }
+        if let (Some((tex, w, h)), true) = (self.live.get(&id), self.textures.contains_key(&id)) {
+            if *w == width && *h == height {
+                unsafe { self.ctx.UpdateSubresource(tex, 0, None, rgba.as_ptr() as *const c_void, width * 4, 0) };
+                return Ok(());
+            }
+        }
+        unsafe {
+            let td = D3D11_TEXTURE2D_DESC {
+                Width: width,
+                Height: height,
+                MipLevels: 1,
+                ArraySize: 1,
+                Format: DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+                ..Default::default()
+            };
+            let mut tex = None;
+            self.device.CreateTexture2D(&td, None, Some(&mut tex)).map_err(err("CreateTexture2D"))?;
+            let tex: ID3D11Texture2D = tex.ok_or("texture")?;
+            self.ctx.UpdateSubresource(&tex, 0, None, rgba.as_ptr() as *const c_void, width * 4, 0);
+            let mut srv = None;
+            self.device.CreateShaderResourceView(&tex, None, Some(&mut srv)).map_err(err("CreateSRV"))?;
+            let srv: ID3D11ShaderResourceView = srv.ok_or("srv")?;
+            self.textures.insert(id, Texture { frames: vec![srv], delays: Vec::new(), frame: 0, width, height, mips: 1, bytes: width as usize * height as usize * 4, orientation: 1, video: false });
+            self.live.insert(id, (tex, width, height));
+        }
         Ok(())
     }
 
@@ -530,6 +570,7 @@ impl Renderer {
     /// Drop everything cached under `id` (full image and thumbnail), even if it is the displayed one.
     pub fn forget(&mut self, id: u64) {
         self.textures.remove(&id);
+        self.live.remove(&id);
         self.thumbs.remove(&id);
         if let Some(m) = &mut self.mesh {
             m.meshes.remove(&id);

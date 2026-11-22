@@ -265,6 +265,9 @@ pub fn edit(current: &Settings) -> Option<Settings> {
     form.begin_page(0);
     sidebar(&form);
     form.set_origin(196, 0); // the pages sit to the right of it
+    // The pages scroll in a pane (with a scroll bar when one is longer than it, e.g. on a screen too low for the whole form).
+    let lower = form.shrink();
+    form.set_scroll_area(196, 0, 1070 - 196, 660 - lower);
     more::build(&form, c);
     more::build_more(&form, c);
 
@@ -468,8 +471,8 @@ pub fn edit(current: &Settings) -> Option<Settings> {
 
     // Buttons (always visible).
     form.begin_page(0);
-    form.button(ID_OK, 676, 666, 84, 28, nv_core::i18n::t("settings.ok"), true);
-    form.button(ID_CANCEL, 768, 666, 80, 28, nv_core::i18n::t("settings.cancel"), false);
+    form.button(ID_OK, 676, 666 - lower, 84, 28, nv_core::i18n::t("settings.ok"), true);
+    form.button(ID_CANCEL, 768, 666 - lower, 80, 28, nv_core::i18n::t("settings.cancel"), false);
     form.show_page(1);
 
     let mut cur = c.clone();
