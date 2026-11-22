@@ -2,9 +2,15 @@
 
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
-## Unreleased
+## 0.7.0 - 2026-11-23
+
+Sessions 23 - 25: layers, Spine and Live2D players, Unity bundles, Quick edit in the viewer. What was and was not checked: `docs/session23.md`, `docs/session24.md`, `docs/unityfs.md`.
 
 ### Added
+- **Unity asset bundles** (`.unity3d .unityfs .bundle .ab .assetbundle`, UnityFS from Unity 5 to 2022): the texture inside is the picture in the viewer and the gallery (more textures = pages), *Extract frames* saves every texture, a bundle with no texture is a card. LZ4 / LZMA bundles, objects read through the type tree; textures raw, BC1 - BC7, ETC / EAC, ASTC, PVRTC, Crunch. Real files checked: 122 bundles of one game (DXT1, BC7, RGBA32). Details and limits: `docs/unityfs.md`. New crates: `lzma-rs`, `texture2ddecoder`.
+- **Add-ons are documented**: `docs/addons.md` says which formats need a program or codec NuViewer does not ship (ffmpeg, 7-Zip, the AV1 / HEVC Store extensions, Live2D Cubism Core, Ghostscript, FreeCAD / Blender / assimp, ODA File Converter ...) and where to get it; `docs/formats.csv` has a new column *Add-on needed (and where to get it)*.
+- **Quick edit in the viewer**: right-click (and the Edit menu) > *Quick edit* > rotate left / right 90°, flip horizontally / vertically, on the file itself (JPEG and PNG; the original goes to the undo folder, `Ctrl+Z` puts it back; the picture on screen is read again). Keys `Ctrl+Alt+[`, `Ctrl+Alt+]`, `Ctrl+Alt+H`, `Ctrl+Alt+V`. One shared implementation with the gallery (`nv_core::quick_edit`).
+
 - **Layer panel** (`Ctrl+L`, View menu) for **PSD, GIMP XCF and OpenRaster** files: every layer and group with an eye, its name and an **opacity slider**; a **filter** box; the layer under the pointer is **highlighted** on the picture (the rest is dimmed, its box is outlined, even when it is switched off); Ctrl+click / right click shows one layer alone;
   double click on a slider = as saved, triple click = 0; *All on / All off / Reset*; **Save** writes the picture as the panel has it (PNG keeps transparency, JPEG gets the canvas colour behind it). Details and limits: `docs/session23.md`.
 - `Ctrl+L` is in the key list. The XCF reader now goes through the same compositor (22 blend modes).
@@ -13,6 +19,7 @@ Notable changes to NuViewer, newest first. Details and measurements for each rou
 - **Live2D player** (`docs/live2d.md`): `*.model3.json` / `.moc3` play with motions, expressions and the parts as layers (opacity 0-1), snapshot, PNG frames, WebM alpha. It needs Live2D's Cubism Core DLL, which you download yourself (Settings > Archives & tools says why and where); tested with a mock Core only. A `.skel` this reader cannot read uses the `.json` beside it when there is one.
 
 ### Fixed
+- **NuGallery quick edit left the old picture on screen**: after turning / flipping files only the toast changed; the thumbnail, the preview, the histogram and the info panel were drawn from the old pixels until the folder was reopened. They are made again now. A failed backup now stops the edit instead of overwriting without one.
 - **Spine atlas regions packed at 180 or 270 degrees** were drawn as shards (only 90 was known), and **regions packed at 90 degrees were drawn mirrored**; all four turns are now tested with a four-colour picture, for regions and for meshes.
 - Spine 4.1 / 4.2 JSON with `deform` under the animation's `attachments` key played no deform at all; deform of clipping polygons and paths is read too.
 - Settings > Archives & tools: the ffmpeg and Live2D status lines (a long path) and the Live2D explanation were cut off at the group's edge; paths are shortened in the middle now.

@@ -7,7 +7,7 @@ Website <https://nuviewer.noobcyborg.com> · Support and user feedback <https://
 **Can you trust it?** It has no network code at all (checked by its own tests), never rewrites a picture behind your back, and every
 file it writes is listed in [`docs/TRUST.md`](docs/TRUST.md), together with how to check the download (SHA-256) and what is *not* done yet
 (it is not code-signed). **What it does that others do not:** opens TGA / DDS / EXR / HDR / PSD with alpha / GLB / OBJ / FBX / cbz and
-[hundreds more](docs/formats.csv) in one small program; next / previous in a frame; **cull** photos with star ratings and colour labels
+[hundreds more](docs/formats.csv) in one small program (the few that need an add-on, and where to get it: [`docs/addons.md`](docs/addons.md)); next / previous in a frame; **cull** photos with star ratings and colour labels
 that Bridge, Lightroom, darktable and XnView read (`Shift+1…5`, `Shift+6…9`, saved in `.xmp` sidecars); RAW + JPG as two pictures or as one
 (`Shift+Q`); **comic / book reading** (`B` two pages, `Ctrl+B` right to left, `Shift+B` where the pairs start); **printing** (NuGallery:
 right-click > Print, `Ctrl+P`); extra formats and commands through [plug-ins](docs/plugins.md).
@@ -282,6 +282,15 @@ volume); there is no video or audio decoder yet.
 - **0.4.0:** fonts (specimen sheet with your own sentence, Settings > General), many more archives / disc images (CAB, ISO, DMG, WIM, cpio, RPM, DEB, tar in gzip ...), game packs, Krita / OpenRaster / GIMP XCF / Paint Shop Pro / CorelDRAW / XPS / DWF / U3D / VRML files, see `CHANGELOG.md` and `docs/session19.md`.
 - **0.3.2:** the 16 NuGallery bugs and 2 viewer bugs of 2026-11-17 (a video as the first picture no longer freezes on its first frame; damaged / streamed zips open; folder tree with right click, drag and drop and sideways scroll; Back / Forward keep the view; hints; Open with; video preview with controls; fit enlarges small pictures), see `CHANGELOG.md` and `docs/session18.md`.
 - **0.3.1:** more clipart and legacy formats (PCD, DCX, CLP, CIN, DPX, PDN, WAL, WAD, CPT, PS, HP-GL, CGM, flat DXF); the full list of what opens, what NuEditor can edit and each format's name is in `docs/formats.csv`.
+
+## New in 0.7.0
+
+Details: `CHANGELOG.md`, `docs/unityfs.md`, `docs/spine.md`, `docs/live2d.md`, `docs/addons.md`.
+
+- **Unity asset bundles** (`.unity3d .unityfs .bundle .ab .assetbundle`): the texture inside is the picture (more textures are pages), *Extract frames* saves them all.
+- **Quick edit in the viewer** (right-click > Quick edit: rotate 90°, flip), the same as the gallery's, with Ctrl+Z to bring the original back; the gallery's quick edit now refreshes the thumbnail and preview.
+- **Layer panel** (`Ctrl+L`) for PSD, XCF and OpenRaster; **Spine** (3.8 - 4.3) and **Live2D** players.
+- **Add-ons**: `docs/addons.md` and a new column in `docs/formats.csv` say which formats need ffmpeg, 7-Zip, a Store codec, the Live2D Cubism Core and so on, and where to get it.
 
 ## New in 0.6.0
 
