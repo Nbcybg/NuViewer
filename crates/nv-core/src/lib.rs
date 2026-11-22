@@ -14,6 +14,7 @@ pub mod frames;
 pub mod gallery;
 pub mod importer;
 pub mod keys;
+pub mod layers;
 pub mod loader;
 pub mod pair;
 pub mod pdf_make;

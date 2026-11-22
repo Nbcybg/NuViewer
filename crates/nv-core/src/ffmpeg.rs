@@ -398,3 +398,60 @@ mod tests {
         assert_eq!(p.start_ms, 40);
     }
 }
+
+static ENCODERS: Mutex<Option<String>> = Mutex::new(None);
+
+/// Does this ffmpeg build have the encoder (`libvpx-vp9` for WebM with transparency)?
+pub fn has_encoder(name: &str) -> bool {
+    let mut g = ENCODERS.lock().unwrap();
+    if g.is_none() {
+        let text = find()
+            .and_then(|ff| {
+                let mut c = Command::new(ff);
+                c.args(["-hide_banner", "-encoders"]).stdout(Stdio::piped());
+                quiet(&mut c).output().ok()
+            })
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default();
+        *g = Some(text);
+    }
+    g.as_ref().unwrap().lines().any(|l| l.split_whitespace().nth(1) == Some(name))
+}
+
+/// Encode `count` straight-RGBA frames of `w` x `h` (both even) into a VP9 WebM that keeps the transparency. `frame(i)` gives frame `i`;
+/// `cancel` stops early (the partial file is removed). Needs ffmpeg with libvpx-vp9.
+pub fn encode_webm_alpha(out: &Path, w: usize, h: usize, fps: f32, count: usize, cancel: &std::sync::atomic::AtomicBool, mut frame: impl FnMut(usize) -> Vec<u8>) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::windows::process::CommandExt;
+    let ff = find().ok_or("ffmpeg is not installed (Settings > Archives & tools says where to get it)")?;
+    if !has_encoder("libvpx-vp9") {
+        return Err("this ffmpeg has no libvpx-vp9 encoder, which WebM with transparency needs: use a full ffmpeg build (winget install Gyan.FFmpeg)".into());
+    }
+    let size = format!("{w}x{h}");
+    let mut c = Command::new(ff);
+    c.args(["-y", "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", &size, "-r", &format!("{fps}"), "-i", "-", "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-auto-alt-ref", "0", "-b:v", "0", "-crf", "24"]).arg(out);
+    c.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped()).creation_flags(0x0800_0000);
+    let mut child = c.spawn().map_err(|e| format!("could not start ffmpeg: {e}"))?;
+    let mut stdin = child.stdin.take().ok_or("ffmpeg gave no input pipe")?;
+    let mut failed = None;
+    for i in 0..count {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
+        if let Err(e) = stdin.write_all(&frame(i)) {
+            failed = Some(e.to_string());
+            break;
+        }
+    }
+    drop(stdin);
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+        let _ = std::fs::remove_file(out);
+        return Err("cancelled".into());
+    }
+    if !output.status.success() || failed.is_some() {
+        let _ = std::fs::remove_file(out);
+        return Err(format!("ffmpeg failed: {}{}", failed.unwrap_or_default(), String::from_utf8_lossy(&output.stderr).lines().last().unwrap_or("")));
+    }
+    Ok(())
+}

@@ -19,6 +19,13 @@ impl Jobs {
 impl App {
     /// `Ctrl+Shift+S` / right-click > Save this frame: the frame on screen as a picture (format, folder, colours: Settings).
     pub fn snapshot(&mut self) {
+        // A layered picture with its panel open: the picture as the panel has it.
+        if self.anim_active() && self.anim_snapshot() {
+            return;
+        }
+        if self.layers_save() {
+            return;
+        }
         let prefs = self.settings.more.clone();
         let (tx, rx) = mpsc::channel::<String>();
         let wake = self.wake.clone();

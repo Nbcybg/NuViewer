@@ -27,6 +27,9 @@ mod gpufit;
 mod gifdec;
 pub mod icc;
 mod icon;
+pub mod layerdoc;
+pub mod live2dfmt;
+pub mod spinefmt;
 mod legacy;
 mod imgfmt;
 mod jp2;
@@ -210,11 +213,13 @@ pub struct Image {
     pub page: Option<(u32, u32)>,
     /// For 3D models: the geometry (`pixels` hold a software-rendered preview). The viewer draws the mesh itself.
     pub mesh: Option<std::sync::Arc<model::Mesh>>,
+    /// For Spine skeletons: the rig (`pixels` hold the first frame). The viewer plays it.
+    pub rig: Option<std::sync::Arc<nv_anim::Rig>>,
 }
 
 impl Image {
     pub fn new(width: u32, height: u32, rgba: Vec<u8>) -> Self {
-        Image { width, height, rgba, delay_ms: 0, extra_frames: Vec::new(), reduced_from: None, orientation: 1, icc: None, profile_assumable: false, cmyk: false, colour_note: None, colour_assumed: false, stages: Vec::new(), page: None, mesh: None }
+        Image { width, height, rgba, delay_ms: 0, extra_frames: Vec::new(), reduced_from: None, orientation: 1, icc: None, profile_assumable: false, cmyk: false, colour_note: None, colour_assumed: false, stages: Vec::new(), page: None, mesh: None, rig: None }
     }
 
     pub fn frame_count(&self) -> usize {
@@ -293,9 +298,9 @@ impl Image {
     /// Like `oriented`, but borrowing (copies the pixels when a rotation is needed).
     pub fn to_oriented(&self) -> Image {
         if (2..=8).contains(&(self.orientation as u32)) {
-            Image { rgba: self.rgba.clone(), extra_frames: Vec::new(), icc: None, page: self.page, mesh: self.mesh.clone(), colour_note: self.colour_note.clone(), stages: Vec::new(), ..*self }.oriented()
+            Image { rgba: self.rgba.clone(), extra_frames: Vec::new(), icc: None, page: self.page, mesh: self.mesh.clone(), rig: self.rig.clone(), colour_note: self.colour_note.clone(), stages: Vec::new(), ..*self }.oriented()
         } else {
-            Image { rgba: self.rgba.clone(), extra_frames: Vec::new(), icc: None, page: self.page, mesh: self.mesh.clone(), colour_note: self.colour_note.clone(), stages: Vec::new(), ..*self }
+            Image { rgba: self.rgba.clone(), extra_frames: Vec::new(), icc: None, page: self.page, mesh: self.mesh.clone(), rig: self.rig.clone(), colour_note: self.colour_note.clone(), stages: Vec::new(), ..*self }
         }
     }
 
@@ -315,7 +320,7 @@ impl Image {
     pub(crate) fn from_frames(width: u32, height: u32, frames: Vec<(Vec<u8>, u32)>) -> Option<Self> {
         let mut it = frames.into_iter();
         let (rgba, delay_ms) = it.next()?;
-        Some(Image { width, height, rgba, delay_ms, extra_frames: it.map(|(rgba, delay_ms)| Frame { rgba, delay_ms }).collect(), reduced_from: None, orientation: 1, icc: None, profile_assumable: false, cmyk: false, colour_note: None, colour_assumed: false, stages: Vec::new(), page: None, mesh: None })
+        Some(Image { width, height, rgba, delay_ms, extra_frames: it.map(|(rgba, delay_ms)| Frame { rgba, delay_ms }).collect(), reduced_from: None, orientation: 1, icc: None, profile_assumable: false, cmyk: false, colour_note: None, colour_assumed: false, stages: Vec::new(), page: None, mesh: None, rig: None })
     }
 }
 
@@ -573,6 +578,21 @@ fn decode_file_opts(path: &Path, first_only: bool, thumb: bool) -> Result<Image,
     // A format a plug-in adds (never one NuViewer reads itself: those are not handed over).
     if let Some(r) = plugin_decode::decode(path, &ext) {
         return r;
+    }
+    // A Spine skeleton with its atlas: a rig the viewer can play (anything that goes wrong falls through to the old card / text).
+    if spinefmt::is_candidate(path, &ext) {
+        if let Ok(img) = spinefmt::decode(path, first_only) {
+            return Ok(img);
+        }
+    }
+    // A Live2D model: needs the Cubism Core DLL, and says so when it is missing.
+    if live2dfmt::is_model3(path) {
+        return live2dfmt::decode(path, first_only);
+    }
+    if ext == "moc3" {
+        if let Ok(img) = live2dfmt::decode(path, first_only) {
+            return Ok(img);
+        }
     }
     // Archives, Office / OpenDocument files, Affinity files and text: the picture inside, or a card (never an error).
     if docthumb::is_document_ext(&ext) {

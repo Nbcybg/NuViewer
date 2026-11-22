@@ -94,7 +94,7 @@ impl App {
     }
 
     pub fn strip_visible(&self) -> bool {
-        self.mode == Mode::Viewer && !self.editor.open && !self.folder.files.is_empty() && (self.strip.pinned || self.strip.hover)
+        self.mode == Mode::Viewer && !self.editor.open && !self.layers_visible() && !self.folder.files.is_empty() && (self.strip.pinned || self.strip.hover)
     }
 
     fn strip_max_scroll(&self, lay: &StripLayout) -> f32 {

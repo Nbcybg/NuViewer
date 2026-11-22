@@ -16,7 +16,7 @@ impl App {
         match self.keymap.lookup(k, m.ctrl, m.shift, m.alt) {
             // Japanese reading style: the page after this one is on the left, so Left turns forward and Right turns back.
             // A video or a sound on screen: Space plays / pauses it, Shift+arrows seek.
-            Some(Action::Next) if k == 0x20 && self.media_current() => self.perform(Action::PlayPause),
+            Some(Action::Next) if k == 0x20 && (self.media_current() || self.anim_active()) => self.perform(Action::PlayPause),
             None if m.shift && !m.ctrl && (k == VK_LEFT || k == VK_RIGHT) && self.media_nudge(k == VK_RIGHT) => {}
             Some(Action::Next) if k == VK_RIGHT && self.japanese_arrows() => self.perform(Action::Prev),
             Some(Action::Prev) if k == VK_LEFT && self.japanese_arrows() => self.perform(Action::Next),
@@ -118,6 +118,7 @@ impl App {
                 invalidate(self.hwnd);
             }
             Action::Edit if !gallery => self.toggle_editor(),
+            Action::Layers if !gallery => self.toggle_layers(),
             Action::ToggleTexture | Action::ToggleNormalMap | Action::ToggleWireframe | Action::ToggleShadow | Action::CycleShading | Action::ToggleProjection | Action::ModelRotX | Action::ModelRotY | Action::ModelRotZ
             | Action::ToggleOutline | Action::ToggleSilhouette | Action::ToggleSupport | Action::ToggleBones | Action::ToggleBoneNames | Action::ToggleTurntable
                 if self.is_model() =>
@@ -221,6 +222,8 @@ impl App {
                     invalidate(self.hwnd); // cancel a Ctrl+drag selection in progress
                 } else if self.disp.pano.take().is_some() {
                     invalidate(self.hwnd); // leave the 360 view
+                } else if self.layers.open {
+                    self.layers_close();
                 } else if self.editor.open {
                     self.toggle_editor();
                 } else if self.hud.show_help || self.hud.show_info {

@@ -37,6 +37,11 @@ const T_PDF_QUALITY: u16 = 1107;
 const T_FFMPEG: u16 = 1108;
 const T_FFMPEG_BROWSE: u16 = 1109;
 const T_FFMPEG_STATUS: u16 = 1110;
+const T_CORE: u16 = 1111;
+const T_CORE_BROWSE: u16 = 1112;
+const T_CORE_STATUS: u16 = 1113;
+const T_CORE_DOWNLOAD: u16 = 1114;
+const T_CORE_FOLDER: u16 = 1115;
 /// The hex box of the Viewer page holds the canvas colour; the presets and the grey slider write into it.
 const CANVAS_HEX: u16 = 101;
 
@@ -105,6 +110,14 @@ pub fn build(form: &Form, s: &Settings) {
     form.edit(T_FFMPEG, 28, 448, 566, 24, &m.ffmpeg);
     form.button(T_FFMPEG_BROWSE, 602, 447, 94, 26, "Browse…", false);
     form.label_id(T_FFMPEG_STATUS, 28, 480, 660, 20, "");
+    form.group(12, 532, 696, 140, "Add-on: Live2D models (.moc3)");
+    form.label(28, 558, 660, 20, "Why you download it: Live2D's Cubism Core is proprietary. Its licence does not let NuViewer ship it,");
+    form.label(28, 576, 660, 20, "and you accept that licence yourself when you download it. Without it .moc3 models are not shown (Spine and the rest do not need it).");
+    form.edit(T_CORE, 28, 604, 566, 24, &m.cubism_core);
+    form.button(T_CORE_BROWSE, 602, 603, 94, 26, "Browse…", false);
+    form.label_id(T_CORE_STATUS, 28, 636, 330, 20, "");
+    form.button(T_CORE_DOWNLOAD, 366, 632, 160, 26, "Download page…", false);
+    form.button(T_CORE_FOLDER, 534, 632, 162, 26, "Open the folder for it", false);
     status(form, s);
 }
 
@@ -127,6 +140,16 @@ fn status(form: &Form, s: &Settings) {
         },
     );
     nv_core::ffmpeg::configure(&s.more.ffmpeg);
+    nv_anim::cubism::configure(form.text(T_CORE).as_str());
+    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+    form.set_text(
+        T_CORE_STATUS,
+        &match nv_anim::cubism::Core::find(exe_dir.as_deref()) {
+            Some(p) => format!("Found: {}", p.display()),
+            None => "Not installed: .moc3 models cannot be shown.".to_string(),
+        },
+    );
+    nv_anim::cubism::configure(&s.more.cubism_core);
 }
 
 /// A click or slider move on one of these pages; true if it was ours.
@@ -157,6 +180,19 @@ pub fn click(form: &Form, id: u16, s: &Settings) -> bool {
                 status(form, s);
             }
         }
+        T_CORE_BROWSE => {
+            if let Some(p) = nv_win::shell::pick_program(form.hwnd) {
+                form.set_text(T_CORE, &p.display().to_string());
+                status(form, s);
+            }
+        }
+        T_CORE_DOWNLOAD => nv_win::shell::open_url(nv_anim::cubism::DOWNLOAD_PAGE),
+        T_CORE_FOLDER => {
+            if let Some(dir) = nv_anim::cubism::user_folder() {
+                let _ = std::fs::create_dir_all(&dir);
+                let _ = std::process::Command::new("explorer").arg(&dir).spawn();
+            }
+        }
         T_7Z_BROWSE => {
             if let Some(p) = nv_win::shell::pick_program(form.hwnd) {
                 form.set_text(T_7Z, &p.display().to_string());
@@ -183,6 +219,8 @@ pub fn read(form: &Form, s: &mut Settings) {
     m.seven_zip = form.text(T_7Z).trim().trim_matches('"').to_string();
     m.ffmpeg = form.text(T_FFMPEG).trim().trim_matches('"').to_string();
     nv_core::ffmpeg::configure(&m.ffmpeg);
+    m.cubism_core = form.text(T_CORE).trim().trim_matches('"').to_string();
+    nv_anim::cubism::configure(&m.cubism_core);
     m.archive_format = FORMAT_VALUES[form.combo_index(T_FORMAT).min(2)].to_string();
     m.archive_level = form.text(T_LEVEL).trim().parse::<u8>().map(|v| v.clamp(1, 9)).unwrap_or(m.archive_level);
     m.pdf_page = PDF_VALUES[form.combo_index(T_PDF_PAGE).min(2)];

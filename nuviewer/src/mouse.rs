@@ -389,6 +389,7 @@ impl App {
                 checked(self.action_entry(Action::Pano, "360 view").enabled(viewer), self.disp.pano.is_some()),
                 checked(self.action_entry(Action::RawLook, "RAW: camera look (not sensor data)"), self.settings.raw_mode.is_camera_look()),
                 checked(self.action_entry(Action::ToggleSidebar, "Viewer controls").enabled(viewer), self.sidebar.pinned),
+                checked(self.action_entry(Action::Layers, "Layers (PSD, XCF, OpenRaster)").enabled(viewer), self.layers.open),
                 checked(self.action_entry(Action::ToggleSequences, "Fold image sequences"), self.settings.sequences),
                 checked(self.action_entry(Action::TogglePairs, "Group RAW + JPG pairs"), self.settings.pair_group),
                 Entry::Separator,

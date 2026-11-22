@@ -336,62 +336,22 @@ fn half(h: u16) -> f32 {
     }
 }
 
-fn blend_channel(mode: u32, d: f32, s: f32) -> f32 {
-    match mode {
-        3 => d * s,
-        4 => 1.0 - (1.0 - d) * (1.0 - s),
-        5 | 23 => {
-            // overlay (GIMP's soft-light-ish legacy 5 is close enough to the usual overlay)
-            if d < 0.5 {
-                2.0 * d * s
-            } else {
-                1.0 - 2.0 * (1.0 - d) * (1.0 - s)
-            }
-        }
-        6 => (d - s).abs(),
-        7 => (d + s).min(1.0),
-        8 => (d - s).max(0.0),
-        9 => d.min(s),
-        10 => d.max(s),
-        15 => {
-            if s <= 0.0 {
-                1.0
-            } else {
-                (d / s).min(1.0)
-            }
-        }
-        16 => {
-            if s >= 1.0 {
-                1.0
-            } else {
-                (d / (1.0 - s)).min(1.0)
-            }
-        }
-        17 => {
-            if s <= 0.0 {
-                0.0
-            } else {
-                1.0 - ((1.0 - d) / s).min(1.0)
-            }
-        }
-        18 => {
-            if s < 0.5 {
-                2.0 * d * s
-            } else {
-                1.0 - 2.0 * (1.0 - d) * (1.0 - s)
-            }
-        }
-        19 => {
-            let r = 1.0 - (1.0 - d) * (1.0 - s);
-            (1.0 - d) * d * s + d * r
-        }
-        20 => (d - s + 0.5).clamp(0.0, 1.0),
-        21 => (d + s - 0.5).clamp(0.0, 1.0),
-        _ => s,
+pub fn xcf(b: &[u8]) -> Result<Image, String> {
+    let doc = xcf_layers(b, true)?;
+    let eff = doc.default_eff();
+    let used = doc.layers.iter().zip(&eff).filter(|(l, e)| e.on && !l.group && l.w > 0 && l.h > 0).count();
+    if used == 0 {
+        return Err("xcf: every layer is hidden".into());
     }
+    let mut img = crate::layerdoc::flatten(&doc, &eff);
+    img.colour_note = Some(format!("GIMP XCF: {used} visible layer(s) composited (blend modes are approximated)"));
+    Ok(img)
 }
 
-pub fn xcf(b: &[u8]) -> Result<Image, String> {
+/// Every layer of a GIMP file. With `visible_only` a layer that is off (or sits in a group that is off) keeps no pixels
+/// (`loaded == false`): plain viewing does not pay for what it does not draw.
+pub(crate) fn xcf_layers(b: &[u8], visible_only: bool) -> Result<crate::layerdoc::LayerDoc, String> {
+    use crate::layerdoc::{Blend, Layer, LayerDoc};
     if !b.starts_with(b"gimp xcf ") || b.len() < 30 {
         return Err("xcf: not a GIMP XCF file".into());
     }
@@ -423,13 +383,14 @@ pub fn xcf(b: &[u8]) -> Result<Image, String> {
         w: usize,
         h: usize,
         ltype: u32,
+        name: String,
     }
     let mut layers = Vec::new();
     for &lp in &layer_ptrs {
         let (lw, lh, lt) = (r.u32(lp).ok_or("xcf: layer cut off")? as usize, r.u32(lp + 4).ok_or("xcf: layer cut off")? as usize, r.u32(lp + 8).ok_or("xcf: layer cut off")?);
-        let (_, nlen) = r.string(lp + 12).ok_or("xcf: layer name cut off")?;
+        let (lname, nlen) = r.string(lp + 12).ok_or("xcf: layer name cut off")?;
         let (p, end) = xcf_props(&r, lp + 12 + nlen, Props { compression: image_props.compression, colormap: image_props.colormap.clone(), ..image_defaults.clone() }).ok_or("xcf: damaged layer properties")?;
-        layers.push(L { p, ptr: end, w: lw, h: lh, ltype: lt });
+        layers.push(L { p, ptr: end, w: lw, h: lh, ltype: lt, name: lname });
     }
     // Groups' visibility, by item path.
     let group_visible: Vec<(Vec<u32>, bool)> = layers.iter().filter(|l| l.p.group).filter_map(|l| l.p.path.clone().map(|p| (p, l.p.visible))).collect();
@@ -446,71 +407,51 @@ pub fn xcf(b: &[u8]) -> Result<Image, String> {
         }
         true
     };
-    let mut canvas = vec![0f32; w * h * 4];
-    let mut used = 0usize;
-    for l in layers.iter().rev().filter(|l| effective(l)) {
-        if l.w == 0 || l.h == 0 {
-            continue;
-        }
-        let (hp, _) = r.ptr(l.ptr).ok_or("xcf: layer pointers cut off")?;
-        let (mp, msz) = r.ptr(l.ptr + if version >= 11 { 8 } else { 4 }).unwrap_or((0, 0));
-        let _ = msz;
-        let (_, _, bpp, raw) = xcf_hierarchy(&r, hp, l.p.compression)?;
-        let rgba = xcf_to_rgba(&raw, bpp, l.ltype, precision, &l.p.colormap)?;
-        // The mask: a grey hierarchy of the same size.
-        let mask: Option<Vec<u8>> = if mp != 0 && l.p.apply_mask {
-            (|| {
-                let (_, nl) = r.string(mp + 8)?;
-                let (_, end) = xcf_props(&r, mp + 8 + nl, Props { compression: l.p.compression, ..image_defaults.clone() })?;
-                let (mh, _) = r.ptr(end)?;
-                let (_, _, mb, mraw) = xcf_hierarchy(&r, mh, l.p.compression).ok()?;
-                (mb == 1).then_some(mraw)
-            })()
-        } else {
-            None
-        };
-        used += 1;
-        for y in 0..l.h {
-            let cy = y as i64 + l.p.off.1 as i64;
-            if cy < 0 || cy >= h as i64 {
+    let doc_w = w;
+    let _ = doc_w;
+    let mut out: Vec<Layer> = Vec::with_capacity(layers.len());
+    let mut budget = 1usize << 30;
+    for l in layers.iter() {
+        let parent = l.p.path.as_ref().and_then(|p| {
+            if p.len() < 2 {
+                return None;
+            }
+            layers.iter().position(|g| g.p.group && g.p.path.as_deref() == Some(&p[..p.len() - 1]))
+        });
+        let mut layer = Layer { name: l.name.clone(), parent, group: l.p.group, visible: l.p.visible, opacity: l.p.opacity, mode: Blend::from_xcf(l.p.mode), x: l.p.off.0, y: l.p.off.1, w: 0, h: 0, rgba: Vec::new(), loaded: true };
+        if !l.p.group && l.w > 0 && l.h > 0 {
+            if visible_only && !effective(l) {
+                layer.loaded = false;
+                out.push(layer);
                 continue;
             }
-            for x in 0..l.w {
-                let cx = x as i64 + l.p.off.0 as i64;
-                if cx < 0 || cx >= w as i64 {
-                    continue;
+            let (hp, _) = r.ptr(l.ptr).ok_or("xcf: layer pointers cut off")?;
+            let (mp, _) = r.ptr(l.ptr + if version >= 11 { 8 } else { 4 }).unwrap_or((0, 0));
+            let (_, _, bpp, raw) = xcf_hierarchy(&r, hp, l.p.compression)?;
+            let mut rgba = xcf_to_rgba(&raw, bpp, l.ltype, precision, &l.p.colormap)?;
+            // The mask (a grey plane of the same size) goes into the alpha channel.
+            if mp != 0 && l.p.apply_mask {
+                let mask: Option<Vec<u8>> = (|| {
+                    let (_, nl) = r.string(mp + 8)?;
+                    let (_, end) = xcf_props(&r, mp + 8 + nl, Props { compression: l.p.compression, ..image_defaults.clone() })?;
+                    let (mh, _) = r.ptr(end)?;
+                    let (_, _, mb, mraw) = xcf_hierarchy(&r, mh, l.p.compression).ok()?;
+                    (mb == 1).then_some(mraw)
+                })();
+                if let Some(m) = mask {
+                    for (px, mv) in rgba.chunks_exact_mut(4).zip(m.iter()) {
+                        px[3] = (px[3] as u32 * *mv as u32 / 255) as u8;
+                    }
                 }
-                let s = &rgba[(y * l.w + x) * 4..(y * l.w + x) * 4 + 4];
-                let m = mask.as_ref().map(|m| m[y * l.w + x] as f32 / 255.0).unwrap_or(1.0);
-                let sa = s[3] as f32 / 255.0 * l.p.opacity * m;
-                if sa <= 0.0 {
-                    continue;
-                }
-                let d = &mut canvas[(cy as usize * w + cx as usize) * 4..(cy as usize * w + cx as usize) * 4 + 4];
-                let da = d[3];
-                let oa = sa + da * (1.0 - sa);
-                for c in 0..3 {
-                    let sc = s[c] as f32 / 255.0;
-                    let bl = if da > 0.0 && !matches!(l.p.mode, 0 | 28) { blend_channel(l.p.mode, d[c], sc) } else { sc };
-                    d[c] = ((1.0 - sa) * da * d[c] + sa * ((1.0 - da) * sc + da * bl)) / oa;
-                }
-                d[3] = oa;
             }
+            budget = budget.checked_sub(rgba.len()).ok_or("xcf: the layers need more than 1 GB")?;
+            layer.w = l.w as u32;
+            layer.h = l.h as u32;
+            layer.rgba = rgba;
         }
+        out.push(layer);
     }
-    if used == 0 {
-        return Err("xcf: every layer is hidden".into());
-    }
-    let mut rgba = vec![0u8; w * h * 4];
-    for (o, c) in rgba.chunks_exact_mut(4).zip(canvas.chunks_exact(4)) {
-        for k in 0..4 {
-            o[k] = (c[k].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
-        }
-    }
-    let mut img = Image::new(w as u32, h as u32, rgba);
-    img.profile_assumable = true;
-    img.colour_note = Some(format!("GIMP XCF v{version}: {used} visible layer(s) composited (blend modes are approximated)"));
-    Ok(img)
+    Ok(LayerDoc { width: w as u32, height: h as u32, format: "XCF", note: format!("GIMP XCF v{version}: hue / saturation / colour / value modes are drawn as normal; layer groups are not isolated."), icc: None, layers: out })
 }
 
 // ---- Paint Shop Pro ------------------------------------------------------------------------------------------------------------
@@ -945,8 +886,8 @@ mod tests {
         // literal run of 3 then repeat of 2 (one plane of 5 bytes)
         let src = [253u8, 1, 2, 3, 1, 9];
         assert_eq!(rle_tile(&src, 1, 5).unwrap(), vec![1, 2, 3, 9, 9]);
-        assert!((blend_channel(3, 0.5, 0.5) - 0.25).abs() < 1e-6);
-        assert!((blend_channel(4, 0.5, 0.5) - 0.75).abs() < 1e-6);
+        assert!((crate::layerdoc::Blend::from_xcf(3).channel(0.5, 0.5) - 0.25).abs() < 1e-6);
+        assert!((crate::layerdoc::Blend::from_xcf(4).channel(0.5, 0.5) - 0.75).abs() < 1e-6);
         assert_eq!(half(0x3C00), 1.0);
     }
 

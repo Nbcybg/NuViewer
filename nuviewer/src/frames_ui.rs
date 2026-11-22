@@ -28,6 +28,10 @@ impl App {
     }
 
     pub fn extract_frames_current(&mut self) {
+        if self.anim_active() {
+            self.anim_frames();
+            return;
+        }
         let Some(i) = self.target() else { return };
         let path = self.folder.files[i].clone();
         let (path, _) = nv_codecs::split_page(&path);

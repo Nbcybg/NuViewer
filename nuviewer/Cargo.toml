@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+nv-anim = { path = "../crates/nv-anim" }
 nv-core = { path = "../crates/nv-core" }
 nv-codecs = { path = "../crates/nv-codecs" }
 nv-render = { path = "../crates/nv-render" }

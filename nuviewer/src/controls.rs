@@ -485,6 +485,10 @@ impl App {
     }
 
     pub fn toggle_play(&mut self) {
+        if self.anim_active() {
+            self.anim_play();
+            return;
+        }
         match self.controller().map(|c| c.kind) {
             Some(MediaKind::Video | MediaKind::Audio) => self.media_toggle_play(),
             Some(MediaKind::Turntable) => self.turntable_toggle(),
@@ -637,6 +641,6 @@ impl App {
     }
 }
 
-fn fmt_speed(s: f32) -> String {
+pub(crate) fn fmt_speed(s: f32) -> String {
     if (s.fract()).abs() < 0.001 { format!("{s:.0}") } else { format!("{s}") }
 }

@@ -9,6 +9,7 @@ mod extras;
 mod frames_ui;
 mod gallery;
 mod hud;
+mod layers_ui;
 mod loading;
 mod media;
 mod menubar;
@@ -21,6 +22,9 @@ mod pick;
 mod read;
 mod rotate;
 mod settings_more;
+mod spine;
+mod anim;
+mod live2d;
 mod settings_ui;
 mod sidebar;
 mod strip;
@@ -406,6 +410,12 @@ struct App {
     read: read::Read,
     /// The NuEditor mock-up is open (see `editor_ui.rs`).
     editor: editor_ui::Editor,
+    /// The layer panel of a PSD / XCF / OpenRaster file (see `layers_ui.rs`).
+    layers: layers_ui::Layers,
+    /// The Spine player (see `spine.rs`).
+    spine: spine::Spine,
+    /// The Live2D player (see `live2d.rs`).
+    l2d: live2d::L2d,
     /// Dragging the playback seek bar.
     seek_drag: bool,
     /// Dim, canvas picture / blur, 360 view (see `display.rs`).
@@ -775,6 +785,9 @@ impl App {
 
     /// The picture is on the GPU: remember its facts, and show it if it is the current one.
     fn finish_ingest(&mut self, id: u64, img: nv_codecs::Image, decode_ms: f64, read: Option<(u64, f64)>) -> bool {
+        if let Some(r) = &img.rig {
+            self.spine.rigs.insert(id, r.clone());
+        }
         let (dw, dh) = img.display_size();
         let swap = |(w, h): (u32, u32)| if img.orientation >= 5 { (h, w) } else { (w, h) };
         self.meta.insert(id, Meta { width: dw, height: dh, decode_ms, reduced_from: img.reduced_from.map(swap), page: img.page, tris: img.mesh.as_ref().map(|m| m.triangles()), textures: img.mesh.as_ref().map(|m| m.texture_count()).unwrap_or(0), normal_maps: img.mesh.as_ref().map(|m| m.parts.iter().filter(|p| p.normal_map.is_some()).count()).unwrap_or(0), read, colour_note: img.colour_note.clone(), assumed: img.colour_assumed, stages: img.stages.clone() });
@@ -1039,12 +1052,16 @@ impl App {
                 let _ = self.renderer.draw_thumb(id, rect);
             }
             self.draw_dim();
+            if let Some(d) = dst {
+                self.layers_draw_outline(d);
+            }
             self.draw_loading();
             self.draw_error();
             if let Some((a, b)) = self.view.area {
                 self.draw_area_box(a, b);
             }
             self.draw_hud();
+            self.draw_layers();
             let _ = self.renderer.end();
         }
         if let (Some(t), Some(cur)) = (self.nav_start, self.renderer.current()) {
@@ -1073,6 +1090,7 @@ impl App {
         }
         if let Event::MouseMove { x, y, left_down } = &ev {
             self.sidebar_hover(*x, *y, *left_down);
+            self.layers_hover(*x, *y, *left_down);
             self.strip_hover(*x, *y, *left_down);
             self.editor_hover(*x, *y);
             self.controls_hover(*y);
@@ -1117,6 +1135,8 @@ impl App {
             Event::Timer(TIMER_TOAST) => self.on_toast_timer(),
             Event::Timer(TIMER_SLIDE) => self.slideshow_tick(),
             Event::Timer(TIMER_MEDIA) => self.media_timer(),
+            Event::Timer(spine::TIMER_SPINE) => self.spine_tick(),
+            Event::Timer(live2d::TIMER_L2D) => self.l2d_tick(),
             Event::Timer(turntable::TIMER_TURNTABLE) => self.turntable_tick(),
             Event::Timer(TIMER_CURSOR) => {
                 if nv_win::is_fullscreen() {
@@ -1150,7 +1170,9 @@ impl App {
             Event::MiddleClick if self.mode == Mode::Viewer && self.rename.is_none() => self.request_quit(),
             Event::MiddleClick => {}
             // A third quick click: its first press already counted as an ordinary click.
-            Event::TripleClick { .. } => {}
+            Event::TripleClick { x, y, .. } => {
+                self.layers_triple(x, y);
+            }
             // The rename box is a text box: click / drag / double click select, right click is the Cut / Copy / Paste menu.
             Event::MouseDown { x, y, .. } if self.rename.is_some() => self.rename_press(x, y),
             Event::DoubleClick { x, y, .. } if self.rename.is_some() => self.rename_double(x, y),
@@ -1161,8 +1183,12 @@ impl App {
                 }
             }
             Event::RightClick { x, y } if self.rename.is_some() => self.rename_menu(x, y),
+            Event::Char(c) if self.layers.filter_focus && self.rename.is_none() => {
+                self.layers_char(c);
+            }
             Event::Char(c) => self.rename_char(c),
             Event::Key(k) if self.rename.is_some() => self.rename_key(k),
+            Event::Key(k) if self.layers.filter_focus && self.layers_key(k) => {}
             Event::Key(k) => {
                 if !self.menubar_key(k) {
                     self.on_key(k);
@@ -1196,6 +1222,10 @@ impl App {
             // Viewer mouse: the wheel flips pictures (Ctrl+wheel zooms); holding the left button zooms to 100%
             // (200% for a small picture) and dragging pans while it is held; Ctrl + left drag zooms into an area.
             Event::Wheel { delta, x, y, ctrl } => {
+                if self.layers_blocks(x, y) {
+                    self.layers_wheel(delta);
+                    return;
+                }
                 if self.view.held.is_some() || self.view.area.is_some() {
                     return;
                 }
@@ -1215,6 +1245,9 @@ impl App {
                     self.strip_wheel(delta); // the wheel over the film strip scrolls it
                     return;
                 }
+                if self.spine_wheel(x, y, delta) {
+                    return; // a Spine skeleton: the wheel always zooms
+                }
                 // Ctrl swaps what the wheel does (zoom <-> pages), whichever one the settings made the default.
                 let zoom = match (self.settings.wheel, ctrl) {
                     (WheelAction::Pages, true) | (WheelAction::Zoom, false) => true,
@@ -1232,12 +1265,17 @@ impl App {
             }
             // A double click on the picture opens the gallery (the first click of it already did its hold-zoom and let go).
             Event::DoubleClick { x, y, ctrl } => {
+                if self.layers_double(x, y) {
+                    return;
+                }
                 if self.pick_press(x, y) {
                     return;
                 }
                 if !self.menubar_press(x, y) && !self.sidebar_press(x, y) && !self.strip_press(x, y) && !self.editor_press(x, y) && !self.controls_press(x, y) {
                     if ctrl || self.is_model() || self.pano_active() {
                         self.viewer_press(x, y, ctrl); // on a 3D model / 360 view / with Ctrl held it is just another press
+                    } else if self.spine_reset_view() {
+                        // double click on a Spine skeleton: back to the whole picture
                     } else {
                         self.viewer_release();
                         self.perform(nv_core::keys::Action::Gallery);
@@ -1251,16 +1289,31 @@ impl App {
                         return;
                     }
                 }
+                if self.layers_press(x, y, ctrl) {
+                    return;
+                }
                 if self.pick_press(x, y) {
                     return;
                 }
-                if !self.menubar_press(x, y) && !self.sidebar_press(x, y) && !self.strip_press(x, y) && !self.editor_press(x, y) && !self.controls_press(x, y) {
+                if !self.menubar_press(x, y) && !self.sidebar_press(x, y) && !self.strip_press(x, y) && !self.editor_press(x, y) && !self.controls_press(x, y) && !self.spine_press(x, y) {
                     self.viewer_press(x, y, ctrl);
                 }
             }
-            Event::MouseUp => self.viewer_release(),
-            Event::MouseMove { x, y, left_down } => self.viewer_drag(x, y, left_down),
-            Event::RightClick { x, y } => self.context_menu(x, y),
+            Event::MouseUp => {
+                if !self.layers_release() && !self.spine_release() {
+                    self.viewer_release();
+                }
+            }
+            Event::MouseMove { x, y, left_down } => {
+                if !self.layers_drag(x, left_down) && !self.spine_drag(x, y, left_down) {
+                    self.viewer_drag(x, y, left_down);
+                }
+            }
+            Event::RightClick { x, y } => {
+                if !self.layers_right_click(x, y) {
+                    self.context_menu(x, y);
+                }
+            }
             // Files dropped from Explorer (or another program): show the first one.
             Event::Drop { paths, .. } => {
                 if let Some(p) = paths.into_iter().next() {
@@ -1354,6 +1407,9 @@ impl App {
             strip: strip::Strip::new(),
             read: read::Read::new(),
             editor: editor_ui::Editor::new(),
+            layers: layers_ui::Layers::new(),
+            spine: spine::Spine::new(),
+            l2d: live2d::L2d::new(),
             seek_drag: false,
             disp: display::Display::new(),
             media: media::Media::new(),
@@ -1700,7 +1756,11 @@ enum Shell {
 
 fn main() {
     nv_win::crash::install();
-    nv_core::ffmpeg::configure(&Settings::load().more.ffmpeg);
+    {
+        let early = Settings::load();
+        nv_core::ffmpeg::configure(&early.more.ffmpeg);
+        nv_anim::cubism::configure(&early.more.cubism_core);
+    }
     nv_core::posters::register(); // video frames and sound waveforms for the decoder (Media Foundation loads on first use)
     nv_core::i18n::init(&Settings::load().more.language, &nv_win::ui_language());
     // Flags may appear anywhere; the first argument that isn't a flag is the file or folder to open.

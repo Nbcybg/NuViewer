@@ -93,6 +93,8 @@ pub struct Prefs {
     pub seven_zip: String,
     /// ffmpeg.exe, for video Windows can't decode (empty = look in the usual places).
     pub ffmpeg: String,
+    /// Live2DCubismCore.dll, an add-on the user downloads from Live2D (empty = the usual places).
+    pub cubism_core: String,
     /// Format a new archive gets: "zip", "7z" or "tar.gz" (anything but zip needs 7-Zip or Windows' tar).
     pub archive_format: String,
     /// 1 (fast) ..= 9 (small).
@@ -152,6 +154,7 @@ impl Default for Prefs {
             scrub_preview: true,
             seven_zip: String::new(),
             ffmpeg: String::new(),
+            cubism_core: String::new(),
             archive_format: "zip".into(),
             archive_level: 5,
             pdf_page: PdfPage::Fit,
@@ -207,6 +210,7 @@ impl Prefs {
             "scrub_preview" => self.scrub_preview = parse_bool(v).unwrap_or(self.scrub_preview),
             "seven_zip" => self.seven_zip = v.to_string(),
             "ffmpeg" => self.ffmpeg = v.to_string(),
+            "cubism_core" => self.cubism_core = v.to_string(),
             "archive_format" => {
                 if matches!(v.to_ascii_lowercase().as_str(), "zip" | "7z" | "tar.gz") {
                     self.archive_format = v.to_ascii_lowercase();
@@ -269,7 +273,7 @@ impl Prefs {
     pub fn serialize(&self) -> String {
         let b = |v: bool| if v { "true" } else { "false" };
         format!(
-            "dim_pct = {}\ncanvas_mode = {}\ncanvas_image = {}\ncanvas_shade = {}\nplay_loop = {}\nplay_pingpong = {}\nautoplay = {}\nvolume = {}\nmuted = {}\nscrub_preview = {}\nseven_zip = {}\nffmpeg = {}\narchive_format = {}\narchive_level = {}\npdf_page = {}\npdf_quality = {}\nlanguage = {}\nsnapshot_format = {}\nsnapshot_quality = {}\nsnapshot_dir = {}\nsnapshot_name = {}\nsnapshot_sdr = {}\nsnapshot_tonemap = {}\nsnapshot_peak = {}\nsnapshot_keep_hdr = {}\nimport_after = {}\nimport_dir = {}\nimport_format = {}\nimport_quality = {}\nimport_name = {}\nimport_edit = {}\ntether_dir = {}\nscreenshot_keys = {}\nfont_sample = {}\npick_format = {}\npalette_size = {}\nframes_every = {}\nframes_model = {}\n",
+            "dim_pct = {}\ncanvas_mode = {}\ncanvas_image = {}\ncanvas_shade = {}\nplay_loop = {}\nplay_pingpong = {}\nautoplay = {}\nvolume = {}\nmuted = {}\nscrub_preview = {}\nseven_zip = {}\nffmpeg = {}\ncubism_core = {}\narchive_format = {}\narchive_level = {}\npdf_page = {}\npdf_quality = {}\nlanguage = {}\nsnapshot_format = {}\nsnapshot_quality = {}\nsnapshot_dir = {}\nsnapshot_name = {}\nsnapshot_sdr = {}\nsnapshot_tonemap = {}\nsnapshot_peak = {}\nsnapshot_keep_hdr = {}\nimport_after = {}\nimport_dir = {}\nimport_format = {}\nimport_quality = {}\nimport_name = {}\nimport_edit = {}\ntether_dir = {}\nscreenshot_keys = {}\nfont_sample = {}\npick_format = {}\npalette_size = {}\nframes_every = {}\nframes_model = {}\n",
             self.dim_pct,
             self.canvas_mode.id(),
             self.canvas_image,
@@ -282,6 +286,7 @@ impl Prefs {
             b(self.scrub_preview),
             self.seven_zip,
             self.ffmpeg,
+            self.cubism_core,
             self.archive_format,
             self.archive_level,
             self.pdf_page.id(),

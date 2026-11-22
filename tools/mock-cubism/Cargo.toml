@@ -1,0 +1,13 @@
+[package]
+name = "mock-cubism"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# A stand-in for Live2D's Cubism Core, used only by NuViewer's tests (the real DLL is Live2D's and cannot be shipped or downloaded for the user).
+# It exports the same C functions (csmapi) with a tiny made-up model, so the binding, the player and the exports can be run end to end.
+# It proves the plumbing against the *documented* API, not the Core's behaviour. Output file: Live2DCubismCore.dll.
+[lib]
+name = "Live2DCubismCore"
+crate-type = ["cdylib"]
