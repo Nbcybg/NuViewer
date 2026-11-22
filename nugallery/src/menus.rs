@@ -10,24 +10,7 @@ use crate::groups::GroupBy;
 use nv_core::folder::SortKey;
 use nv_win::menu::{popup, Entry as Item};
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum QuickOp {
-    RotateLeft,
-    RotateRight,
-    FlipH,
-    FlipV,
-}
-
-impl QuickOp {
-    pub fn label(self) -> &'static str {
-        match self {
-            QuickOp::RotateLeft => "Rotate left 90°",
-            QuickOp::RotateRight => "Rotate right 90°",
-            QuickOp::FlipH => "Flip horizontally",
-            QuickOp::FlipV => "Flip vertically",
-        }
-    }
-}
+pub use nv_core::quick_edit::QuickOp;
 
 /// What "Quick convert" can do in one click.
 #[derive(Clone, Copy, PartialEq, Debug)]

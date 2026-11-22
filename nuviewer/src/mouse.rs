@@ -310,6 +310,18 @@ impl App {
         Entry::Submenu { text: "Edit with…".into(), items, enabled }
     }
 
+    /// "Quick edit": turn or flip the file itself in one click (JPEG and PNG; the original stays in the undo folder).
+    fn quick_edit_entry(&self) -> Entry {
+        let ok = !self.is_model() && self.target().and_then(|t| self.folder.files.get(t)).is_some_and(|p| nv_core::quick_edit::can_rewrite(p));
+        let items = vec![
+            self.action_entry(Action::QuickRotateLeft, "Rotate left 90°"),
+            self.action_entry(Action::QuickRotateRight, "Rotate right 90°"),
+            self.action_entry(Action::QuickFlipH, "Flip horizontally"),
+            self.action_entry(Action::QuickFlipV, "Flip vertically"),
+        ];
+        Entry::Submenu { text: "Quick edit".into(), items, enabled: ok }
+    }
+
     /// "Plug-ins": the commands that apply to this picture, then the folder to put plug-ins in and a reload.
     fn plugins_entry(&self, enabled: bool) -> Entry {
         let loaded = nv_core::plugins::current();
@@ -365,6 +377,7 @@ impl App {
                 self.action_entry(Action::CopyPath, "Copy file path").enabled(has),
                 Entry::Separator,
                 self.action_entry(Action::Edit, "Edit in NuEditor").enabled(has && viewer),
+                self.quick_edit_entry(),
                 self.edit_with_entry(has),
                 Entry::Separator,
                 self.action_entry(Action::RotateMinus45, "Rotate −45°").enabled(viewer),
@@ -518,6 +531,7 @@ impl App {
             self.action_entry(Action::Undo, &self.undo_label()).enabled(!self.undo.is_empty()),
             Entry::Separator,
             self.action_entry(Action::Edit, "Edit in NuEditor").enabled(has_file && viewer),
+            self.quick_edit_entry(),
             open_with,
             edit_with,
             plugins,

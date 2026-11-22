@@ -119,6 +119,11 @@ xfl|Adobe Animate project (uncompressed)|Animation / authoring|Preview|Flattened
 atlas|Spine / libGDX texture atlas|Animation (2D skeletal)|Preview|Flattened|built-in reader|the atlas page picture beside it (the sprite sheet), else a card
 skel|Spine skeleton (binary)|Animation (2D skeletal)|Preview|Flattened|built-in reader|the sprite sheet of the .atlas beside it, else a card with the Spine version
 spine|Spine editor project|Animation (2D skeletal)|Card|No|built-in reader|a card: the project holds no preview; export the skeleton and atlas
+unity3d|Unity asset bundle|Game assets|View|Flattened|built-in reader|the first texture (Texture2D) of the bundle; more textures are pages (next / previous); no texture: a card listing the contents. UnityFS only (Unity 5 - 2022); raw, BC1-BC7, ETC / EAC, ASTC, PVRTC and Crunch textures (BC1 / BC7 / RGBA32 checked on real files); needs a type tree
+unityfs|Unity asset bundle (UnityFS)|Game assets|View|Flattened|built-in reader|the first texture (Texture2D) of the bundle; more textures are pages (next / previous); no texture: a card listing the contents. UnityFS only (Unity 5 - 2022); raw, BC1-BC7, ETC / EAC, ASTC, PVRTC and Crunch textures (BC1 / BC7 / RGBA32 checked on real files); needs a type tree
+bundle|Unity asset bundle (.bundle)|Game assets|View|Flattened|built-in reader|the first texture (Texture2D) of the bundle; more textures are pages (next / previous); no texture: a card listing the contents. UnityFS only (Unity 5 - 2022); raw, BC1-BC7, ETC / EAC, ASTC, PVRTC and Crunch textures (BC1 / BC7 / RGBA32 checked on real files); needs a type tree
+ab|Unity asset bundle (.ab, Android / iOS)|Game assets|View|Flattened|built-in reader|the first texture (Texture2D) of the bundle; more textures are pages (next / previous); no texture: a card listing the contents. UnityFS only (Unity 5 - 2022); raw, BC1-BC7, ETC / EAC, ASTC, PVRTC and Crunch textures (BC1 / BC7 / RGBA32 checked on real files); needs a type tree
+assetbundle|Unity asset bundle (.assetbundle)|Game assets|View|Flattened|built-in reader|the first texture (Texture2D) of the bundle; more textures are pages (next / previous); no texture: a card listing the contents. UnityFS only (Unity 5 - 2022); raw, BC1-BC7, ETC / EAC, ASTC, PVRTC and Crunch textures (BC1 / BC7 / RGBA32 checked on real files); needs a type tree
 xstage|Toon Boom Harmony scene|Animation / cartoon|Card|No|built-in reader|a card: size, frame rate, drawing and peg counts
 sbpz|Toon Boom Storyboard Pro package|Animation / storyboard|Preview|Flattened|built-in reader|the thumbnail or biggest picture in the package
 moho|Moho / Anime Studio project|Animation / cartoon|Preview|Flattened|built-in reader|the preview picture of a zipped project, else a card with the canvas and frame rate
@@ -391,6 +396,40 @@ pub fn rows() -> Vec<Row> {
         .collect()
 }
 
+/// The add-on a format needs (or can use), and where to get it; "" when NuViewer reads the format on its own. A format that still
+/// opens without the add-on (a card, the picture stored inside) says "optional". Kept in step with `docs/addons.md`.
+pub fn addon(ext: &str, read_by: &str) -> &'static str {
+    const FFMPEG: &str = "ffmpeg - https://ffmpeg.org/download.html (a Windows build, e.g. gyan.dev or BtbN; ffmpeg.exe on PATH or chosen in Settings > Archives & tools)";
+    const CAD: &str = "FreeCAD https://www.freecad.org/downloads.php, Blender https://www.blender.org/download/ or assimp https://github.com/assimp/assimp/releases (any one, installed)";
+    match ext {
+        "avif" => return "AV1 Video Extension - Microsoft Store (needed on PCs that do not have it yet)",
+        "heic" | "heif" | "hif" => return "HEVC Video Extensions - Microsoft Store (needed on PCs that do not have it yet)",
+        "ecw" => return "the ECW codec of its maker (Hexagon / ERDAS ECW plug-in for Windows)",
+        "dwg" => return "ODA File Converter https://www.opendesign.com/guestfiles/oda_file_converter, Blender or FreeCAD (any one, installed)",
+        "usdc" => return "Blender https://www.blender.org/download/ or assimp https://github.com/assimp/assimp/releases (installed)",
+        "eps" | "ps" => return "optional: Ghostscript https://ghostscript.com/releases/gsdnld.html (else the preview stored inside is shown)",
+        "7z" | "cb7" | "rar" | "cbr" => return "7-Zip https://www.7-zip.org to open it as a folder (the information card needs nothing)",
+        "mxf" => return "a proxy file with the same name, or ffmpeg https://ffmpeg.org/download.html",
+        _ => {}
+    }
+    if read_by.starts_with("converter") {
+        return CAD;
+    }
+    if read_by == "ffmpeg copy" {
+        return FFMPEG;
+    }
+    if read_by.contains("ffmpeg copy") {
+        return "optional: ffmpeg https://ffmpeg.org/download.html for files Windows cannot play itself";
+    }
+    if read_by.starts_with("Microsoft Edge") {
+        return "Microsoft Edge or Google Chrome (Edge comes with Windows)";
+    }
+    if read_by.starts_with("proxy file") {
+        return "a proxy file with the same name made by the camera maker's tool";
+    }
+    ""
+}
+
 fn csv_field(s: &str) -> String {
     if s.contains([',', '"', '\n']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s.to_string() }
 }
@@ -409,7 +448,7 @@ fn edit_text(e: &str) -> &'static str {
 pub fn csv() -> String {
     let mut rows = rows();
     rows.sort_by(|a, b| (a.kind, a.ext).cmp(&(b.kind, b.ext)));
-    let mut out = String::from("\u{feff}Extension,Full format name,Type,How NuViewer shows it,Editable in NuEditor,Read by,Notes\r\n");
+    let mut out = String::from("\u{feff}Extension,Full format name,Type,How NuViewer shows it,Editable in NuEditor,Read by,Add-on needed (and where to get it),Notes\r\n");
     for r in rows {
         let shown = match r.shown {
             "View" => "Picture",
@@ -420,7 +459,7 @@ pub fn csv() -> String {
             "Preview" => "The picture stored inside the file",
             _ => "Information card (no pixels)",
         };
-        out.push_str(&format!("{},{},{},{},{},{},{}\r\n", csv_field(&format!(".{}", r.ext)), csv_field(r.name), csv_field(r.kind), csv_field(shown), csv_field(edit_text(r.edit)), csv_field(r.read_by), csv_field(r.notes)));
+        out.push_str(&format!("{},{},{},{},{},{},{},{}\r\n", csv_field(&format!(".{}", r.ext)), csv_field(r.name), csv_field(r.kind), csv_field(shown), csv_field(edit_text(r.edit)), csv_field(r.read_by), csv_field(addon(r.ext, r.read_by)), csv_field(r.notes)));
     }
     out
 }

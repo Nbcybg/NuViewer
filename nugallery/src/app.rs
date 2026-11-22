@@ -224,6 +224,8 @@ pub struct App {
     /// Thumbnails decoded before the GPU was ready.
     pub staged: Vec<(u64, nv_codecs::Image)>,
     pub thumb_failed: HashSet<u64>,
+    /// Files a running job rewrites in place (quick edit): their thumbnails and previews are stale once it is done.
+    pub rewritten: Vec<PathBuf>,
     pub thumb_keep: HashSet<u64>,
     pub previews: Loader,
     pub preview_id: Option<u64>,
@@ -363,6 +365,7 @@ impl App {
             thumbs,
             staged: Vec::new(),
             thumb_failed: HashSet::new(),
+            rewritten: Vec::new(),
             thumb_keep: HashSet::new(),
             previews,
             preview_id: None,
@@ -593,6 +596,31 @@ impl App {
             wake();
         });
         self.update_title();
+    }
+
+    /// The files were rewritten on disk (turned, flipped, burned in ...): throw away everything drawn from their old pixels, so
+    /// the next folder read makes the thumbnail, the preview, the histogram and the info again.
+    pub fn forget_rewritten(&mut self, paths: &[PathBuf]) {
+        for p in paths {
+            let id = model::path_id(p);
+            if let Some(r) = self.renderer.as_mut() {
+                r.retain_thumbs(|t| t != id && t != info::preview_key(id));
+            }
+            self.staged.retain(|(i, _)| *i != id);
+            self.thumb_failed.remove(&id);
+            self.hist.remove(&id);
+            if self.preview_id == Some(id) {
+                self.preview_id = None;
+            }
+            if self.preview_wanted.as_ref().is_some_and(|(w, _)| *w == id) {
+                self.preview_wanted = None;
+            }
+            if self.info_for == Some(id) {
+                // The side panel looks at this picture: let it start over (info, big preview, histogram).
+                self.pv_drop_textures();
+                self.info_for = None;
+            }
+        }
     }
 
     /// Read the folder again, keeping the view and the selection (plus `select`, e.g. a new copy).
@@ -1202,10 +1230,7 @@ impl App {
                     let p = Path::new(&p);
                     if p.parent().map(|d| same_dir(&self.listing.dir, d)).unwrap_or(false) {
                         // Its thumbnail may be out of date (burned in, or its pair file changed): make it again.
-                        let id = model::path_id(p);
-                        if let Some(r) = &mut self.renderer {
-                            r.retain_thumbs(|t| t != id && t != info::preview_key(id));
-                        }
+                        self.forget_rewritten(&[p.to_path_buf()]);
                         self.refresh(vec![p.to_path_buf()]);
                     } else {
                         self.show_path(p);
@@ -1335,6 +1360,10 @@ impl App {
                     self.job_text.clear();
                     if !r.message.is_empty() {
                         self.toast(r.message);
+                    }
+                    let stale = std::mem::take(&mut self.rewritten);
+                    if !stale.is_empty() {
+                        self.forget_rewritten(&stale);
                     }
                     if r.refresh {
                         self.refresh(r.select);

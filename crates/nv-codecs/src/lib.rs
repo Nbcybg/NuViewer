@@ -30,6 +30,7 @@ mod icon;
 pub mod layerdoc;
 pub mod live2dfmt;
 pub mod spinefmt;
+pub mod unityfs;
 mod legacy;
 mod imgfmt;
 mod jp2;
@@ -354,7 +355,7 @@ const BLEND_EXTS: &[&str] = &["blend", "blend1"];
 
 /// Every extension we can open (lowercase, no dot): what the file-association registration lists.
 pub fn supported_extensions() -> Vec<&'static str> {
-    let mut v: Vec<&'static str> = NATIVE_EXTS.iter().chain(RAW_EXTS.iter()).chain(MORE_EXTS.iter()).chain(model::EXTS.iter()).chain(imgfmt::EXTS.iter()).chain(BLEND_EXTS.iter()).chain(artfmt::EXTS.iter()).chain(legacy::EXTS.iter()).chain(vector2d::EXTS.iter()).chain(fontview::EXTS.iter()).chain(designfmt::EXTS.iter()).chain(animfmt::EXTS.iter()).copied().collect();
+    let mut v: Vec<&'static str> = NATIVE_EXTS.iter().chain(RAW_EXTS.iter()).chain(MORE_EXTS.iter()).chain(model::EXTS.iter()).chain(imgfmt::EXTS.iter()).chain(BLEND_EXTS.iter()).chain(artfmt::EXTS.iter()).chain(legacy::EXTS.iter()).chain(vector2d::EXTS.iter()).chain(fontview::EXTS.iter()).chain(designfmt::EXTS.iter()).chain(animfmt::EXTS.iter()).chain(unityfs::EXTS.iter()).copied().collect();
     if cfg!(windows) {
         v.extend(WIC_EXTS);
         v.extend(DOC_EXTS);
@@ -385,7 +386,7 @@ pub fn is_raw_ext(ext: &str) -> bool {
 pub fn is_supported_ext(ext: &str) -> bool {
     let e = ext.to_ascii_lowercase();
     let e = e.as_str();
-    NATIVE_EXTS.contains(&e) || RAW_EXTS.contains(&e) || MORE_EXTS.contains(&e) || TRY_EXTS.contains(&e) || FLASH_EXTS.contains(&e) || webpage::is_ext(e) || model::EXTS.contains(&e) || imgfmt::is_ext(e) || artfmt::is_ext(e) || legacy::is_ext(e) || vector2d::is_ext(e) || fontview::is_ext(e) || designfmt::is_ext(e) || animfmt::is_ext(e) || (cfg!(windows) && (WIC_EXTS.contains(&e) || DOC_EXTS.contains(&e) || META_EXTS.contains(&e) || EPS_EXTS.contains(&e))) || SVG_EXTS.contains(&e) || BLEND_EXTS.contains(&e) || media::media_kind(e).is_some() || plugin_decode::handles(e)
+    NATIVE_EXTS.contains(&e) || RAW_EXTS.contains(&e) || MORE_EXTS.contains(&e) || TRY_EXTS.contains(&e) || FLASH_EXTS.contains(&e) || webpage::is_ext(e) || model::EXTS.contains(&e) || imgfmt::is_ext(e) || artfmt::is_ext(e) || legacy::is_ext(e) || vector2d::is_ext(e) || fontview::is_ext(e) || designfmt::is_ext(e) || animfmt::is_ext(e) || unityfs::is_ext(e) || (cfg!(windows) && (WIC_EXTS.contains(&e) || DOC_EXTS.contains(&e) || META_EXTS.contains(&e) || EPS_EXTS.contains(&e))) || SVG_EXTS.contains(&e) || BLEND_EXTS.contains(&e) || media::media_kind(e).is_some() || plugin_decode::handles(e)
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -647,6 +648,9 @@ fn decode_file_opts(path: &Path, first_only: bool, thumb: bool) -> Result<Image,
     }
     if let Some(r) = animfmt::decode(path, &ext, first_only) {
         return r;
+    }
+    if unityfs::is_ext(&ext) {
+        return unityfs::decode(path, page, first_only);
     }
     if MORE_EXTS.contains(&ext.as_str()) {
         let bytes = progress::read_file(path)?;

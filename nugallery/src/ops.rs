@@ -12,7 +12,7 @@ use nv_editor::recipe::Recipe;
 use nv_editor::resample::Algo;
 use nv_editor::sidecar::{self, Source};
 use nv_editor::watermark::Place;
-use nv_editor::{convert::Out, engine, raster, save, Pixels};
+use nv_editor::{convert::Out, engine, save, Pixels};
 use nv_win::files::{self, Op};
 use nv_win::shell;
 use std::path::{Path, PathBuf};
@@ -124,32 +124,7 @@ pub fn convert_one(src: &Path, spec: &ConvertSpec) -> Result<PathBuf, String> {
 
 /// Turn / flip a JPEG or PNG in place (the original goes to the backup folder first). The file's date is kept.
 pub fn quick_edit_one(path: &Path, op: QuickOp) -> Result<(), String> {
-    let fmt = save::Format::of_path(path).ok_or("only JPEG and PNG pictures can be rewritten")?;
-    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    let img = nv_codecs::decode_file(path)?;
-    if img.frame_count() > 1 {
-        return Err("animated pictures can't be edited here".into());
-    }
-    if img.reduced_from.is_some() {
-        return Err("too large to rewrite safely".into());
-    }
-    let img = img.finish_for_cpu();
-    let src = Pixels::new(img.width, img.height, img.rgba);
-    let out = match op {
-        QuickOp::RotateLeft => raster::rotate(&src, -90.0),
-        QuickOp::RotateRight => raster::rotate(&src, 90.0),
-        QuickOp::FlipH => raster::flip_horizontal(&src),
-        QuickOp::FlipV => raster::flip_vertical(&src),
-    };
-    let exif = if fmt == save::Format::Jpeg { save::exif_of_jpeg(&bytes, (out.w, out.h)) } else { None };
-    let encoded = save::encode(&out, fmt, exif.as_deref())?;
-    let times = nv_core::batch::read_file_times(path);
-    let _ = save::backup_copy(path, &backup_dir());
-    save::write_atomic(path, &encoded).map_err(|e| e.to_string())?;
-    if let Some((_, modified)) = times {
-        let _ = nv_core::batch::set_file_times(path, modified, nv_core::batch::WhichTimes { created: false, modified: true, accessed: false });
-    }
-    Ok(())
+    nv_core::quick_edit::rewrite(path, op).map(|_| ())
 }
 
 /// Remove metadata from one file (JPEG, PNG, WebP), keeping its date. Ok(false): there was nothing to remove.
@@ -846,6 +821,13 @@ impl App {
         if paths.is_empty() {
             return;
         }
+        if self.job.is_some() {
+            self.toast("Another operation is still running");
+            return;
+        }
+        // These files change under us: when the job is done, whatever was drawn from the old pixels (thumbnail, preview,
+        // histogram, info) is thrown away so the picture on screen follows the file.
+        self.rewritten = paths.clone();
         self.spawn_job(op.label(), move |progress| {
             let total = paths.len();
             let (mut done, mut first_error) = (0, None);
@@ -866,7 +848,6 @@ impl App {
             }
             JobResult { message, refresh: true, select: paths.clone() }
         });
-        // Thumbnails of rewritten files change: they are made again when the folder is re-read.
     }
 }
 

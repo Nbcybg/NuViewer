@@ -98,6 +98,9 @@ try {
     New-Item -ItemType Directory (Join-Path $stage 'docs') | Out-Null
     Copy-Item (Join-Path $root 'docs\TRUST.md') (Join-Path $stage 'docs')
     Copy-Item (Join-Path $root 'docs\plugins.md') (Join-Path $stage 'docs')
+    # The format list and the page that says which formats need an add-on and where to get it.
+    Copy-Item (Join-Path $root 'docs\addons.md') (Join-Path $stage 'docs')
+    Copy-Item (Join-Path $root 'docs\formats.csv') (Join-Path $stage 'docs')
     Copy-Item (Join-Path $root 'docs\plugin-examples') (Join-Path $stage 'docs\plugin-examples') -Recurse
     Copy-Item (Join-Path $root 'docs\third-party') (Join-Path $stage 'docs\third-party') -Recurse
     # Helpers so people don't need a terminal to register / unregister the file types.

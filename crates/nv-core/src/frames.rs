@@ -3,6 +3,7 @@
 //!  * an animation (GIF / APNG / animated WebP): every frame, composited, with its transparency,
 //!  * a video: every frame (ffmpeg writes them; every n-th with the setting),
 //!  * a PDF (also `.ai`): every page of the document as a picture,
+//!  * a Unity asset bundle: every texture inside it as a picture (with its transparency),
 //!  * a 3D model: the turntable from the view on screen: `n` pictures as the model turns once about its up axis, the first one
 //!    exactly the view the user has (1 = just that view); the model's shape on transparent where the format keeps alpha.
 //!
@@ -22,6 +23,8 @@ pub enum Source {
     Animation,
     Video,
     Pdf,
+    /// A Unity asset bundle: its textures.
+    Bundle,
     Model,
     /// Nothing to extract: a still picture.
     Still,
@@ -33,6 +36,7 @@ impl Source {
             Source::Animation => "animation frames",
             Source::Video => "video frames",
             Source::Pdf => "pages",
+            Source::Bundle => "textures",
             Source::Model => "turntable views",
             Source::Still => "nothing",
         }
@@ -45,6 +49,9 @@ pub fn source_of(path: &Path) -> Source {
     let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     if matches!(ext.as_str(), "pdf" | "ai") {
         return Source::Pdf;
+    }
+    if nv_codecs::unityfs::is_ext(&ext) {
+        return Source::Bundle;
     }
     if nv_codecs::model::EXTS.contains(&ext.as_str()) {
         return Source::Model;
@@ -221,6 +228,7 @@ pub fn extract(path: &Path, opts: &Options, cancel: &AtomicBool, progress: &mut 
         Source::Animation => animation(path, &stem, dir.clone(), opts, cancel, progress),
         Source::Video => video(path, &stem, dir.clone(), opts, cancel, progress),
         Source::Pdf => pdf(path, &stem, dir.clone(), opts, cancel, progress),
+        Source::Bundle => bundle(path, &stem, dir.clone(), opts, cancel, progress),
         Source::Model => model(path, &stem, dir.clone(), opts, cancel, progress),
         Source::Still => Err("This is a single picture: there are no frames to extract.".into()),
     };
@@ -364,6 +372,39 @@ fn pdf(path: &Path, stem: &str, dir: PathBuf, opts: &Options, cancel: &AtomicBoo
         progress(page, count);
     }
     let note = if paper { String::new() } else { "Pages are transparent where nothing is painted.".to_string() };
+    Ok(sink.finish(opts, note))
+}
+
+/// Every Texture2D of a Unity bundle, in the order the bundle lists them. A texture that can't be decoded (a format this build does
+/// not read) is skipped and named in the report; the run only fails when no texture came out at all.
+fn bundle(path: &Path, stem: &str, dir: PathBuf, opts: &Options, cancel: &AtomicBool, progress: &mut dyn FnMut(usize, usize)) -> Result<Report, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("read: {e}"))?;
+    let c = nv_codecs::unityfs::open(&bytes)?;
+    let count = c.textures.len();
+    if count == 0 {
+        return Err("This bundle holds no textures (it has meshes, scripts or other assets).".into());
+    }
+    let names = c.texture_names();
+    // The first texture decides whether the run needs alpha; later ones with alpha raise it (the Sink checks each picture).
+    let mut sink: Option<Sink> = None;
+    let mut skipped = Vec::new();
+    for i in 0..count {
+        if cancel.load(Ordering::Relaxed) {
+            break;
+        }
+        match c.texture(i) {
+            Ok(t) => {
+                if sink.is_none() {
+                    sink = Some(Sink::new(dir.clone(), stem.to_string(), opts, has_alpha(&t.rgba))?);
+                }
+                sink.as_mut().unwrap().put(t.width, t.height, t.rgba)?;
+            }
+            Err(e) => skipped.push(format!("{}: {e}", names.get(i).filter(|n| !n.is_empty()).cloned().unwrap_or_else(|| format!("texture {}", i + 1)))),
+        }
+        progress(i + 1, count);
+    }
+    let Some(sink) = sink else { return Err(skipped.first().cloned().unwrap_or_else(|| "no texture could be read".into())) };
+    let note = if skipped.is_empty() { String::new() } else { format!("{} texture(s) skipped - {}", skipped.len(), skipped.join("; ")) };
     Ok(sink.finish(opts, note))
 }
 
@@ -579,6 +620,24 @@ mod tests {
         let j = nv_codecs::decode_file(&r.files[1]).unwrap();
         assert!(j.rgba.chunks_exact(4).all(|p| p[0] > 240 && p[1] > 240 && p[2] > 240), "an empty page on white");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_unity_bundle_gives_its_textures_with_transparency() {
+        // A real bundle from a game's cache; skipped when the folder is not there.
+        let Some(home) = std::env::var_os("USERPROFILE") else { return };
+        let dir = Path::new(&home).join("AppData/LocalLow/Watcher of Realms/Watcher of Realms/cacheimages");
+        let Some(f) = std::fs::read_dir(&dir).ok().and_then(|rd| rd.flatten().map(|e| e.path()).find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("shop_growthfund_banner3")))) else { return };
+        assert_eq!(source_of(&f), Source::Bundle);
+        let out = scratch("unity");
+        let o = Options { base_dir: Some(out.clone()), ..opts("jpeg") };
+        let r = extract(&f, &o, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+        assert_eq!(r.files.len(), 1);
+        assert!(r.had_alpha && r.kept_alpha, "the banner is mostly transparent: PNG is forced");
+        assert_eq!(r.format, "png");
+        let img = nv_codecs::decode_file(&r.files[0]).unwrap();
+        assert_eq!((img.width, img.height), (576, 88));
+        let _ = std::fs::remove_dir_all(&out);
     }
 
     #[test]

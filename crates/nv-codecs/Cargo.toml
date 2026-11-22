@@ -31,6 +31,8 @@ ruzstd = "0.8"
 roxmltree = "0.20"
 skrifa = "0.49"
 brotli-decompressor = "5"
+lzma-rs = "0.3"
+texture2ddecoder = "0.1.2"
 
 [target.'cfg(windows)'.dependencies.windows]
 workspace = true

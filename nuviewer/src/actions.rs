@@ -113,6 +113,10 @@ impl App {
             Action::SaveRotation if !gallery => {
                 self.save_rotation(true);
             }
+            Action::QuickRotateLeft => self.quick_edit(nv_core::quick_edit::QuickOp::RotateLeft),
+            Action::QuickRotateRight => self.quick_edit(nv_core::quick_edit::QuickOp::RotateRight),
+            Action::QuickFlipH => self.quick_edit(nv_core::quick_edit::QuickOp::FlipH),
+            Action::QuickFlipV => self.quick_edit(nv_core::quick_edit::QuickOp::FlipV),
             Action::ToggleSidebar if !gallery => {
                 self.sidebar.pinned = !self.sidebar.pinned;
                 invalidate(self.hwnd);

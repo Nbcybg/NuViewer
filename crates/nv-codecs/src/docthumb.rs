@@ -358,6 +358,7 @@ pub(crate) fn accent_for(ext: &str) -> u32 {
         "pptx" | "pptm" | "potx" | "ppsx" => 0xD24726,
         e if OPENDOC_EXTS.contains(&e) => 0x18A303,
         e if AFFINITY_EXTS.contains(&e) => 0x7B4FD0,
+        "unity3d" | "unityfs" | "bundle" | "ab" | "assetbundle" => 0x3B4A5C,
         e if TEXT_EXTS.contains(&e) => 0x6B7280,
         _ => 0x5A6270,
     }

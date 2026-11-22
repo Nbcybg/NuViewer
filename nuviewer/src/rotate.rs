@@ -6,6 +6,7 @@
 //! keeps the original in a backup folder so Ctrl+Z can bring it back.
 
 use super::*;
+use nv_core::quick_edit::{self, QuickOp};
 use nv_core::settings::RotateSave;
 use nv_editor::{raster, save, Op, Pixels};
 use nv_win::shell::{self, Answer};
@@ -99,6 +100,50 @@ impl App {
         if let Some(img) = self.view_size() {
             let win = self.renderer.size();
             self.view.clamp_pan(img, win);
+        }
+        set_title(self.hwnd, &self.title());
+        invalidate(self.hwnd);
+    }
+
+    /// Right-click > Quick edit: turn or flip the file on disk right now (a JPEG or PNG), the same thing the gallery's menu does.
+    /// The original goes to the undo folder (Ctrl+Z puts it back) and the picture on screen is read again from the new file.
+    pub fn quick_edit(&mut self, op: QuickOp) {
+        let Some(t) = self.target() else { return };
+        let in_viewer = self.mode == Mode::Viewer;
+        if in_viewer {
+            if self.read.on {
+                self.toast("Turn read mode off (B) to edit a picture");
+                return;
+            }
+            if self.is_model() {
+                self.toast("3D models can't be edited here");
+                return;
+            }
+            if self.doc_pages().is_some() {
+                self.toast("Pages of a document can't be edited here");
+                return;
+            }
+            // A turn that is still only on screen is saved (or dropped) first, so the two never pile up.
+            if !self.settle_rotation() {
+                return;
+            }
+        }
+        let path = self.folder.files[t].clone();
+        if !quick_edit::can_rewrite(&path) {
+            self.toast("Quick edit works on JPEG and PNG pictures; use NuEditor (E) for other formats");
+            return;
+        }
+        let id = self.id_at(t);
+        match quick_edit::rewrite(&path, op) {
+            Ok(backup) => {
+                self.push_undo(UndoOp::Rewritten { path: path.clone(), backup });
+                self.forget_picture(id);
+                if in_viewer {
+                    self.refresh();
+                }
+                self.toast(format!("{} — Ctrl+Z restores the original", op.done()));
+            }
+            Err(e) => self.toast(crate::hud::failure(7004, format!("Couldn't {}: {e}", op.label().to_lowercase()))),
         }
         set_title(self.hwnd, &self.title());
         invalidate(self.hwnd);

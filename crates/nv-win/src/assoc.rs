@@ -45,6 +45,7 @@ pub const FORMATS: &[Format] = &[
     f("SVG", &["svg", "svgz"], false),
     f("EPS", &["eps"], false),
     f("Flash (SWF movie, FLA project)", &["swf", "fla"], false),
+    f("Unity asset bundles", &["unity3d", "unityfs", "bundle", "ab", "assetbundle"], false),
     f("Animation projects (Spine, Toon Boom, Moho, Animate, Pencil2D, Synfig, OpenToonz, TVPaint)", &["atlas", "skel", "spine", "xstage", "sbpz", "moho", "anme", "xfl", "pclx", "sif", "sifz", "sfg", "tnz", "tvpp"], false),
     f("Web page (HTML, as a picture)", &["html", "htm", "xhtml", "mhtml", "mht"], false),
     f("Windows metafile", &["emf", "wmf"], false),
@@ -79,11 +80,11 @@ pub const FORMATS: &[Format] = &[
 /// The groups of the chooser: title and the range of `FORMATS` each one shows.
 pub const GROUPS: &[(&str, std::ops::Range<usize>)] = &[
     ("Pictures", 0..21),
-    ("Documents and vector art", 21..31),
-    ("3D models", 31..40),
-    ("Video and sound", 40..43),
-    ("Archives and disc images", 43..44),
-    ("Camera RAW", 44..54),
+    ("Documents and vector art", 21..32),
+    ("3D models", 32..41),
+    ("Video and sound", 41..44),
+    ("Archives and disc images", 44..45),
+    ("Camera RAW", 45..55),
 ];
 
 const ROW_HEIGHT: i32 = 20;

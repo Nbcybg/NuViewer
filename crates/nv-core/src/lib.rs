@@ -23,6 +23,7 @@ pub mod posters;
 pub mod prefs;
 pub mod rawpair;
 pub mod quick;
+pub mod quick_edit;
 pub mod sequence;
 pub mod settings;
 pub mod snapshot;

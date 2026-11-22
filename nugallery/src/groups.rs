@@ -171,6 +171,7 @@ pub fn app_of_ext(ext: &str) -> &'static str {
         "duf" | "dsf" | "daz" => "DAZ Studio",
         // Animation software.
         "skel" | "spine" | "atlas" | "spinejson" => "Spine",
+        "unity3d" | "unityfs" | "bundle" | "ab" | "assetbundle" => "Unity bundles",
         "xstage" | "tpl" | "sbpz" | "sbp" | "sbz" | "xsb" => "Toon Boom",
         "moho" | "anme" | "mohoproj" => "Moho",
         "tvpp" | "tvp" => "TVPaint",
