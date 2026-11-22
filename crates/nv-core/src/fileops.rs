@@ -105,6 +105,8 @@ pub enum UndoOp {
     Deleted { original: PathBuf },
     /// File rewritten in place (a rotation was saved): `backup` holds what it was before.
     Rewritten { path: PathBuf, backup: PathBuf },
+    /// Several files that were one step (a RAW + JPG pair that is grouped): one Ctrl+Z takes all of them back.
+    Group(Vec<UndoOp>),
 }
 
 #[cfg(test)]

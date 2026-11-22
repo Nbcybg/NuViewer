@@ -2,6 +2,67 @@
 
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
+## 0.6.0 - 2026-11-22
+
+The big list of 2026-11-22. Details and what was and was not verified: `docs/session22.md`.
+
+### Added
+- **NuGallery group view**: View > Sort by > *Group by* (and the toolbar Sort menu, `Ctrl+Shift+J` steps through them): **type**, **app** (Photoshop, Clip Studio Paint, Blender, Spine, a camera maker ...),
+  **name** (first letter, Thai names by their first consonant), **date** (today, yesterday, last 7 / 30 days, then month by month) and **size** (tiny ... gigantic), each **ascending or descending**. Every group has a header strip
+  with its count (click it to select the group); folders stay a group of their own in front; inside a group the ordinary sort applies; arrow keys cross group borders in the same column. Remembered (`gallery.ini`: `group`, `group_desc`).
+- **Sliders**: **double click** puts a slider back to the value it had before the last save (NuEditor: when the picture was opened or the edits were last kept; Settings: when the window opened); **triple click** sets it to zero (its default).
+  New `Event::TripleClick` in `nv-win`; the Settings sliders are subclassed track bars.
+- **NuEditor and camera RAW**: a RAW file is opened from its sensor data (or the camera's JPEG look: Settings > NuEditor); the Temperature and Tint sliders show the **camera's own values** (`5230 K`, tint `+4`, read from the file, never estimated)
+  around the as-shot balance, and typing a kelvin works. A RAW is never burned in. From a grouped RAW + JPG tile NuGallery opens the RAW; with the two as separate tiles each file is edited as itself.
+- **NuEditor edits an animated GIF as a whole** (every frame gets the same recipe, written back as an animated GIF with per-frame palettes and transparency) and, for a video, an animation that is not a GIF, a PDF or a 3D model, edits **the frame being looked at**
+  (saved as a picture the way the video snapshot settings say). Undo / redo depth is a setting (10-5000, Settings > NuEditor).
+- **NuNote** (`nunote.exe`), the built-in notepad: text, Markdown, JSON, HTML, XML, CSS, JavaScript / TypeScript, YAML, TOML, INI, Rust, Python, C-family, shell, SQL, batch and PowerShell with syntax colours; **rendered Markdown** (headings, emphasis, lists, tasks, quotes,
+  tables, code, links) beside or instead of the source; keeps the file's encoding (UTF-8 with / without BOM, UTF-16, ANSI) and line ends; find / replace / go to line, word wrap, zoom, drag and drop, remembers its window. `E` in the viewer and `F4` in the gallery open it for text files.
+- **Extract frames** in the viewer, gallery, editor and importer (`Ctrl+Shift+F`, right-click, File menu): a video or animation as numbered pictures (every n-th with the setting), a PDF as one picture per page, a 3D model as its turntable from the view on screen. Format, quality and folder are the video snapshot's settings;
+  **transparency comes out** (a run is PNG when the chosen format cannot carry it; PDF pages are transparent where nothing is painted). Progress window with Cancel.
+- **Share to...** (`Ctrl+Shift+H`, right-click, File menu) in every program: the Windows share sheet with the picture(s); the editor shares the picture as it looks now.
+- **3D view**: **bones** (rigged glTF / GLB / VRM; `Shift+W`) with their **names** (`Shift+N`), **outline** (`Shift+O`), **silhouette** (`Shift+V`), **support preview** (`Shift+U`: surfaces a printer would need support under, in red) and a **turntable** (`Shift+A` or `P`) driven from the video bar (play / pause,
+  speed button, a seek track that is the angle); speed in Settings > 3D.
+- **Formats** (cards or the picture they hold): Spine (`atlas` `skel` `spine`), Toon Boom (`xstage` `sbpz`), Moho / Anime Studio (`moho` `anme`), Adobe Animate (`xfl`), Pencil2D (`pclx`), Synfig (`sif` `sifz` `sfg`), OpenToonz (`tnz`), TVPaint (`tvpp`).
+- **Languages**: seven international languages (English, 简体中文, Español, 日本語, Deutsch, Français, Português (Brasil)) plus Thai are prepared (`nv-text` registry with plural rules, number formats and fonts; mock-up files `lang/<code>.txt`; the Settings language list). **Not translated yet**: they show English.
+- **Icons** redrawn (dark glass tile, gradient "nu" mark, a badge for what the program does; one for NuNote).
+- **Setup, uninstall and portable**: the setup carries all six programs, the language files, the licence and the readme; Start menu entries for every program and *Uninstall*; the uninstaller also removes the Explorer menu entries and asks what else should go (cache / saved originals of burned-in pictures / settings;
+  silent: `/purge`, `/keepcache`); Add/Remove entry with website, help link and install date; **portable**: the zip (`NuViewer-0.6.0-portable-win64.zip`) and `setup.exe /portable` keep everything in `Data\` beside the programs (`portable.txt`). `docs/INSTALL.md`.
+- Window placement: one rule for every window (`nv-win::winpos`): back where it was, maximised if it was, never half off a screen, never on a screen that is gone, centred in the work area otherwise; written when a move or resize ends (not only on exit); dialogs are centred on the work area of their owner's screen at that screen's scale.
+
+### Not done / not verified
+- Not code-signed. Spine / Toon Boom / Moho / Animate / Pencil2D / Synfig / OpenToonz readers were written to the documented file shapes and tested on files made here, **not on real project files** (none on this PC); the 3D bones, outline, silhouette and support preview compile and use the new shader but were **not looked at on a real rigged model**.
+- Language files other than English and Thai are empty mock-ups. The share sheet, the progress window, NuNote's find dialog and the Settings slider clicks were not clicked through by hand.
+
+## 0.5.0 - 2026-11-18
+
+What the simulated-user panel (`docs/founder-panel-2026-11-18.md`) asked for: trust first, culling with ratings, RAW + JPG as a choice, plug-ins, and one address for the website and for help.
+
+### Added
+- **RAW + JPG as one picture or two** (`Shift+Q` in the viewer, `Ctrl+Shift+G` in NuGallery, the View / right-click menus and Settings > Viewer). The factory rule stays *two separate pictures*.
+  Grouped, the JPG / HEIF stands for the pair and delete, move, copy, rename and drag act on both files; Ctrl+Z restores both; a RAW without a JPG is always listed. Opening a RAW whose JPG
+  stands for it shows the JPG. `settings.ini`: `pair_group = true`.
+- **Star ratings and colour labels in XMP sidecars** (`Shift+0…5`, `Shift+6…9`, `` Shift+` ``, `Ctrl+Shift+X` to reject): viewer, NuGallery (several selected pictures at once), right-click **Rating** menu.
+  Same fields as Bridge / Lightroom / Camera Raw / darktable / XnView (`xmp:Rating` -1…5, `xmp:Label`); an existing sidecar keeps everything else byte for byte, the picture is never touched,
+  the sidecar is replaced atomically. Ratings inside a picture's own XMP are read. NuGallery: stars and label on the thumbnails, **Show rating** filter (n stars and up, not rated, rejected,
+  hide rejected, a colour), the rating on the status line; the viewer: in the top bar. New error code NV-7008 (rating not saved).
+- **Plug-in system, interface 1** (`docs/plugins.md`): a folder in `%APPDATA%\NuViewer\plugins` with a `plugin.ini` adds a **picture format** (an external program that writes a PNG; the formats appear
+  in lists, thumbnails and the viewer) and/or **commands** in the right-click **Plug-ins** menu. Plug-ins are separate programs restricted to their own folder, started without a shell, stopped
+  at their time limit, and can never take over a format NuViewer reads itself. `plugins = off` loads none. Two examples in `docs/plugin-examples/`.
+- **Trust:** `LICENSE` (MIT) and a licence field in every crate; `docs/TRUST.md` (what is written where, how to verify, what is not done); tests that fail if a networking library or any
+  network call enters the code (`crates/nv-core/tests/trust.rs`); `docs/third-party/dependencies.csv` (239 crates, regenerate with `tools/deps-licences.py`) and `docs/third-party/LGPL-rawler.md`;
+  `tools\package.ps1` writes `SHA256SUMS.txt` and signs everything when a certificate is given in `NUVIEWER_SIGN_PFX` (not signed yet: no certificate).
+- The README opens with the website, the support / feedback address, the trust summary and the comic mode and print commands that were hard to find.
+
+### Changed
+- **Website and help:** `https://nuviewer.noobcyborg.com`; **Support** and **User feedback** both go to the NuViewer Discord channel (credits in every help page, Settings > General). The Buy Me a Coffee
+  link was removed: it had been a placeholder that nobody had confirmed.
+- Settings > Viewer has "RAW + JPG of one shot as one picture". Undo of a pair is one step ("Undo delete (RAW + JPG)").
+
+### Not done / not verified
+- Not code-signed (no certificate). The programs were compiled and unit / integration tested here; the new menus, keys and thumbnails were **not** clicked through by hand in a running window in this round.
+- The gallery inside the viewer (`G`) does not draw stars on its tiles (NuGallery does); the rating keys work there and the top bar shows the result.
+
 ## 0.4.1 - 2026-11-18
 
 Colour tools, a borderless window, text editing in every text box, and a speed check against 0.3.2. Details: `docs/session19.md` (second part).

@@ -989,7 +989,8 @@ pub mod external {
     fn program_files(sub: &str, exe: &str) -> Vec<PathBuf> {
         let mut v = Vec::new();
         for var in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
-            if let Some(base) = std::env::var_os(var).map(PathBuf::from) {
+            let value = if var == "LOCALAPPDATA" { std::env::var_os("NUVIEWER_REAL_LOCALAPPDATA").or_else(|| std::env::var_os(var)) } else { std::env::var_os(var) };
+            if let Some(base) = value.map(PathBuf::from) {
                 let root = if var == "LOCALAPPDATA" { base.join("Programs") } else { base };
                 if let Ok(rd) = std::fs::read_dir(&root) {
                     for e in rd.flatten() {

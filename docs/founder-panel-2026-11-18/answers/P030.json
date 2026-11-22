@@ -1,0 +1,18 @@
+{
+  "id": "P030",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 8,
+  "reason_code": "trust",
+  "reason": "I'd grab the portable zip because it reads HDR, EXR, DDS, TGA and GLB/FBX, which is what I check from my game project. But it's v0.4.1 from one person and it's stuffed with gallery, editor and importer things I don't want, so ImageGlass stays my default.",
+  "why_switch_or_not": "The format list is the only real draw for me: texture, HDR and 3D files plus zip/cbz in one viewer would save me hopping between tools. I would not make it default because a single-developer 0.4.1 could be abandoned, and a viewer that also has an editor, a batch converter and a scanner importer is the opposite of 'only viewing and stays out of the way'. The speed numbers are from the developer's own PC, so I'd only believe them on my own huge folders. Setting default in Windows Settings by hand is a hassle I'd skip until it has earned it.",
+  "current_app_pros": "ImageGlass looks clean and modern, it's open source so I trust it won't turn into something nasty, and it's light and does the viewing without fuss. It's free and it already works for my daily picture checking.",
+  "current_app_pains": "It doesn't cover everything I open: some of my game-project formats, 3D models and big archive/cbz folders aren't handled well, so I use other tools for those. Nothing else really bothers me.",
+  "objection": "Another image viewer from one person at version 0.4.1, with an editor and gallery and importer bolted on. Mine already works fine for the pictures, and I don't want my default viewer to be a full app.",
+  "would_change_my_mind": "A few months of steady updates with a visible track record, a way to switch off the gallery and editor so it's viewing only, and it opening my own huge cbz folders and HDR/DDS textures faster than ImageGlass.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 6,
+  "price_too_expensive": 15
+}

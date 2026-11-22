@@ -1,0 +1,18 @@
+{
+  "id": "P078",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 8,
+  "reason_code": "habit",
+  "reason": "I install new tools on a whim, so I'll definitely open it with a folder of my own exports. But my current viewer is already instant for screenshots and PNGs, and I'm not handing over my default app to a one-person 0.4.1 without proof it won't touch my colour or sidecar workflow.",
+  "why_switch_or_not": "The RAW and JPG always showing as separate pictures is the right call for culling, and ICC colour management is what I'd test first by comparing a wide-gamut export against what I see now. But nothing in the list says it reads or respects XMP ratings or labels, and it has its own 'sidecar edit file', which makes me nervous about it writing files next to my RAWs. 40-50 ms vs my current viewer's speed is not a difference I'd feel on screenshots, so there's no pressing reason to move the default.",
+  "current_app_pros": "Opens instantly, tiny, no clutter, just left/right through hundreds of PNG exports and screenshots. Does the job and stays out of the way.",
+  "current_app_pains": "Not much. Colour management is weak or absent, so I never trust it for judging a photo, and the RAW handling is basic. Nothing that annoys me enough to switch.",
+  "objection": "My colour management / catalogue / XMP workflow must not change. A new viewer from one developer that has its own editor and sidecar files could write things next to my RAWs or show colours differently from my catalogue.",
+  "would_change_my_mind": "Clear proof that it never writes or alters sidecars or XMP unless I ask, that it reads existing XMP ratings, and that colours match my calibrated display and catalogue, plus a month of using it alongside without a single crash.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 12,
+  "price_too_expensive": 25
+}

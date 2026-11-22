@@ -1,0 +1,18 @@
+{
+  "id": "P025",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 4,
+  "reason_code": "habit",
+  "reason": "Waiting for Bridge to spin up just to look at a card of shots is a real annoyance, so I'd install it and try it on a cull. But my ratings and catalogue live in Adobe, and I'm not redoing shortcuts and file associations for a one-man 0.4.1 app.",
+  "why_switch_or_not": "The speed numbers are the draw: next/back at 40-50 ms and PSD/AI/alpha PNG opening would beat launching Photoshop or Bridge just to peek at a file. Against that, I'd have to relearn shortcuts and tick formats in Windows Settings myself, and I don't know if it can replace my Bridge workflow. It won't touch my catalogue or ratings, so at best it becomes a quick-look tool next to Adobe, not my default.",
+  "current_app_pros": "Bridge/Lightroom keep my catalogue, ratings, labels and RAW development settings in one place, and Photoshop opens my PSD and AI files exactly as Adobe renders them. Colour is trustworthy and my muscle memory is built in.",
+  "current_app_pains": "They're slow to launch and slow to flip through. Opening a heavy Adobe app just to look at one file is a waste of time. Culling 500 RAW+JPG after a shoot means watching previews build.",
+  "objection": "I'd have to relearn shortcuts and reset my file associations, and for what? It's a single developer's 0.4.1. It lists RAW and JPG separately, so 500 pairs becomes 1000 pictures to cull, and I don't see anything about ratings or flags that feed back into Bridge or Lightroom.",
+  "would_change_my_mind": "Proof that I can cull a 500-shot RAW+JPG card in it, with ratings or flags that Bridge/Lightroom pick up afterwards, plus a few months of seeing the app stay maintained.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 35
+}

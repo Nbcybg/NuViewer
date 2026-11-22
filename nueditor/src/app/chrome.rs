@@ -27,6 +27,8 @@ pub const C_INVERT: u32 = 18;
 pub const C_RESTORE: u32 = 19;
 pub const C_TO_PNG: u32 = 20;
 pub const C_COPY: u32 = 22;
+pub const C_SHARE: u32 = 23;
+pub const C_FRAMES: u32 = 24;
 pub const C_TO_JPEG: u32 = 21;
 pub const C_FIT: u32 = 30;
 pub const C_Z100: u32 = 31;
@@ -65,7 +67,7 @@ pub const HELP: &[&str] = &[
     "Crop:     R  or the Crop button  ·  drag on the picture for a new frame, drag the frame or its handles  ·  A  ratio  ·  Ctrl+drag a line to level  ·  Enter applies",
     "          Composition (Rotate / Pitch / Yaw / Zoom) shows the whole picture with its outline and your crop frame  ·  \"Crop to the picture\" removes the empty corners",
     "Tools:    W  white balance picker  ·  K clone  J heal  M remove  P patch  E red-eye  ·  , .  turn 45°  ·  H V  flip  ·  I  invert  ·  0  reset all",
-    "Panel:    drag a slider  ·  wheel over it  ·  right-click or double-click a slider  back to its default  ·  right-click a header  resets the group",
+    "Panel:    drag a slider  ·  wheel over it  ·  right-click a slider  back to its default  ·  double click  as it was before the last save  ·  triple click  zero  ·  right-click a header  resets the group",
     "Keep:     Ctrl+S  save the way Settings says  ·  Ctrl+Shift+S  save a copy  ·  Ctrl+Z / Ctrl+Y  undo / redo  ·  Ctrl+Alt+Z  bring back a burned-in original",
     "Leave:    Esc  asks how to keep your edits (pair file / new file / burn in / discard) and goes back to where you came from",
     "          F1  this page",
@@ -184,6 +186,8 @@ impl App {
                 Entry::item(C_TO_PNG, nv_core::i18n::t("menu.convert_png")).enabled(has),
                 Entry::item(C_TO_JPEG, nv_core::i18n::t("menu.convert_jpeg")).enabled(has),
                 Entry::item(C_COPY, nv_core::i18n::t("menu.copy_picture")).enabled(has),
+                Entry::item(C_SHARE, "Share to\u{2026}\tCtrl+Shift+H").enabled(has),
+                Entry::item(C_FRAMES, "Extract frames of this file\u{2026}\tCtrl+Shift+F").enabled(has),
                 Entry::item(C_RESTORE, "Bring back the burned-in original\tCtrl+Alt+Z"),
                 Entry::Separator,
                 Entry::item(C_GALLERY, "Close and go back\tEsc"),
@@ -259,6 +263,7 @@ impl App {
             Entry::item(C_SAVE_COPY, "Save a copy…\tCtrl+Shift+S").enabled(has),
             Entry::item(C_TO_PNG, nv_core::i18n::t("menu.convert_png")).enabled(has),
             Entry::item(C_TO_JPEG, nv_core::i18n::t("menu.convert_jpeg")).enabled(has),
+            Entry::item(C_SHARE, "Share to\u{2026}\tCtrl+Shift+H").enabled(has),
             Entry::item(C_HELP, "Keys and credits\tF1"),
             Entry::item(C_GALLERY, "Close\tEsc"),
         ]
@@ -289,6 +294,8 @@ impl App {
             C_SAVE_COPY => self.save_copy_dialog(),
             C_TO_PNG => self.quick_convert(nv_core::quick::Target::Png),
             C_COPY => self.copy_picture(),
+            C_SHARE => self.share_picture(),
+            C_FRAMES => self.extract_frames(),
             C_TO_JPEG => self.quick_convert(nv_core::quick::Target::Jpeg),
             C_RESTORE => self.restore_original(),
             C_CLOSE | C_GALLERY => {

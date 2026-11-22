@@ -1,0 +1,18 @@
+{
+  "id": "P007",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 3,
+  "reason_code": "trust",
+  "reason": "I would not hand my default viewer to an unknown .exe from one developer, version 0.4.1, no word on signing or source. FastStone already does what I need and I know it.",
+  "why_switch_or_not": "Speed numbers are nice, but my screenshots and PNG exports already open fast enough in FastStone, so I gain little. This thing has a gallery, editor, 3D, video, audio, scanner importer, and I want a viewer that only views. I'd also have to tick every format myself in Windows Settings, and I don't know if it has the full-screen mode and browser I use daily.",
+  "current_app_pros": "FastStone's full-screen mode with the hidden edge menus, the file browser, and the simple editor for crop/resize/sharpen. It handles my RAW+JPG folders and I can cull quickly. It is stable and I have used it for years.",
+  "current_app_pains": "Rapid next/back on big folders is a bit sluggish, but it doesn't really bother me. Nothing serious.",
+  "objection": "Is an unknown .exe from one person safe? Nothing says it is signed or open source, and it does far more than viewing, so there is more to go wrong.",
+  "would_change_my_mind": "A signed installer, public source code or a clean independent scan, and a clearly pure-viewer mode with the same full-screen behaviour as FastStone.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

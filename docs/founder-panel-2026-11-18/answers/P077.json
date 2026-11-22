@@ -1,0 +1,18 @@
+{
+  "id": "P077",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 6,
+  "reason_code": "habit",
+  "reason": "I'd grab the portable zip because it claims DDS, EXR, TGA and GLB/FBX, which is exactly my texture and model checking. But IrfanView is already wired up with my shortcuts and plug-ins, so I won't make a v0.4.1 one-dev viewer my default on speed claims alone.",
+  "why_switch_or_not": "The speed pitch does nothing for me: 40 ms vs 100 ms per picture is not something I feel when I'm inspecting a texture. What would pull me in is the format coverage (HDR/EXR/DDS/TGA plus 3D models in one window), so I'd keep it for those and leave IrfanView as the default for everything else. I don't know yet how it handles alpha channels, mip levels, normal maps or colour-space flags on game textures, and there's no plug-in system, so if it gets one of those wrong I'm back to IrfanView.",
+  "current_app_pros": "IrfanView is tiny and instant enough, my shortcuts are in muscle memory, the plug-ins are set up, and batch convert/rename and command-line use already work for my pipeline. It's boring and it never breaks.",
+  "current_app_pains": "DDS, EXR and some HDR files need plug-ins or just don't open right, and it can't show 3D models at all, so I bounce to other tools for those. The UI also looks dated, but speed isn't a complaint.",
+  "objection": "A few tens of milliseconds won't change my day, and it's a v0.4.1 from one developer. I have no idea whether it will be maintained next year, or whether its DDS/EXR/HDR handling is accurate (channels, colour space, tone mapping) rather than just 'opens'.",
+  "would_change_my_mind": "If it showed DDS/EXR/TGA correctly (separate channels, alpha, mips, linear vs sRGB), with the same keyboard shortcuts I use now, and stayed solid on my own game assets over a couple of weeks, I'd make it the default.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 12,
+  "price_too_expensive": 25
+}

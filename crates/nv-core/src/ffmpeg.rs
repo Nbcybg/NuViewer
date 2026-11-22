@@ -20,7 +20,8 @@ pub fn find() -> Option<PathBuf> {
         return Some(PathBuf::from(c));
     }
     let mut places: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).map(|d| d.join("ffmpeg.exe")).collect()).unwrap_or_default();
-    if let Some(l) = std::env::var_os("LOCALAPPDATA") {
+    // (Not the portable data folder: the real one, where WinGet puts its links.)
+    if let Some(l) = std::env::var_os("NUVIEWER_REAL_LOCALAPPDATA").or_else(|| std::env::var_os("LOCALAPPDATA")) {
         places.push(PathBuf::from(l).join("Microsoft").join("WinGet").join("Links").join("ffmpeg.exe"));
     }
     for var in ["ProgramFiles", "ProgramFiles(x86)"] {
@@ -287,6 +288,73 @@ pub fn grab_rgb16(src: &Path, ms: u64, colour: &crate::videocolour::VideoColour)
     }
     let px: Vec<u16> = buf[..info.buffer_size()].chunks_exact(2).map(|b| u16::from_be_bytes([b[0], b[1]])).collect();
     Ok((info.width, info.height, px))
+}
+
+/// Does a pixel format (as ffprobe names it) carry an alpha channel? (A GIF's palette format may, so it counts.)
+pub fn pix_fmt_has_alpha(pix_fmt: &str) -> bool {
+    let p = pix_fmt.to_ascii_lowercase();
+    ["yuva", "rgba", "bgra", "argb", "abgr", "gbrap", "ya8", "ya16", "pal8"].iter().any(|k| p.contains(k))
+}
+
+/// The ffmpeg arguments that write one picture file per frame in `format` ("png", "jpg", "webp", "tiff", "bmp", "qoi", "tga").
+pub fn frame_codec_args(format: &str, quality: u8, alpha: bool) -> Vec<String> {
+    let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<String>>();
+    match format {
+        "jpg" => {
+            // ffmpeg's -q:v runs 2 (best) to 31 (worst): 100 -> 2, 30 -> 20.
+            let q = 2 + ((100 - quality.clamp(30, 100) as u32) * 18 / 70);
+            vec!["-c:v".into(), "mjpeg".into(), "-q:v".into(), q.to_string(), "-pix_fmt".into(), "yuvj420p".into()]
+        }
+        "webp" => s(&["-c:v", "libwebp", "-lossless", "1", "-compression_level", "4", "-pix_fmt", if alpha { "bgra" } else { "bgr24" }]),
+        "tiff" => s(&["-c:v", "tiff", "-pix_fmt", "rgb24"]),
+        "bmp" => s(&["-c:v", "bmp", "-pix_fmt", "bgr24"]),
+        "qoi" => s(&["-c:v", "qoi", "-pix_fmt", if alpha { "rgba" } else { "rgb24" }]),
+        "tga" => s(&["-c:v", "targa", "-pix_fmt", if alpha { "bgra" } else { "bgr24" }]),
+        _ => s(&["-c:v", "png", "-pix_fmt", if alpha { "rgba" } else { "rgb24" }]),
+    }
+}
+
+/// Write every `every`-th frame of `src` as `dir/<stem>_00001.<ext>` ... Returns how many were written. `progress(done, total)` follows
+/// ffmpeg's own count (total 0 = unknown); a `cancel` that turns true kills ffmpeg (what was written stays).
+#[allow(clippy::too_many_arguments)]
+pub fn extract_frames(src: &Path, dir: &Path, stem: &str, format: &str, ext: &str, quality: u8, every: u32, alpha: bool, total: usize, cancel: &std::sync::atomic::AtomicBool, progress: &mut dyn FnMut(usize, usize)) -> Result<usize, String> {
+    use std::io::{BufRead, BufReader};
+    use std::sync::atomic::Ordering;
+    let ff = find().ok_or("Extracting the frames of a video needs ffmpeg: install it (winget install Gyan.FFmpeg) or name it in Settings > Tools.")?;
+    let pattern = dir.join(format!("{stem}_%05d.{ext}"));
+    let mut c = Command::new(&ff);
+    c.args(["-v", "error", "-nostats", "-progress", "pipe:1", "-y"]).args(pre_input(src)).arg("-i").arg(src).args(["-an", "-sn", "-dn"]);
+    if every > 1 {
+        c.arg("-vf").arg(format!("select=not(mod(n\\,{every}))"));
+    }
+    c.args(["-vsync", "0"]).args(frame_codec_args(format, quality, alpha)).args(["-start_number", "1"]).arg(&pattern).stdout(Stdio::piped());
+    let mut child = quiet(&mut c).spawn().map_err(|e| format!("ffmpeg could not start: {e}"))?;
+    let mut done = 0usize;
+    if let Some(out) = child.stdout.take() {
+        for line in BufReader::new(out).lines().map_while(Result::ok) {
+            if let Some(n) = line.strip_prefix("frame=").and_then(|v| v.trim().parse::<usize>().ok()) {
+                done = n;
+                progress(n, total);
+            }
+            if cancel.load(Ordering::Relaxed) {
+                let _ = child.kill();
+                break;
+            }
+        }
+    }
+    let status = child.wait().map_err(|e| e.to_string())?;
+    if !status.success() && !cancel.load(Ordering::Relaxed) {
+        let mut err = String::new();
+        if let Some(mut e) = child.stderr.take() {
+            use std::io::Read;
+            let _ = e.read_to_string(&mut err);
+        }
+        let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("ffmpeg stopped").to_string();
+        return Err(format!("ffmpeg could not write the frames as {}: {last}", format.to_uppercase()));
+    }
+    // The count ffmpeg reports can lag the files by the last write: count what is there.
+    let on_disk = std::fs::read_dir(dir).map(|rd| rd.flatten().filter(|e| e.path().extension().is_some_and(|x| x == ext)).count()).unwrap_or(0);
+    Ok(on_disk.max(done))
 }
 
 /// The loudness outline of a sound ffmpeg can decode: `cols` (min, max) pairs, one channel.

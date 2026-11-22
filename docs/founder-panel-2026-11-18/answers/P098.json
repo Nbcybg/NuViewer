@@ -1,0 +1,18 @@
+{
+  "id": "P098",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 3,
+  "reason_code": "habit",
+  "reason": "Portable zip means I'd poke at it for ten minutes to see if the speed numbers are real, but my XnView MP associations and shortcuts are set and I'm not redoing them for a 0.4.1 from one guy.",
+  "why_switch_or_not": "The double-click open speed and the fast next/back are the only things that would tempt me, since I open pictures from Explorer dozens of times a day. But I'd have to tick formats and press Set default myself, relearn the keys, and I don't see anything about metadata tools, which is half of why I use XnView MP. A gallery with batch rename/convert sounds like a copy of what I already have, and I wouldn't trust a single-developer 0.4.1 with the thing I click fifty times a day.",
+  "current_app_pros": "XnView MP is a browser, batch converter and metadata tool in one, handles nearly every format I throw at it, and I know every shortcut and setting without thinking.",
+  "current_app_pains": "Nothing that makes me look elsewhere. It's a bit heavy to open from Explorer compared to a pure viewer, but I stopped noticing years ago.",
+  "objection": "I'd have to relearn shortcuts and reset file associations for a version 0.4.1 by one developer, and I can't tell whether it covers the metadata and batch work I rely on XnView MP for.",
+  "would_change_my_mind": "A few weeks of it running alongside XnView MP with no crashes or format misses, plus a clear metadata view/edit story and the ability to import XnView-style shortcuts, so I don't pay the relearning cost.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

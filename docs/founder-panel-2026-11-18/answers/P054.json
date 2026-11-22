@@ -1,0 +1,18 @@
+{
+  "id": "P054",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 2,
+  "reason_code": "habit",
+  "reason": "ImageGlass already shows my screenshots and PNGs fine and I know where everything is. Speed numbers on a developer's own PC don't mean much to me, and I'm not relearning a viewer from one person's 0.4.1.",
+  "why_switch_or_not": "I might unzip the portable version out of curiosity since it's free and needs no admin rights, and flip through a screenshot folder once or twice. But most of that feature list (RAW, PSD, 3D models, an editor, a scanner importer) is stuff I never use, and it makes the app sound bigger than I need. I'd go back to ImageGlass because I'd also have to re-tick the file formats in Windows Settings, and it isn't open source like ImageGlass.",
+  "current_app_pros": "ImageGlass looks clean and modern, it's open source, and it opens my PNG screenshots and phone photos without any fuss. I know its keys and menus by heart.",
+  "current_app_pains": "Nothing much. It's a little slow when I hold down the arrow key through a few hundred screenshots, but not enough to make me change.",
+  "objection": "It's one developer's 0.4.1. I don't know if it will still be updated in two years, and I don't want to retrain my fingers and reset my default apps for something that might disappear.",
+  "would_change_my_mind": "Seeing it stay maintained for a year or two, with the source open like ImageGlass, and a plain mode that hides the editor, gallery and everything else so it feels like a simple fast viewer for screenshots.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 10,
+  "price_too_expensive": 25
+}

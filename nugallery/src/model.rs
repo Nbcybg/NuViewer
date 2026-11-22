@@ -1,6 +1,7 @@
 //! The folder as the gallery sees it: entries (folders and files), how they are filtered, searched and ordered, and
 //! which of them are selected. No drawing and no window in here.
 
+use crate::groups::{compare_keys, key_of, spans, Clock, Group, GroupSpan, Key};
 use nv_core::folder::{natural_cmp, shuffle_key, SortKey};
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
@@ -257,6 +258,12 @@ fn compare(a: &Entry, b: &Entry, o: Order) -> std::cmp::Ordering {
 /// Indices into `all` of what is shown, in order: filtered by `show` (folders stay unless `folders` is off), by the
 /// search words (every word must be in the name), then sorted.
 pub fn arrange(all: &[Entry], show: Show, folders: bool, search: &str, order: Order) -> Vec<usize> {
+    arrange_grouped(all, show, folders, search, order, Group::default(), Clock::local())
+}
+
+/// `arrange`, with the group view: the files are ordered by their group first (folders are a group of their own and stay in
+/// front), by `order` inside a group.
+pub fn arrange_grouped(all: &[Entry], show: Show, folders: bool, search: &str, order: Order, group: Group, clock: Clock) -> Vec<usize> {
     let words: Vec<String> = search.split_whitespace().map(|w| w.to_lowercase()).collect();
     let mut idx: Vec<usize> = (0..all.len())
         .filter(|&i| {
@@ -268,7 +275,18 @@ pub fn arrange(all: &[Entry], show: Show, folders: bool, search: &str, order: Or
             })
         })
         .collect();
-    idx.sort_by(|&a, &b| compare(&all[a], &all[b], order));
+    if group.on() {
+        let mut keys: Vec<Option<Key>> = vec![None; all.len()];
+        for &i in &idx {
+            keys[i] = Some(key_of(&all[i], group.by, clock));
+        }
+        idx.sort_by(|&a, &b| {
+            let (ka, kb) = (keys[a].as_ref().unwrap(), keys[b].as_ref().unwrap());
+            compare_keys(ka, kb, group.descending).then_with(|| compare(&all[a], &all[b], order))
+        });
+    } else {
+        idx.sort_by(|&a, &b| compare(&all[a], &all[b], order));
+    }
     idx
 }
 
@@ -296,6 +314,42 @@ pub fn fold_sequences(all: &[Entry], view: &[usize], min: usize) -> (Vec<usize>,
     (kept, members)
 }
 
+/// RAW + JPG pairs grouped: of a RAW and a JPG / HEIF of the same name in `view`, only the JPG is kept (it stands for the pair).
+/// Returns the list and, for each JPG that stands for a RAW, the entry indices of its RAW files. A RAW without a JPG in `view`
+/// (for example while "RAW only" is shown) is never touched.
+pub fn group_pairs(all: &[Entry], view: &[usize]) -> (Vec<usize>, std::collections::HashMap<usize, Vec<usize>>) {
+    let stem = |e: &Entry| Path::new(&e.name).file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let mut fronts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for &i in view {
+        let e = &all[i];
+        if !e.is_dir() && nv_core::rawpair::is_front_ext(&e.ext) {
+            fronts.entry(stem(e)).or_insert(i);
+        }
+    }
+    let mut members: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+    if fronts.is_empty() {
+        return (view.to_vec(), members);
+    }
+    let kept = view
+        .iter()
+        .copied()
+        .filter(|&i| {
+            let e = &all[i];
+            if e.is_dir() || e.kind != Kind::Raw {
+                return true;
+            }
+            match fronts.get(&stem(e)) {
+                Some(&front) => {
+                    members.entry(front).or_default().push(i);
+                    false
+                }
+                None => true,
+            }
+        })
+        .collect();
+    (kept, members)
+}
+
 /// The folder being shown.
 pub struct Listing {
     pub dir: PathBuf,
@@ -310,32 +364,88 @@ pub struct Listing {
     pub fold: Option<usize>,
     /// The folded runs: entry index of the first frame -> entry indices of all its frames.
     pub runs: std::collections::HashMap<usize, Vec<usize>>,
+    /// RAW + JPG pairs shown as one tile (the JPG); off = every file is a tile of its own.
+    pub pairs: bool,
+    /// The grouped pairs: entry index of the JPG -> entry indices of its RAW files.
+    pub pair_raws: std::collections::HashMap<usize, Vec<usize>>,
+    /// Star ratings and colour labels read from the XMP sidecars, by entry id (filled in the background after a folder is read).
+    pub ratings: std::collections::HashMap<u64, nv_core::xmp::Meta>,
+    /// Which ratings are shown (folders always are).
+    pub rating_filter: nv_core::xmp::Filter,
+    /// The group view (off by default).
+    pub group: Group,
+    /// The group headers of `view`: where each starts and what it says (empty without groups).
+    pub groups: Vec<GroupSpan>,
 }
 
 impl Listing {
     pub fn new(show: Show, order: Order) -> Self {
-        Listing { dir: PathBuf::new(), all: Vec::new(), view: Vec::new(), show, folders: true, search: String::new(), order, fold: None, runs: Default::default() }
+        Listing {
+            dir: PathBuf::new(),
+            all: Vec::new(),
+            view: Vec::new(),
+            show,
+            folders: true,
+            search: String::new(),
+            order,
+            fold: None,
+            runs: Default::default(),
+            pairs: false,
+            pair_raws: Default::default(),
+            ratings: Default::default(),
+            rating_filter: Default::default(),
+            group: Group::default(),
+            groups: Vec::new(),
+        }
+    }
+
+    /// First item index of every group header, for the grid.
+    pub fn group_starts(&self) -> Vec<usize> {
+        self.groups.iter().map(|g| g.start).collect()
     }
 
     pub fn set_entries(&mut self, dir: PathBuf, all: Vec<Entry>) {
+        if self.dir != dir {
+            self.ratings.clear();
+        }
         self.dir = dir;
         self.all = all;
         self.rearrange();
     }
 
     pub fn rearrange(&mut self) {
-        self.view = arrange(&self.all, self.show, self.folders, &self.search, self.order);
+        let clock = Clock::local();
+        self.view = arrange_grouped(&self.all, self.show, self.folders, &self.search, self.order, self.group, clock);
+        self.pair_raws.clear();
+        if self.pairs {
+            let (kept, raws) = group_pairs(&self.all, &self.view);
+            self.view = kept;
+            self.pair_raws = raws;
+        }
+        if self.rating_filter != nv_core::xmp::Filter::All {
+            let (all, ratings, f) = (&self.all, &self.ratings, self.rating_filter);
+            self.view.retain(|&k| all[k].is_dir() || f.accepts(&ratings.get(&all[k].id).copied().unwrap_or_default()));
+        }
         self.runs.clear();
         if let Some(min) = self.fold.filter(|_| self.order.key == SortKey::Name && !self.order.descending && self.order.shuffle.is_none()) {
             let (kept, runs) = fold_sequences(&self.all, &self.view, min);
             self.view = kept;
             self.runs = runs;
         }
+        self.groups = if self.group.on() { spans(self.view.iter().map(|&k| key_of(&self.all[k], self.group.by, clock))) } else { Vec::new() };
     }
 
     /// How many frames the tile of entry `id` stands for, if it is a folded sequence.
     pub fn sequence_len(&self, id: u64) -> Option<usize> {
         self.runs.iter().find(|(first, _)| self.all[**first].id == id).map(|(_, v)| v.len())
+    }
+
+    /// The RAW files that entry `id` stands for when RAW + JPG pairs are grouped (empty for every other entry).
+    pub fn pair_files(&self, id: u64) -> Vec<PathBuf> {
+        if self.pair_raws.is_empty() {
+            return Vec::new();
+        }
+        self.pair_raws.iter().find(|(front, _)| self.all[**front].id == id).map(|(_, v)| v.iter().map(|&k| self.all[k].path.clone()).collect()).unwrap_or_default()
     }
 
     /// The paths of every frame of the sequence that entry `id` stands for (None for an ordinary entry).
@@ -515,6 +625,32 @@ mod tests {
     }
 
     #[test]
+    fn grouped_pairs_keep_the_jpg_and_a_lone_raw_stays() {
+        let all = vec![
+            entry("DSCF0001.RAF", Kind::Raw, 900, 1),
+            entry("DSCF0001.JPG", Kind::Picture, 90, 1),
+            entry("DSCF0002.RAF", Kind::Raw, 900, 2),
+            entry("DSCF0003.JPG", Kind::Picture, 90, 3),
+            entry("Sub", Kind::Folder, 0, 4),
+        ];
+        let mut l = Listing::new(Show::Media, Order::default());
+        l.set_entries(PathBuf::from("C:\\t"), all.clone());
+        assert_eq!(l.len(), 5, "factory: every file is its own tile");
+        l.pairs = true;
+        l.rearrange();
+        let shown: Vec<&str> = l.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(shown, ["Sub", "DSCF0001.JPG", "DSCF0002.RAF", "DSCF0003.JPG"]);
+        let jpg = l.iter().find(|e| e.name == "DSCF0001.JPG").unwrap().id;
+        assert_eq!(l.pair_files(jpg), vec![all[0].path.clone()]);
+        let lone = l.iter().find(|e| e.name == "DSCF0003.JPG").unwrap().id;
+        assert!(l.pair_files(lone).is_empty());
+        // "RAW only" has no JPG in view, so nothing is grouped away.
+        l.show = Show::Raw;
+        l.rearrange();
+        assert_eq!(l.len(), 3, "Sub + both RAW files");
+    }
+
+    #[test]
     fn a_listing_folds_only_while_sorted_by_name_upwards() {
         let mut l = Listing::new(Show::Media, Order::default());
         let all: Vec<Entry> = (1..=10).map(|n| entry(&format!("f_{n:03}.png"), Kind::Picture, 1, n)).collect();
@@ -556,6 +692,42 @@ mod tests {
         assert_eq!(by(SortKey::Size), ["Sub", "notes.txt", "img2.jpg", "a.png", "img10.jpg", "raw1.raf"]);
         assert_eq!(by(SortKey::Modified), ["Sub", "img2.jpg", "raw1.raf", "img10.jpg", "a.png", "notes.txt"]);
         assert_eq!(by(SortKey::Type), ["Sub", "img2.jpg", "img10.jpg", "a.png", "raw1.raf", "notes.txt"]);
+    }
+
+    #[test]
+    fn group_view_orders_by_group_then_by_the_ordinary_sort() {
+        use crate::groups::GroupBy;
+        let all = sample();
+        let clock = Clock { now: 100, utc_offset_minutes: 0 };
+        let g = |by, descending, order: Order| names(&all, &arrange_grouped(&all, Show::All, true, "", order, Group { by, descending }, clock));
+        // Type: folders first, then JPG (img2, img10 by name), PNG, RAF, TXT.
+        assert_eq!(g(GroupBy::Type, false, Order::default()), ["Sub", "img2.jpg", "img10.jpg", "a.png", "raw1.raf", "notes.txt"]);
+        assert_eq!(g(GroupBy::Type, true, Order::default()), ["Sub", "notes.txt", "raw1.raf", "a.png", "img2.jpg", "img10.jpg"]);
+        // Name: A, I, N, R; the folder stays in front when descending too, and the order inside a group is still the sort.
+        assert_eq!(g(GroupBy::Name, false, Order::default()), ["Sub", "a.png", "img2.jpg", "img10.jpg", "notes.txt", "raw1.raf"]);
+        assert_eq!(g(GroupBy::Name, true, Order::default()), ["Sub", "raw1.raf", "notes.txt", "img2.jpg", "img10.jpg", "a.png"]);
+        let by_size_desc = Order { key: SortKey::Size, descending: true, shuffle: None };
+        assert_eq!(g(GroupBy::Name, false, by_size_desc), ["Sub", "a.png", "img10.jpg", "img2.jpg", "notes.txt", "raw1.raf"]);
+        // No grouping = the plain order.
+        assert_eq!(g(GroupBy::None, false, Order::default()), names(&all, &arrange(&all, Show::All, true, "", Order::default())));
+    }
+
+    #[test]
+    fn a_listing_cuts_groups_after_every_filter() {
+        use crate::groups::GroupBy;
+        let mut l = Listing::new(Show::All, Order::default());
+        l.group = Group { by: GroupBy::Type, descending: false };
+        l.set_entries(PathBuf::from("C:\\t"), sample());
+        let heads: Vec<(usize, &str, usize)> = l.groups.iter().map(|g| (g.start, g.label.as_str(), g.count)).collect();
+        assert_eq!(heads, [(0, "Folders", 1), (1, "JPG", 2), (3, "PNG", 1), (4, "RAF", 1), (5, "TXT", 1)]);
+        assert_eq!(l.group_starts(), [0, 1, 3, 4, 5]);
+        // A search shrinks the groups with it.
+        l.search = "img".into();
+        l.rearrange();
+        assert_eq!(l.groups.iter().map(|g| (g.label.as_str(), g.count)).collect::<Vec<_>>(), [("JPG", 2)]);
+        l.group.by = GroupBy::None;
+        l.rearrange();
+        assert!(l.groups.is_empty());
     }
 
     #[test]

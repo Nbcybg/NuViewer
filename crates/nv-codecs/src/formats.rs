@@ -115,6 +115,20 @@ plt|HP-GL plot file|Vector (plotter)|View|Rasterised|built-in reader|other progr
 cgm|Computer Graphics Metafile|Vector (clipart)|View|Rasterised|built-in reader|binary encoding; clear-text encoding not supported; text not drawn
 swf|Adobe Flash movie (Shockwave Flash)|Animation / web|Preview|Flattened|built-in reader|largest bitmap inside, else a card
 fla|Adobe Flash Animate project|Animation / authoring|Preview|Flattened|built-in reader|a library picture, else a card
+xfl|Adobe Animate project (uncompressed)|Animation / authoring|Preview|Flattened|built-in reader|the biggest picture of the LIBRARY folder beside it, else a card with the stage and frame rate
+atlas|Spine / libGDX texture atlas|Animation (2D skeletal)|Preview|Flattened|built-in reader|the atlas page picture beside it (the sprite sheet), else a card
+skel|Spine skeleton (binary)|Animation (2D skeletal)|Preview|Flattened|built-in reader|the sprite sheet of the .atlas beside it, else a card with the Spine version
+spine|Spine editor project|Animation (2D skeletal)|Card|No|built-in reader|a card: the project holds no preview; export the skeleton and atlas
+xstage|Toon Boom Harmony scene|Animation / cartoon|Card|No|built-in reader|a card: size, frame rate, drawing and peg counts
+sbpz|Toon Boom Storyboard Pro package|Animation / storyboard|Preview|Flattened|built-in reader|the thumbnail or biggest picture in the package
+moho|Moho / Anime Studio project|Animation / cartoon|Preview|Flattened|built-in reader|the preview picture of a zipped project, else a card with the canvas and frame rate
+anme|Anime Studio project|Animation / cartoon|Preview|Flattened|built-in reader|as .moho
+pclx|Pencil2D animation|Animation / cartoon|View|Flattened|built-in reader|the first frame, bitmap layers composited; vector layers are not drawn
+sif|Synfig Studio canvas|Animation / cartoon|Card|No|built-in reader|a card: canvas size, frame rate, length, layers
+sifz|Synfig Studio canvas (gzip)|Animation / cartoon|Card|No|built-in reader|as .sif
+sfg|Synfig Studio package|Animation / cartoon|Preview|Flattened|built-in reader|the picture in the package, else the canvas card
+tnz|OpenToonz scene|Animation / cartoon|Card|No|built-in reader|a card: resolution, frame rate, range, levels
+tvpp|TVPaint Animation project|Animation / cartoon|Card|No|built-in reader|a card: a closed format
 blend|Blender project|3D scene|Preview|No|built-in reader|stored preview picture
 blend1|Blender project (backup)|3D scene|Preview|No|built-in reader|stored preview picture
 stl|Stereolithography model|3D model|3D|No|built-in reader|

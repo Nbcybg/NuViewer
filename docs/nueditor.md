@@ -71,7 +71,7 @@ chosen way is used without asking. Ctrl+S inside the editor follows the same cho
 | **Burn in** | the picture is replaced; the original goes to `%LOCALAPPDATA%\NuViewer\undo` for 7 days; the pair file is removed (the edit lives in the pixels now). Formats we can't rewrite (RAW, GIF, WebP ...) get a PNG copy instead. | restore from the backup folder |
 | Discard / Keep editing | nothing written / back to the picture | |
 
-Inside a session: Ctrl+Z / Ctrl+Y (200 steps), right-click a slider (or double-click) = default, right-click a group header = reset
+Inside a session: Ctrl+Z / Ctrl+Y (200 steps), right-click a slider = default, double click = as it was before the last save, triple click = zero, right-click a group header = reset
 group, `0` / Reset all, `C` = show the original. Opening a picture that has a pair file applies it (with a note when the
 picture's size differs). The pair file is one line per group (`light exposure="0.5" contrast="12"`), hand-editable, forward-tolerant (unknown lines and
 keys ignored, newer versions refused). It is **not** `.xmp`: darktable / Lightroom keep their own `IMG.RAF.xmp` next to the same

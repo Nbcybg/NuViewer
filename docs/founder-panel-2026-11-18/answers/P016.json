@@ -1,0 +1,18 @@
+{
+  "id": "P016",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 6,
+  "reason_code": "habit",
+  "reason": "Photos opens when I double-click and I never think about it, so I won't re-point every format to a one-person app. But Photos can't open half of what I work with, so I'd grab the portable zip and use it for TGA/DDS/EXR/HDR.",
+  "why_switch_or_not": "The format list is what interests me: TGA, DDS, EXR, HDR and GLB/OBJ/FBX opening instantly would actually save me a trip into another program just to peek at a texture. But it also ships a gallery, an editor, batch convert, a screenshot importer and video/audio, which is far more than I want from a viewer, and one dev on 0.4.1 with no plug-ins or community means nobody to ask when a DDS or EXR looks wrong. I'd make it the default only for the texture/HDR extensions after a few weeks of proof, not for JPG/PNG.",
+  "current_app_pros": "It's already there, opens on double-click, no setup, no updates to think about, and it's never crashed on a normal JPG/PNG. It stays out of my way.",
+  "current_app_pains": "It can't open TGA, DDS, EXR or HDR properly, and it's not great with big textures, so I end up opening those in a DCC app or Photoshop just to look. The startup is also a bit sluggish sometimes.",
+  "objection": "No plugins, no big community, hard to find help. One person on version 0.4.1 might stop updating, and I don't trust it with my default associations yet.",
+  "would_change_my_mind": "If the TGA/DDS/EXR handling turned out right in my own files (channels, alpha, mip/cubemap sanity, correct HDR exposure) and it stayed fast and stable for a few weeks, with a way to turn off the gallery/editor parts so it's just a viewer.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 10,
+  "price_too_expensive": 25
+}

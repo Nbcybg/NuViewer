@@ -721,3 +721,15 @@ Full table of causes and changes: `docs/session18.md`. CHANGELOG 0.3.2. Highligh
   (see the open item below); no real mouse drag into Explorer from the gallery was run (OLE path unchanged); sound in the gallery preview untested (no sound device in the tool session);
   NuQuick still previews a video as a poster (no player there); DPI > 100% untested.
 - Open item: decode zip names with the Japanese / Chinese code pages when the UTF-8 flag is missing (Windows `MultiByteToWideChar` 932, 936, 949, 950 tried in that order).
+
+## Session 22 (2026-11-22) - the long list (version 0.6.0)
+
+Full table (point -> code -> what was verified, decisions, open items): `docs/session22.md`; user-facing: `CHANGELOG.md` 0.6.0, `docs/INSTALL.md`, `docs/formats-0.6.md`.
+Short version: NuGallery group view (`nugallery/src/groups.rs`, bands in `grid.rs`); slider double / triple click (`Event::TripleClick`, Form track-bar subclass, NuEditor rows); NuEditor reads the camera's values of a RAW
+(`nv-editor/rawbase.rs`, `CameraData.tint`), edits a GIF as a whole (`nv-editor/gifenc.rs`) and the frame in view of video / PDF / 3D (`nv-core/frames.rs::frame_for_editing`), undo depth setting; language registry + mock-up files
+(`nv-text`); new icons (`makeicons.rs`); installer / uninstaller / portable (`setup/`, `nv-win/portable.rs`); animation formats (`nv-codecs/animfmt.rs`); 3D bones / outline / silhouette / support preview / turntable
+(`Mesh.bones`, `mesh.hlsl`, `nuviewer/turntable.rs`); Share to... (`nv-win/share.rs`); Extract frames (`nv-core/frames.rs`, `nv-win/progress.rs`); NuNote (new crate `nunote/`); window placement (`nv-win/winpos.rs`).
+Gotchas of this session: the Bash tool turns `\n` / `\t` / `\u` inside heredoc python into real characters: patch through a file written with the Write tool (`ed.py` helper with `<NL>` `<T>` `<BS>` tokens); `cargo check` does run the HLSL build script;
+Windows.Data.Pdf paints white paper unless `SetBackgroundColor` is transparent; a GIF's transparent pixel shows the *previous frame* unless that frame's disposal is "restore to background" (test data needs it).
+
+**Next session: `docs/session23-plan.md`** - a shared layer panel (PSD / XCF / Krita / ORA / TIFF / AI / EPS), then a Spine + Live2D player like BD2 Viewer (animation + skin lists, speed, loop, ping-pong, wheel zoom, pan, layers, WebM / frame sequence with alpha, snapshot), then Live2D JSON files + Cubism Core, then UnityFS. Helpers: `tools/dev/patch.py`, `tools/test/shot.ps1`.

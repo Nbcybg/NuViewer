@@ -1,0 +1,18 @@
+{
+  "id": "P006",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 6,
+  "reason_code": "trust",
+  "reason": "The speed numbers are exactly what I care about, so I'd grab the portable zip and throw my PNG exports at it. But it's one dev, v0.4.1, and nothing says it's signed or open source, so I'm not making it my default until I've seen it behave for a while.",
+  "why_switch_or_not": "Next/back at 40-50 ms and rapid next x5 at 85 ms would feel clearly better than Photos when I flip through hundreds of screenshots and PNG exports, and PSD/AI/alpha support is relevant to my work. But the numbers come from the developer's own benchmark on one PC, and it's an unknown exe with no mention of code signing or source. I'd also have to set the default myself in Windows Settings, so I'd only do it after the portable test proves itself.",
+  "current_app_pros": "Windows Photos is already the default, so double-clicking a picture just opens it. It handles PNG/JPG fine and I never had to set anything up.",
+  "current_app_pains": "It's slow to open and slow when I hold the arrow key through a folder of screenshots. It chokes on PSD and AI files. Alpha PNGs are not shown the way I want, and it's laggy with big exports.",
+  "objection": "Is this unknown .exe safe? It's one developer, version 0.4.1, and I see no word on a signature or open source. I won't make something I can't vet my default for every image I open.",
+  "would_change_my_mind": "A code-signed installer or published source code, and my own stopwatch test with my PNG/PSD exports showing it really is faster than Photos.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

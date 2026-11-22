@@ -63,6 +63,8 @@ fn main() {
     let settings = Settings::load();
     nv_core::i18n::init(&settings.more.language, &nv_win::ui_language());
     colour::apply_at_startup(&settings);
+    // A RAW file is edited from what the sensor recorded (the sliders are relative to the camera's own values), unless the setting says the camera's JPEG look.
+    nv_codecs::set_raw_mode(if settings.editor_raw_sensor { nv_codecs::RawMode::Full } else { nv_codecs::RawMode::Preview });
 
     // One editor window: a second launch hands its picture to the first.
     if !flag("--new-window") && import.is_none() {

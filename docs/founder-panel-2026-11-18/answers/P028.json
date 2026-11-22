@@ -1,0 +1,18 @@
+{
+  "id": "P028",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 9,
+  "reason_code": "need",
+  "reason": "I'd grab the portable zip, because textures, HDR/EXR and GLB/FBX files are what I actually open for my game project and IrfanView can't show models at all. For phone photos, screenshots and PDFs IrfanView already does the job and I know every shortcut, so it stays my default.",
+  "why_switch_or_not": "DDS, EXR, TGA, HDR and GLB/OBJ/FBX in one viewer is the reason I'd try it, and the 26 of 32 formats claim is the kind of thing I'd test with my own files. I won't make it my default for at least a month until I know it doesn't choke on my files, and the 'set default yourself in Settings' step is a hassle for something from one developer at version 0.4.1. The speed numbers don't matter to me; IrfanView opens a JPG fast enough.",
+  "current_app_pros": "IrfanView is tiny, starts instantly, and I know the keyboard shortcuts. The plug-ins are already set up and it handles my JPG, PNG, screenshots and basic PDF without trouble. I don't have to think about it.",
+  "current_app_pains": "It can't open 3D models, and my texture and HDR files are hit and miss: some DDS variants and EXR files fail or look wrong even with the plug-ins. I end up opening other tools for those.",
+  "objection": "It's an unknown .exe from one person. The description doesn't say whether it's signed or open source. I'd want the portable zip scanned and not installed system-wide before I trust it.",
+  "would_change_my_mind": "A code-signed exe or open-source code I can inspect, plus proof that it opens my own DDS/EXR/FBX files correctly. That would move it from being a tool I keep in a folder to being my default viewer.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 40
+}

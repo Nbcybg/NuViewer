@@ -1,0 +1,18 @@
+{
+  "id": "P058",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 6,
+  "reason_code": "trust",
+  "reason": "I would run it on a few shoots to see if it opens my camera's RAW right and is quick for culling, because Bridge is slow just to look at a file. But my 200,000 pictures, ratings and keywords live in Bridge, and one developer on version 0.4.1 is not something I bet 15 years of work on.",
+  "why_switch_or_not": "The speed and the RAW+JPG shown as separate pictures are what get me to try it, since Bridge makes me wait just to look at a frame. I would not make it my default: it doesn't say it reads or writes Bridge/Lightroom ratings, labels or XMP, and I only found out how it handles my own camera's RAW by testing it. It also has an editor and a gallery I don't need, and I hate relearning shortcuts.",
+  "current_app_pros": "Bridge keeps my ratings, labels and keywords, and sorts through 15 years of files. It opens any RAW from my camera with the same colour as Photoshop and Lightroom, and it passes files straight into Photoshop. It is the one place my catalogue lives.",
+  "current_app_pains": "It is slow. Bridge or Photoshop takes ages to open just to look at one file, and culling a big shoot means waiting for previews to build. It also eats memory and starts heavy.",
+  "objection": "Does it open MY RAW files correctly, with the right colour, and does it keep my Bridge and Lightroom ratings? If I rate pictures in it and Bridge doesn't see the ratings, it is useless for culling.",
+  "would_change_my_mind": "Proof that it reads and writes star ratings and colour labels in XMP sidecars that Bridge and Lightroom see, and that my camera's RAW looks the same as in Camera Raw.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 20,
+  "price_too_expensive": 45
+}

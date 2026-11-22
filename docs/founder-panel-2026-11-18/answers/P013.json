@@ -1,0 +1,18 @@
+{
+  "id": "P013",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 5,
+  "reason_code": "trust",
+  "reason": "I'd unzip the portable build and throw a shoot's worth of RAW+JPG and a few PSDs at it, but I won't make a one-person 0.4.1 my default when it handles my client files. ImageGlass has years of users behind it and I can't see that here.",
+  "why_switch_or_not": "The speed numbers and the wider format list (PSD, AI, EXR, RAW) are interesting, and RAW and JPG showing as separate pictures is exactly how I cull. But the benchmark is the developer's own, on one PC, and a version 0.4.1 with no plug-ins and no community means nobody to ask when it breaks. I'd keep ImageGlass as default and open NuViewer for the big culling sessions to see if it really is faster.",
+  "current_app_pros": "ImageGlass looks clean and modern, it is open source so I know what it does, it has a decent community and answers when something goes wrong, and it opens my everyday PNG/JPG/PSD files without fuss.",
+  "current_app_pains": "It is not the quickest when I flip through hundreds of RAW and JPG files in a row, and it doesn't open some of the formats I get from clients. Nothing that makes me angry, but culling 500 shots is slower than I'd like.",
+  "objection": "One developer, version 0.4.1, no plug-ins, no big community, and no source or signing information that I can check before I run an exe on a machine with client work on it.",
+  "would_change_my_mind": "Published source code or a code-signed installer, plus a few independent reviews from other artists showing it handles RAW+JPG culling and PSD alpha correctly over a few months.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

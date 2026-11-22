@@ -1,0 +1,18 @@
+{
+  "id": "P057",
+  "would_try": true,
+  "buys": true,
+  "switch_decision": "replace",
+  "purchases_first_month": 18,
+  "reason_code": "need",
+  "reason": "Windows Photos can't open half of what I look at every day (PSD, TGA, DDS, EXR, GLB), so I keep bouncing to other tools. One free viewer that claims 26 of 32 formats, including 3D and HDR, is worth testing right now.",
+  "why_switch_or_not": "I'd switch if my own texture, EXR/HDR and PSD-with-alpha files open correctly, because then I don't need a second app for game assets. The 3D model preview (GLB/FBX/OBJ) and the gallery with batch convert are the features I'd actually use. What makes me hesitate is that it's one developer on 0.4.1, with no plug-ins, and I have to set the defaults myself.",
+  "current_app_pros": "It's already there, opens instantly on double-click for normal JPG/PNG screenshots and reference images, and I never have to think about it.",
+  "current_app_pains": "It can't open PSD, TGA, DDS, EXR/HDR, AI or 3D models, so I get 'can't open this file' or the Store pushing me to buy codecs. Alpha PNGs are not shown on a checkerboard I can trust, there's no colour management I can control, and it's slow to open from cold. No batch convert either.",
+  "objection": "Does it open MY files correctly: layered PSDs with alpha, 16-bit/float EXR and HDR, DDS with mipmaps or BC formats? 'Opens 26 of 32 types' on the developer's own test set doesn't tell me about my files, and they admit they only tied IrfanView on some PSD/TGA.",
+  "would_change_my_mind": "If it renders my own PSD, EXR and DDS files wrongly (washed-out alpha, wrong HDR tone, broken normal maps), I'd drop it after a day. If they open right, I keep it as default.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 20,
+  "price_too_expensive": 45
+}

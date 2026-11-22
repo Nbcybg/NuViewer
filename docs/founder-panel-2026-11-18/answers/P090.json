@@ -1,0 +1,18 @@
+{
+  "id": "P090",
+  "would_try": false,
+  "buys": false,
+  "switch_decision": "ignore",
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "It is one developer, version 0.4.1, and the page says nothing about source code, code signing or independent reviews, so I will not run an unknown .exe on my PC. My current viewer already opens my phone photos instantly.",
+  "why_switch_or_not": "The speed numbers are from the developer's own PC and benchmark, so I can't treat them as proof, and my viewer is already fast enough for relatives' phone photos. RAW, PSD, 3D, video and an editor are things I never use. I would also want to know the colour management won't change how my photos look when I print one, and the page only says 'colour management with ICC profiles' with no detail.",
+  "current_app_pros": "Small, starts instantly, next/back is quick, opens JPG/PNG/WebP/HEIC-type phone photos and screenshots without fuss, no installer baggage, and I know how it behaves.",
+  "current_app_pains": "Nothing much. Occasionally the print dialog is clumsy and I can't open a PDF in it, but I just use another program for that.",
+  "objection": "I don't know who this person is or whether the exe is safe. No source, no signature, no reviews, only one developer's own benchmark. Why would I put that on my PC when my current viewer already works?",
+  "would_change_my_mind": "Open source code or a code-signed installer, plus a few independent reviews or a recommendation from a site or person I trust, and a clear statement that it won't change my photos' colours when printing.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 0,
+  "price_too_expensive": 0
+}

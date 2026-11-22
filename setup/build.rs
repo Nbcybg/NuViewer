@@ -24,6 +24,7 @@ fn main() {
     let editor = find("NUEDITOR_EXE", "nueditor.exe", &out);
     let importer = find("NUIMPORTER_EXE", "nuimporter.exe", &out);
     let quick = find("NUQUICK_EXE", "nuquick.exe", &out);
+    let note = find("NUNOTE_EXE", "nunote.exe", &out);
     if viewer.is_none() {
         println!("cargo:warning=nuviewer.exe not found: building the setup WITHOUT a payload (build nuviewer first, or set NUVIEWER_EXE)");
     } else if editor.is_none() {
@@ -32,10 +33,31 @@ fn main() {
     if viewer.is_some() && gallery.is_none() {
         println!("cargo:warning=nugallery.exe not found: the setup will install NuViewer without NuGallery (build nugallery first, or set NUGALLERY_EXE)");
     }
+    // Besides the programs: the language files (one per language, see crates/nv-text/lang), the licence and the readme. Their names
+    // carry the sub-folder with a '/' (`lang/th.txt`); Setup creates it, the uninstaller removes exactly these.
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut extras: Vec<(String, Vec<u8>)> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(root.join("crates/nv-text/lang")) {
+        let mut names: Vec<_> = rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "txt")).collect();
+        names.sort();
+        for p in names {
+            println!("cargo:rerun-if-changed={}", p.display());
+            if let (Some(n), Ok(b)) = (p.file_name(), std::fs::read(&p)) {
+                extras.push((format!("lang/{}", n.to_string_lossy()), b));
+            }
+        }
+    }
+    for f in ["LICENSE", "README.md", "CHANGELOG.md"] {
+        let p = root.join(f);
+        println!("cargo:rerun-if-changed={}", p.display());
+        if let Ok(b) = std::fs::read(&p) {
+            extras.push((f.to_string(), b));
+        }
+    }
     // Layout of the blob: for every file: name length (u8), name, data length (u64 LE), data.
     let mut blob = Vec::new();
     if let Some(v) = viewer {
-        for (name, data) in std::iter::once(v).chain(gallery).chain(editor).chain(importer).chain(quick) {
+        for (name, data) in std::iter::once(v).chain(gallery).chain(editor).chain(importer).chain(quick).chain(note).chain(extras) {
             blob.push(name.len() as u8);
             blob.extend(name.as_bytes());
             blob.extend((data.len() as u64).to_le_bytes());

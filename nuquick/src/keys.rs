@@ -5,7 +5,7 @@
 //! so the hook lives on a thread that does nothing else. It never touches COM or the agent's state: it reads a few atomics and
 //! posts messages to the agent window.
 
-use crate::{WM_CLOSE_REQ, WM_OPEN_REQ, WM_SPACE};
+use crate::{WM_CLOSE_REQ, WM_OPEN_REQ, WM_SHARE_REQ, WM_SPACE};
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::Mutex;
 use std::time::Instant;
@@ -117,12 +117,22 @@ fn decide(msg: u32, k: &KBDLLHOOKSTRUCT) -> bool {
             post(WM_OPEN_REQ);
             true
         }
+        // Ctrl+Shift+H with the preview open: share it (the plain letter stays what it is, a type-ahead character).
+        0x48 if visible && down && held(0x11) && held(0x10) => {
+            post(WM_SHARE_REQ);
+            true
+        }
         0x30..=0x5A if down => {
             LAST_CHAR.store(tick(), Relaxed);
             false
         }
         _ => false,
     }
+}
+
+/// Is the key `vk` held down right now?
+fn held(vk: i32) -> bool {
+    unsafe { (windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(vk) as u16 & 0x8000) != 0 }
 }
 
 unsafe extern "system" fn hook_proc(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {

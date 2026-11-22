@@ -38,6 +38,12 @@ pub(crate) struct GpuMesh {
 /// Bytes per vertex: position, normal, texture coordinates, colour.
 const VERTEX_STRIDE: u32 = 36;
 
+impl GpuMesh {
+    pub(crate) fn source_bones(&self) -> usize {
+        self.source.bones.len()
+    }
+}
+
 pub(crate) struct MeshPipeline {
     vs: ID3D11VertexShader,
     ps: ID3D11PixelShader,
@@ -52,6 +58,10 @@ pub(crate) struct MeshPipeline {
     /// Depth test without writing, and a stencil that lets each pixel through once (overlapping shadow triangles don't double up).
     depth_shadow: ID3D11DepthStencilState,
     blend_shadow: ID3D11BlendState,
+    /// No depth test at all: the bones are drawn over the model.
+    depth_none: ID3D11DepthStencilState,
+    /// Vertices of the bone overlay, rebuilt every frame (buffer, capacity in bytes).
+    overlay_vb: std::cell::RefCell<Option<(ID3D11Buffer, usize)>>,
     depth: Option<(ID3D11DepthStencilView, (u32, u32))>,
     pub(crate) meshes: HashMap<u64, GpuMesh>,
 }
@@ -108,7 +118,7 @@ impl MeshPipeline {
             let mut layout = None;
             device.CreateInputLayout(&elements, MESH_VS, Some(&mut layout)).map_err(err("mesh input layout"))?;
             let cb = D3D11_BUFFER_DESC {
-                ByteWidth: 192,
+                ByteWidth: 240,
                 Usage: D3D11_USAGE_DYNAMIC,
                 BindFlags: D3D11_BIND_CONSTANT_BUFFER.0 as u32,
                 CPUAccessFlags: D3D11_CPU_ACCESS_WRITE.0 as u32,
@@ -177,6 +187,9 @@ impl MeshPipeline {
             device.CreateSamplerState(&sd, Some(&mut sampler)).map_err(err("mesh sampler"))?;
             let mut depth_state = None;
             device.CreateDepthStencilState(&dd, Some(&mut depth_state)).map_err(err("mesh depth state"))?;
+            let dn = D3D11_DEPTH_STENCIL_DESC { DepthEnable: false.into(), DepthWriteMask: D3D11_DEPTH_WRITE_MASK_ZERO, DepthFunc: D3D11_COMPARISON_ALWAYS, ..Default::default() };
+            let mut depth_none = None;
+            device.CreateDepthStencilState(&dn, Some(&mut depth_none)).map_err(err("mesh overlay depth state"))?;
             Ok(MeshPipeline {
                 vs: vs.ok_or("vs")?,
                 ps: ps.ok_or("ps")?,
@@ -189,6 +202,8 @@ impl MeshPipeline {
                 depth_state: depth_state.ok_or("dss")?,
                 depth_shadow: depth_shadow.ok_or("dss")?,
                 blend_shadow: blend_shadow.ok_or("blend")?,
+                depth_none: depth_none.ok_or("dss")?,
+                overlay_vb: std::cell::RefCell::new(None),
                 depth: None,
                 meshes: HashMap::new(),
             })
@@ -278,6 +293,7 @@ impl MeshPipeline {
         id: u64,
         orbit: &Orbit,
         style: &ModelStyle,
+        bg: [f32; 4],
     ) -> Result<bool, String> {
         if !self.meshes.contains_key(&id) {
             return Ok(false);
@@ -307,20 +323,38 @@ impl MeshPipeline {
             ctx.PSSetSamplers(0, Some(&[Some(self.sampler.clone())]));
 
             // 1. The floor shadow: the model flattened along the light, translucent black, each pixel darkened once.
-            if let Some(sm) = &cam.shadow_mvp {
+            // (A silhouette is one flat shape: no shadow.)
+            let silhouette = style.silhouette;
+            let flat = model::contrast_colour(bg);
+            if let (Some(sm), false) = (&cam.shadow_mvp, silhouette) {
                 ctx.OMSetDepthStencilState(&self.depth_shadow, 0);
                 ctx.OMSetBlendState(&self.blend_shadow, None, 0xFFFF_FFFF);
                 ctx.RSSetState(&self.rasterizer);
-                self.draw_parts(ctx, gm, &cam, sm, style, look, 1.0)?;
+                self.draw_parts(ctx, gm, &cam, sm, style, look, 1.0, None, (size, 0.0))?;
             }
-            // 2. The model itself. With the wireframe on it is drawn dimmed and pushed back, then the lines go on top.
+            // 2a. The outline: the model pushed out along its normals a few pixels, flat, drawn first and pushed back in depth, so
+            // only its rim shows round the real surface (works whichever way the triangles are wound).
+            let wire = style.wireframe && !silhouette;
+            let px = (size.1 as f32 / 1000.0 * 3.0).clamp(2.0, 6.0);
+            if style.outline || silhouette {
+                ctx.OMSetDepthStencilState(&self.depth_state, 0);
+                ctx.OMSetBlendState(None, None, 0xFFFF_FFFF);
+                ctx.RSSetState(&self.rasterizer_back);
+                let width = if style.outline { px } else { px * 0.5 };
+                self.draw_parts(ctx, gm, &cam, &cam.mvp, style, look, 4.0, Some(flat), (size, width))?;
+            }
+            // 2b. The model itself. With the wireframe on it is drawn dimmed and pushed back, then the lines go on top.
             ctx.OMSetDepthStencilState(&self.depth_state, 0);
             ctx.OMSetBlendState(None, None, 0xFFFF_FFFF);
-            ctx.RSSetState(if style.wireframe { &self.rasterizer_back } else { &self.rasterizer });
-            self.draw_parts(ctx, gm, &cam, &cam.mvp, style, look, if style.wireframe { 3.0 } else { 0.0 })?;
-            if style.wireframe {
+            ctx.RSSetState(if wire { &self.rasterizer_back } else { &self.rasterizer });
+            self.draw_parts(ctx, gm, &cam, &cam.mvp, style, look, if wire { 3.0 } else { 0.0 }, silhouette.then_some(flat), (size, 0.0))?;
+            if wire {
                 ctx.RSSetState(&self.rasterizer_wire);
-                self.draw_parts(ctx, gm, &cam, &cam.mvp, style, look, 2.0)?;
+                self.draw_parts(ctx, gm, &cam, &cam.mvp, style, look, 2.0, None, (size, 0.0))?;
+            }
+            // 3. The skeleton, over everything.
+            if style.bones && !gm.source.bones.is_empty() {
+                self.draw_bones(device, ctx, gm, &cam, size, flat)?;
             }
             ctx.PSSetShaderResources(0, Some(&[None, None]));
         }
@@ -329,19 +363,25 @@ impl MeshPipeline {
 
     /// Draw every part of `gm` once with `matrix` as the model -> clip transform. `pass` is the shader's pass number.
     #[allow(clippy::too_many_arguments)]
-    unsafe fn draw_parts(&self, ctx: &ID3D11DeviceContext, gm: &GpuMesh, cam: &model::Camera, matrix: &model::Mat4, style: &ModelStyle, look: f32, pass: f32) -> Result<(), String> {
+    unsafe fn draw_parts(&self, ctx: &ID3D11DeviceContext, gm: &GpuMesh, cam: &model::Camera, matrix: &model::Mat4, style: &ModelStyle, look: f32, pass: f32, flat: Option<[f32; 3]>, view: ((u32, u32), f32)) -> Result<(), String> {
         for part in &gm.parts {
             // "Texture off" also switches off vertex colours: the surface is the plain grey (or the part's own colour for untextured parts).
             let coloured = part.texture.is_some() || gm.vertex_colors;
             let plain = !style.texture && coloured;
             let use_tex = part.texture.is_some() && style.texture;
             let use_vcol = gm.vertex_colors && style.texture;
-            let color = if plain { model::BASE_COLOR } else { part.color };
+            let color = if let Some(f) = flat {
+                f
+            } else if plain {
+                model::BASE_COLOR
+            } else {
+                part.color
+            };
             let use_normal_map = part.normal_map.is_some() && style.normal_map;
             let mut m = D3D11_MAPPED_SUBRESOURCE::default();
             ctx.Map(&self.cbuf, 0, D3D11_MAP_WRITE_DISCARD, 0, Some(&mut m)).map_err(err("Map"))?;
             let p = m.pData as *mut f32;
-            let mut floats = Vec::with_capacity(48);
+            let mut floats = Vec::with_capacity(60);
             floats.extend(matrix.iter().flatten());
             floats.extend(cam.view_rot.iter().flatten());
             floats.extend([cam.light_view[0], cam.light_view[1], cam.light_view[2], 0.0]);
@@ -353,6 +393,10 @@ impl MeshPipeline {
                 if use_normal_map { 1.0 } else { 0.0 },
             ]);
             floats.extend([look, pass, 0.0, 0.0]);
+            // Silhouette (flat shape), support preview, outline half-width; the picture's size; which way is up, and the overhang limit.
+            floats.extend([if style.silhouette && pass == 0.0 { 1.0 } else { 0.0 }, if style.support && !style.silhouette { 1.0 } else { 0.0 }, view.1, 0.0]);
+            floats.extend([(view.0).0 as f32, (view.0).1 as f32, 0.0, 0.0]);
+            floats.extend([cam.up_view[0], cam.up_view[1], cam.up_view[2], -model::SUPPORT_ANGLE.to_radians().sin()]);
             std::ptr::copy_nonoverlapping(floats.as_ptr(), p, floats.len());
             ctx.Unmap(&self.cbuf, 0);
             let srv = if use_tex { part.texture.and_then(|t| gm.textures.get(t)).cloned() } else { None };
@@ -360,6 +404,90 @@ impl MeshPipeline {
             ctx.PSSetShaderResources(0, Some(&[srv, nsrv]));
             ctx.DrawIndexed(part.count, part.first, 0);
         }
+        Ok(())
+    }
+}
+
+impl MeshPipeline {
+    /// Where the joints of mesh `id` are on the screen (pixels): (name, point, index of the parent joint). Joints behind the camera
+    /// have no point.
+    pub(crate) fn bone_points(&self, id: u64, orbit: &Orbit, style: &ModelStyle, size: (u32, u32)) -> Vec<(String, Option<[f32; 2]>, Option<usize>)> {
+        let Some(gm) = self.meshes.get(&id) else { return Vec::new() };
+        let cam = model::camera_styled(&gm.source, orbit, size.0 as f32 / size.1.max(1) as f32, style);
+        gm.source.bones.iter().map(|b| (b.name.clone(), cam.project(b.pos, (size.0 as f32, size.1 as f32)), b.parent)).collect()
+    }
+
+    /// The skeleton as flat quads in clip space: a line from every joint to its parent and a small square on every joint, over the model.
+    unsafe fn draw_bones(&self, device: &ID3D11Device, ctx: &ID3D11DeviceContext, gm: &GpuMesh, cam: &model::Camera, size: (u32, u32), flat: [f32; 3]) -> Result<(), String> {
+        let (w, h) = (size.0 as f32, size.1 as f32);
+        let pts: Vec<Option<[f32; 2]>> = gm.source.bones.iter().map(|b| cam.project(b.pos, (w, h))).collect();
+        let ndc = |p: [f32; 2]| [p[0] / w * 2.0 - 1.0, 1.0 - p[1] / h * 2.0];
+        let line_hw = (h / 1000.0 * 1.6).clamp(1.0, 3.5);
+        let joint_hw = line_hw * 2.2;
+        let line_col = [255u8, 176, 0, 255];
+        let joint_col = [(flat[0] * 255.0) as u8, (flat[1] * 255.0) as u8, (flat[2] * 255.0) as u8, 255];
+        let mut verts: Vec<u8> = Vec::new();
+        let mut quad = |corners: [[f32; 2]; 4], col: [u8; 4]| {
+            for k in [0usize, 1, 2, 0, 2, 3] {
+                let c = ndc(corners[k]);
+                for f in [c[0], c[1], 0.5, 0.0, 0.0, 1.0, 0.0, 0.0] {
+                    verts.extend_from_slice(&f.to_le_bytes());
+                }
+                verts.extend_from_slice(&col);
+            }
+        };
+        for (i, b) in gm.source.bones.iter().enumerate() {
+            let (Some(a), Some(p)) = (pts[i], b.parent.and_then(|p| pts.get(p).copied().flatten())) else { continue };
+            let (dx, dy) = (p[0] - a[0], p[1] - a[1]);
+            let len = (dx * dx + dy * dy).sqrt();
+            if len < 0.5 {
+                continue;
+            }
+            let (nx, ny) = (-dy / len * line_hw, dx / len * line_hw);
+            quad([[a[0] + nx, a[1] + ny], [p[0] + nx, p[1] + ny], [p[0] - nx, p[1] - ny], [a[0] - nx, a[1] - ny]], line_col);
+        }
+        for p in pts.iter().flatten() {
+            quad([[p[0] - joint_hw, p[1] - joint_hw], [p[0] + joint_hw, p[1] - joint_hw], [p[0] + joint_hw, p[1] + joint_hw], [p[0] - joint_hw, p[1] + joint_hw]], joint_col);
+        }
+        if verts.is_empty() {
+            return Ok(());
+        }
+        let need = verts.len();
+        let mut slot = self.overlay_vb.borrow_mut();
+        if slot.as_ref().map(|(_, cap)| *cap < need).unwrap_or(true) {
+            let cap = need.next_power_of_two().max(64 * 1024);
+            let desc = D3D11_BUFFER_DESC { ByteWidth: cap as u32, Usage: D3D11_USAGE_DYNAMIC, BindFlags: D3D11_BIND_VERTEX_BUFFER.0 as u32, CPUAccessFlags: D3D11_CPU_ACCESS_WRITE.0 as u32, ..Default::default() };
+            let mut b = None;
+            device.CreateBuffer(&desc, None, Some(&mut b)).map_err(err("bone vertices"))?;
+            *slot = Some((b.ok_or("bone vertices")?, cap));
+        }
+        let (vb, _) = slot.as_ref().unwrap();
+        let mut m = D3D11_MAPPED_SUBRESOURCE::default();
+        ctx.Map(vb, 0, D3D11_MAP_WRITE_DISCARD, 0, Some(&mut m)).map_err(err("Map"))?;
+        std::ptr::copy_nonoverlapping(verts.as_ptr(), m.pData as *mut u8, verts.len());
+        ctx.Unmap(vb, 0);
+        // Constants: identity transforms (the vertices are already in clip space), the vertex colour as it is.
+        let ident = [1.0f32, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+        let mut floats: Vec<f32> = Vec::with_capacity(60);
+        floats.extend(ident);
+        floats.extend(ident);
+        floats.extend([0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0]);
+        floats.extend([0.0, 1.0, 0.0, 0.0]); // vertex colours on
+        floats.extend([4.0, 5.0, 0.0, 0.0]);
+        floats.extend([0.0; 4]);
+        floats.extend([w, h, 0.0, 0.0]);
+        floats.extend([0.0, 1.0, 0.0, -0.7]);
+        let mut mc = D3D11_MAPPED_SUBRESOURCE::default();
+        ctx.Map(&self.cbuf, 0, D3D11_MAP_WRITE_DISCARD, 0, Some(&mut mc)).map_err(err("Map"))?;
+        std::ptr::copy_nonoverlapping(floats.as_ptr(), mc.pData as *mut f32, floats.len());
+        ctx.Unmap(&self.cbuf, 0);
+        ctx.OMSetDepthStencilState(&self.depth_none, 0);
+        ctx.OMSetBlendState(None, None, 0xFFFF_FFFF);
+        ctx.RSSetState(&self.rasterizer);
+        ctx.PSSetShaderResources(0, Some(&[None, None]));
+        let (stride, offset) = (VERTEX_STRIDE, 0u32);
+        ctx.IASetVertexBuffers(0, 1, Some(&Some(vb.clone())), Some(&stride), Some(&offset));
+        ctx.Draw((verts.len() / VERTEX_STRIDE as usize) as u32, 0);
         Ok(())
     }
 }

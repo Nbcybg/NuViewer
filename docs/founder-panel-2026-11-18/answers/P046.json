@@ -1,0 +1,18 @@
+{
+  "id": "P046",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 4,
+  "reason_code": "habit",
+  "reason": "I'd grab the portable zip and throw some DDS/EXR/TGA and a couple of GLBs at it, because it's free and needs no install. But I wouldn't make it my default, since my Blender/Honeyview/VLC/darktable setup already works and I don't want to relearn anything.",
+  "why_switch_or_not": "A single quick-look app for textures, HDR, DDS and model files would be handy, and the format list covers a lot of what I open. But 'opened 26 of 32 test types' is the developer's own benchmark on one PC, and I have no idea if it shows my files right (DDS channels, EXR exposure, my RAW camera). Honeyview already does comics fine, and anything that matters still goes into Blender or darktable, so at most it would sit next to them.",
+  "current_app_pros": "Each specialist tool does its one job properly: Blender shows models and textures the way the engine will, darktable/RawTherapee develop my RAW files, Honeyview is fast for comic archives, VLC/MPC-HC play anything. I know where everything is and nothing surprises me.",
+  "current_app_pains": "Having a different app per file type is a bit annoying, and double-clicking a texture or HDR file in Explorer often opens the wrong thing or nothing useful. Otherwise nothing really bugs me enough to change it.",
+  "objection": "Does it open MY files correctly, meaning my RAW camera files and my texture/HDR/model formats with the right colours, alpha and channels? A fast viewer that shows a DDS or EXR slightly wrong is worse than no viewer for me. It's also v0.4.1 from one developer, and I'd have to set the file associations by hand in Windows Settings.",
+  "would_change_my_mind": "Seeing it open my own DDS/EXR/TGA and a few of my RAW files correctly, with the colours matching what Blender and darktable show, plus a few weeks of the developer fixing reported bugs.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

@@ -1,0 +1,18 @@
+{
+  "id": "P047",
+  "would_try": true,
+  "buys": true,
+  "switch_decision": "replace",
+  "purchases_first_month": 24,
+  "reason_code": "quality",
+  "reason": "Five rapid nexts in 85 ms against 600-900 ms in FastStone is not a few tens of milliseconds, I would feel that, and I flip through folders all day. It is free and portable, so trying it costs me ten minutes.",
+  "why_switch_or_not": "The speed numbers are the whole reason: next/back at 40-50 ms and a 120-350 ms open from an Explorer double-click would beat what I get in FastStone. It also has a gallery, an editor and a Space-bar preview, so I would not lose the browser and simple-editor part of FastStone. I would stay cautious because it is a one-person 0.4.1 and the benchmark is the developer's own, on one PC.",
+  "current_app_pros": "FastStone's full-screen mode, its folder browser and its quick editor all work and I know every shortcut. It opens most of the formats I meet, and it has been stable for years.",
+  "current_app_pains": "Fast next/next/next through a big folder lags and stutters, and the 600-900 ms for five quick nexts is exactly what I notice. It also feels old, with a dated UI and slow cold starts on big files.",
+  "objection": "The numbers come from the developer's own benchmark on one PC, so I do not believe them until I time them on my machine. A single-developer 0.4.1 might also crash or have odd bugs on a file that matters, and the plug-in-free design means I cannot patch around problems.",
+  "would_change_my_mind": "If it did not feel clearly faster than FastStone on my own folders and PC, or if it crashed or mangled a file in the first week, I would drop it and go back.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 40
+}

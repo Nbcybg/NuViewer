@@ -123,7 +123,19 @@ impl FolderList {
             .map(|e| e.path())
             .filter(|p| p.extension().and_then(|x| x.to_str()).map(is_listed_ext).unwrap_or(false))
             .collect();
+        if crate::rawpair::group() {
+            files = crate::rawpair::without_hidden(files);
+        }
         sort_files(&mut files, order);
+        // The picture asked for is a RAW whose JPG stands for the pair: show the JPG.
+        let target = target.map(|t| {
+            let wanted = dir.join(&t);
+            if crate::rawpair::group() && !files.iter().any(|f| f.file_name() == Some(t.as_os_str())) && nv_codecs::is_raw_ext(&extension_of(&wanted)) {
+                files.iter().find(|f| crate::rawpair::companions_of(f).iter().any(|c| c.file_name() == Some(t.as_os_str()))).and_then(|f| f.file_name().map(|n| n.to_os_string())).unwrap_or(t)
+            } else {
+                t
+            }
+        });
         let index = target
             .and_then(|t| {
                 let t = t.to_string_lossy().to_lowercase();
@@ -176,6 +188,20 @@ impl FolderList {
     pub fn insert_sorted(&mut self, p: PathBuf) -> usize {
         if let Some(i) = self.position(&p) {
             return i;
+        }
+        if crate::rawpair::group() {
+            let (stem, ext) = (extension_stem(&p), extension_of(&p));
+            if nv_codecs::is_raw_ext(&ext) {
+                // A RAW whose JPG is listed is part of that pair: it stays out of the list.
+                if let Some(i) = self.files.iter().position(|f| crate::rawpair::is_front_ext(&extension_of(f)) && extension_stem(f) == stem) {
+                    return i;
+                }
+            } else if crate::rawpair::is_front_ext(&ext) {
+                // A JPG arrives for a RAW that was listed alone: the pair is now one entry.
+                while let Some(i) = self.files.iter().position(|f| nv_codecs::is_raw_ext(&extension_of(f)) && extension_stem(f) == stem) {
+                    self.remove_at(i);
+                }
+            }
         }
         let cur = self.current().cloned();
         let at = self.place_of(&p);
@@ -230,6 +256,10 @@ pub fn shuffle_key(path: &Path, seed: u64) -> u64 {
 
 fn extension_of(p: &Path) -> String {
     p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default()
+}
+
+fn extension_stem(p: &Path) -> String {
+    p.file_stem().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default()
 }
 
 /// The number a file is ordered by for the date and size keys (0 when the file can't be read).

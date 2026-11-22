@@ -1,0 +1,18 @@
+{
+  "id": "P023",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 8,
+  "reason_code": "habit",
+  "reason": "I grab every new tool, so I'd install the portable zip in five minutes and throw a folder of screenshots at it. But my image handling is split across Blender, Honeyview, darktable and MPC-HC, and one more app that might replace some of them doesn't make it my default for a month.",
+  "why_switch_or_not": "The next/back speed claim is the only thing that matters for my screenshot and PNG-export flipping, and I'd check it myself on my own folders. A viewer that also opens RAW, PSD, 3D models and video is interesting, but I'd want to see it match darktable and Honeyview on my own files before I trust it, and it's v0.4.1 from one dev. I'd likely keep it for screenshot folders and leave the other apps as they are.",
+  "current_app_pros": "Each specialist app is the best at its one job: Blender for 3D, Honeyview for comic archives, MPC-HC and VLC for video, RawTherapee and darktable for real RAW development. I know the shortcuts and they never surprise me.",
+  "current_app_pains": "Nothing breaks, but having a different app per file type is clumsy. Flipping through hundreds of screenshots and PNG exports in whatever opens them by default is slower than I'd like, and I have to remember which app owns which extension.",
+  "objection": "Windows only, and a single developer at 0.4.1. I also touch Mac/Linux, so I can't build habits around a viewer that doesn't follow me there, and I don't know if the project will still be updated in a year. There's no plug-in system either, so I can't bend it to my workflow.",
+  "would_change_my_mind": "Seeing it open my own screenshot folders visibly faster than my current default, plus a sign the developer keeps shipping updates (a public changelog or repo). A Mac/Linux build would nearly settle it.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

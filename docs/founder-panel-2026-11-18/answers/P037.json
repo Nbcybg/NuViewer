@@ -1,0 +1,18 @@
+{
+  "id": "P037",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 4,
+  "reason_code": "trust",
+  "reason": "The speed on RAW is tempting because waiting for Bridge just to look at a file drives me mad, but it's one developer, version 0.4.1, and my culling and catalogue live in Adobe. I'd try it for a quick look at a card dump, not make it my default.",
+  "why_switch_or_not": "I would install the portable zip and open a folder of my RAW+JPG pairs to see if it really is faster than Bridge, and I like that RAW and JPG show as separate pictures. But nothing in the description says it does ratings, colour labels or reading what I've set in Lightroom, so it can't replace my culling workflow, and its own sidecar edit file means nothing to Lightroom. With one developer, no plug-ins and no community, I wouldn't know where to go for help if it broke on a RAW from my camera.",
+  "current_app_pros": "Bridge and Lightroom hold my catalogue, ratings, labels and keywords, they read my cameras' RAW files properly, and Photoshop is right there when I need it. I know every shortcut and I don't have to think.",
+  "current_app_pains": "They are slow to start and slow to flip through large RAW files. Opening a whole heavy Adobe app just to glance at one picture is a waste, and the subscription is annoying.",
+  "objection": "One person, version 0.4.1, no plug-ins, no community. If he stops or it mishandles my RAW files, I have nowhere to turn, and I don't want to relearn another tool for culling.",
+  "would_change_my_mind": "Proof that it can rate and label pictures and have Lightroom and Bridge see those ratings (XMP), tested on my camera's RAW, plus a few months of steady updates from the developer.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 30,
+  "price_too_expensive": 70
+}

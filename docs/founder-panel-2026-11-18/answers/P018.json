@@ -1,0 +1,18 @@
+{
+  "id": "P018",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 6,
+  "reason_code": "trust",
+  "reason": "I'd install it because the batch convert and the screenshot importer sound handy, but it's 0.4.1 from one person and I don't want my default viewer to be a risk. ImageGlass stays as default until I've seen NuViewer behave for a while.",
+  "why_switch_or_not": "The feature list is tempting for me: gallery, batch rename/convert, a simple editor and ICC colour management in one free app, plus the speed numbers for flipping through lots of PNGs. But I'd only try it on a copy of a screenshot folder first. I would not make it default until I know it doesn't touch my colour handling, and I don't know how it treats the sidecar edit file or any metadata. I also don't want to tick all the formats in Windows Settings by hand for something I might drop in two weeks.",
+  "current_app_pros": "ImageGlass looks modern and clean, is open source, and opens my PNG screenshots and PDFs without any fuss. I know where everything is and the file associations are already set.",
+  "current_app_pains": "It can feel a bit slow when I hold the arrow key through a few hundred screenshots, and it doesn't do batch convert or real editing, so I end up opening another tool for that.",
+  "objection": "My colour management and file workflow must not change, and it's a single developer on version 0.4.1. I can't tell if my files and metadata stay exactly as they are, or whether it will still be maintained in a year.",
+  "would_change_my_mind": "A clear statement that it never modifies originals or metadata unless I save, and that colour handling matches what I have now. A few months of regular releases would also help, or someone I trust saying they use it daily.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 35
+}

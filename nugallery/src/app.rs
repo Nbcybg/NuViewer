@@ -36,6 +36,8 @@ const INFO_DEBOUNCE_MS: u32 = 130;
 const TOAST_MS: u32 = 3500;
 /// Rows of thumbnails requested / kept beyond the visible ones.
 const PREFETCH_ROWS: usize = 2;
+/// Height of a group header strip in the group view (logical pixels).
+const GROUP_HEAD_H: f32 = 30.0;
 const KEEP_ROWS: usize = 5;
 /// Time budget for uploading thumbnails per wake-up.
 const UPLOAD_SLICE: Duration = Duration::from_millis(8);
@@ -44,6 +46,8 @@ const UPLOAD_SLICE: Duration = Duration::from_millis(8);
 pub enum Msg {
     Scanned { gen: u64, dir: PathBuf, result: Result<Vec<Entry>, String>, select: Vec<PathBuf>, keep_view: bool },
     Info(InfoData),
+    /// Star ratings / colour labels read from the sidecars of the folder with scan number `gen` (a chunk of it).
+    Ratings { gen: u64, items: Vec<(u64, nv_core::xmp::Meta)> },
     FolderSize { gen: u64, bytes: u64, files: u64, folders: u64, done: bool },
     JobProgress(String),
     JobDone(JobResult),
@@ -304,7 +308,9 @@ impl App {
         let order = Order { key: persist.sort, descending: persist.sort_desc, shuffle: None };
         let mut listing = Listing::new(persist.show, order);
         listing.folders = persist.folders;
+        listing.group = crate::groups::Group { by: persist.group, descending: persist.group_desc };
         listing.fold = settings.sequences.then_some(settings.sequence_min as usize);
+        listing.pairs = settings.pair_group;
         let chrome = chrome::layout(size.0 as f32, size.1 as f32, dpi, &panels);
         let (refine, warm) = (
             Loader::new(1, false, wake.clone(), Arc::new(|p: &Path| nv_core::thumbs::make_thumb(p))),
@@ -475,13 +481,15 @@ impl App {
         let mut area = self.chrome.area;
         area[1] += self.header_h();
         let n = self.listing.len();
+        let starts = self.listing.group_starts();
+        let head = GROUP_HEAD_H * d;
         match self.mode {
             ViewMode::Thumbs => {
                 let cell = self.cell_px();
-                Grid::new(n, cell, cell + self.label_h(), 10.0 * d, 10.0 * d, 16.0 * d, area, false)
+                Grid::grouped(n, cell, cell + self.label_h(), 10.0 * d, 10.0 * d, 16.0 * d, area, false, &starts, head)
             }
-            ViewMode::Details => Grid::new(n, 0.0, 30.0 * d, 0.0, 2.0 * d, 8.0 * d, area, true),
-            ViewMode::List => Grid::new(n, 250.0 * d, 28.0 * d, 8.0 * d, 2.0 * d, 12.0 * d, area, false),
+            ViewMode::Details => Grid::grouped(n, 0.0, 30.0 * d, 0.0, 2.0 * d, 8.0 * d, area, true, &starts, head),
+            ViewMode::List => Grid::grouped(n, 250.0 * d, 28.0 * d, 8.0 * d, 2.0 * d, 12.0 * d, area, false, &starts, head),
         }
     }
 
@@ -683,6 +691,7 @@ impl App {
         if self.renderer.is_none() {
             self.cpu_full();
         }
+        self.start_ratings();
         invalidate(self.hwnd);
     }
 
@@ -1165,6 +1174,8 @@ impl App {
                     self.on_mouse_down(x, y, ctrl, true)
                 }
             }
+            // A third quick click has nothing of its own here (its first press was handled as an ordinary click).
+            Event::TripleClick { .. } => {}
             Event::MouseMove { x, y, left_down } => {
                 if self.pick.on {
                     invalidate(self.hwnd); // the read-out follows the pointer
@@ -1226,6 +1237,8 @@ impl App {
         self.persist.folders = self.listing.folders;
         self.persist.sort = self.listing.order.key;
         self.persist.sort_desc = self.listing.order.descending;
+        self.persist.group = self.listing.group.by;
+        self.persist.group_desc = self.listing.group.descending;
         self.persist.pin_top = self.panels.pin_top;
         self.persist.pin_left = self.panels.pin_left;
         self.persist.pin_right = self.panels.pin_right;
@@ -1267,6 +1280,7 @@ impl App {
                         self.on_scanned(dir, result, select, keep_view);
                     }
                 }
+                Msg::Ratings { gen, items } => self.on_ratings(gen, items),
                 Msg::Info(data) => {
                     if self.info_for == Some(data.id) {
                         self.info = Some(data);
@@ -1597,6 +1611,61 @@ impl App {
         self.save_state();
     }
 
+    /// Group view: group by `by` (choosing the one that is already on keeps it).
+    pub fn set_group(&mut self, by: crate::groups::GroupBy) {
+        self.listing.group.by = by;
+        self.after_group_change();
+    }
+
+    pub fn set_group_dir(&mut self, descending: bool) {
+        self.listing.group.descending = descending;
+        self.after_group_change();
+    }
+
+    /// None > Type > App > Name > Date > Size > None.
+    pub fn cycle_group(&mut self) {
+        self.listing.group.by = self.listing.group.by.next();
+        self.after_group_change();
+        let g = self.listing.group;
+        self.toast(if g.on() { format!("Grouped by {} ({})", g.by.label().to_lowercase(), if g.descending { "descending" } else { "ascending" }) } else { "Groups off".to_string() });
+    }
+
+    fn after_group_change(&mut self) {
+        self.rearrange_keeping_focus();
+        self.save_state();
+    }
+
+    /// Select every item of group `b` (a click on its header).
+    pub fn select_group(&mut self, b: usize, add: bool) {
+        let g = self.grid();
+        let Some(band) = g.bands.get(b).copied() else { return };
+        if !add {
+            self.sel.clear();
+        }
+        for i in band.start..band.end {
+            if let Some(e) = self.listing.get(i) {
+                self.sel.ids.insert(e.id);
+            }
+        }
+        self.sel.cursor = Some(band.start);
+        self.sel.anchor = Some(band.start);
+        self.update_title();
+        invalidate(self.hwnd);
+    }
+
+    /// Arrow up / down: a row up or down, crossing group borders (in a plain list: `cols` items).
+    fn move_vertical(&mut self, down: bool) {
+        let g = self.grid();
+        if g.has_groups() {
+            if let Some(to) = g.vertical(self.sel.cursor.unwrap_or(0), down) {
+                self.move_cursor_to(to);
+            }
+        } else {
+            let cols = g.cols as isize;
+            self.move_cursor(if down { cols } else { -cols });
+        }
+    }
+
     pub fn set_show(&mut self, show: Show) {
         self.listing.show = show;
         self.rearrange_keeping_focus();
@@ -1792,8 +1861,9 @@ impl App {
         }
         let m = nv_win::modifiers();
         let (ctrl, shift, alt) = (m.ctrl, m.shift, m.alt);
-        let g = self.grid();
-        let cols = g.cols as isize;
+        if self.rating_key(vk, ctrl, shift, alt) {
+            return;
+        }
         match vk {
             // Alt + arrows: history and "up".
             0x25 if alt => self.go_back(),
@@ -1801,8 +1871,8 @@ impl App {
             0x26 if alt => self.go_up(),
             0x25 => self.move_cursor(-1),
             0x27 => self.move_cursor(1),
-            0x26 => self.move_cursor(-cols),
-            0x28 => self.move_cursor(cols),
+            0x26 => self.move_vertical(false),
+            0x28 => self.move_vertical(true),
             0x21 => self.move_cursor(-(self.page_items() as isize)),
             0x22 => self.move_cursor(self.page_items() as isize),
             0x24 => self.move_cursor_to(0),
@@ -1827,8 +1897,8 @@ impl App {
                 self.help = !self.help;
                 invalidate(self.hwnd);
             }
-            0xC0 => self.reset_cell(), // ` / ~
-            0x31..=0x35 if !ctrl && !alt => self.cell_level((vk - 0x31) as usize),
+            0xC0 if !shift => self.reset_cell(), // ` / ~
+            0x31..=0x35 if !ctrl && !alt && !shift => self.cell_level((vk - 0x31) as usize),
             0x41 if ctrl => {
                 self.sel.all(&self.listing);
                 self.update_title();
@@ -1861,7 +1931,8 @@ impl App {
             0xBD | 0x6D if ctrl => self.zoom_cells(-1.0),
             0x30 | 0x60 if ctrl => self.reset_cell(),
             0x5A if ctrl => self.undo_last(),
-            0x47 if ctrl => self.toggle_sequences(), // Ctrl+G: group numbered pictures into image sequences
+            0x47 if ctrl && !shift => self.toggle_sequences(), // Ctrl+G: group numbered pictures into image sequences
+            0x47 if ctrl && shift => self.toggle_pairs(), // Ctrl+Shift+G: RAW + JPG as one tile / two
             // Test hooks (nothing on a keyboard sends these): the commands that live in menus and dialogs.
             0xFFF1 => self.batch_rename(),
             0xFFF2 => self.batch_convert(),
@@ -1874,6 +1945,9 @@ impl App {
             0xFFF9 => self.make_pdf(),
             0x52 if ctrl => self.toggle_shuffle(),
             0x52 if shift && !ctrl => self.toggle_raw_look(), // Shift+R: RAW camera look / sensor data
+            0x4A if ctrl && shift => self.cycle_group(),
+            0x48 if ctrl && shift => self.share_selected(),
+            0x46 if ctrl && shift => self.extract_frames_selected(),
             0x4A if ctrl => self.set_sort(self.listing.order.key.next()),
             0x31 if ctrl => self.set_mode(ViewMode::Thumbs),
             0x32 if ctrl => self.set_mode(ViewMode::Details),
@@ -2181,6 +2255,16 @@ impl App {
             return;
         }
         let m = nv_win::modifiers();
+        // A group header selects its group.
+        {
+            let g = self.grid();
+            if !self.chrome.over_panel(fx, fy) {
+                if let Some(b) = g.header_at(fx, fy, g.clamp(self.scroll)) {
+                    self.select_group(b, ctrl || m.shift);
+                    return;
+                }
+            }
+        }
         match self.item_at(x, y) {
             Some(i) => {
                 if double {

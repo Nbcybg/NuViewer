@@ -1,0 +1,18 @@
+{
+  "id": "P040",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 8,
+  "reason_code": "trust",
+  "reason": "The format list is exactly my daily stuff (TGA, DDS, EXR, HDR, GLB/OBJ/FBX, cbz) so I will install the portable zip and throw my own files at it. But it is 0.4.1 from one person and ImageGlass is open source, so I will not make it my default until it proves itself.",
+  "why_switch_or_not": "26 of 32 formats vs ImageGlass 17 is a real draw, and having 3D models, EXR and cbz in one viewer with a gallery, batch convert and an editor is how I like my tools. But a one-dev 0.4.1 with no plug-in system and nothing said about source being open means I could lose it if the dev gets bored, and I would not trust it to be my file association until my own DDS/TGA/EXR files open correctly. Speed numbers are nice but ImageGlass is not slow enough for me to switch for speed alone.",
+  "current_app_pros": "ImageGlass looks modern, is open source, free, and handles the common formats and my cbz reading fine. It is stable and I know where everything is.",
+  "current_app_pains": "It opens fewer of my formats (no real 3D models, some game textures and EXR/HDR are hit and miss), it is a bit slow on big files and when flipping through folders, and it is a viewer only, so I still bounce to other apps to convert or batch rename.",
+  "objection": "Another image viewer from a single developer at version 0.4.1. Mine already works fine, and if it is abandoned or buggy on my game textures I have wasted the switch.",
+  "would_change_my_mind": "Proof that my own DDS (compressed types, mip levels), TGA with alpha and multi-layer EXR open correctly, plus either the source being open or a clear track record of updates over several months.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 40
+}

@@ -1,0 +1,18 @@
+{
+  "id": "P063",
+  "would_try": false,
+  "buys": false,
+  "switch_decision": "ignore",
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "It's one developer, v0.4.1, and the page says nothing about code signing, source or independent reviews. I don't run an unknown .exe like that on the machine that holds my client shoots.",
+  "why_switch_or_not": "The speed numbers and the RAW+JPG always shown as separate pictures are nice, but they come from the developer's own benchmark, and nothing says it can do culling (ratings, tags, compare). I'd also have to relearn shortcuts and redo file associations by hand in Windows Settings, and XnView MP already does my browsing, batch convert and metadata work well enough.",
+  "current_app_pros": "XnView MP is a browser, batch converter and metadata tool in one. It handles RAW+JPG, reads my cbz manga files, and I know its shortcuts and rating/label workflow by heart. It has been around for years, so it's a known quantity.",
+  "current_app_pains": "It is not the fastest when I hammer next/back through a big RAW folder, and the interface is cluttered. But nothing that actually stops my work.",
+  "objection": "I can't tell who's behind it or whether the exe is safe. A solo dev, version 0.4.1, no mention of signing, source or reviews, and I'd have to rebuild my shortcuts and file associations on top of that.",
+  "would_change_my_mind": "A signed installer or public source, plus a few independent reviews from photographers, and proof it does culling (ratings/colour labels, side-by-side compare) at least as well as XnView MP. Then I'd try the portable zip on a copy of a shoot.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 35
+}

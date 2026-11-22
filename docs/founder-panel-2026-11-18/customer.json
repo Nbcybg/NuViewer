@@ -1,0 +1,57 @@
+{
+  "business": "NuViewer 0.4.1 (free Windows image viewer / gallery / editor suite)",
+  "target": "Windows 10/11 desktop users who open pictures every week and already have a viewer they use (Windows Photos, IrfanView, XnView MP, FastStone, ImageGlass, Honeyview, nomacs, or none)",
+  "where": "Global, Windows PC users",
+  "age": [18, 62],
+  "segments": [
+    {"name": "Photographer (RAW+JPG, culling)", "share": 0.20, "income": [25000, 120000]},
+    {"name": "Digital artist / designer / illustrator (PSD, AI, PNG, alpha)", "share": 0.17, "income": [20000, 95000]},
+    {"name": "3D / game / VFX artist (TGA, DDS, EXR, HDR, GLB, OBJ, FBX)", "share": 0.12, "income": [30000, 140000]},
+    {"name": "Office / general home user (phone photos, screenshots, PDF)", "share": 0.28, "income": [15000, 90000]},
+    {"name": "Power user / IT / developer (keyboard-driven, lightweight, tinkerer)", "share": 0.13, "income": [35000, 160000]},
+    {"name": "Collector / archivist / manga-comic reader (huge folders, zips, cbz)", "share": 0.10, "income": [12000, 70000]}
+  ],
+  "current_apps": [
+    {"name": "Windows Photos (built in)", "share": 0.20, "how": "Never changed the default; it opens when you double-click a picture."},
+    {"name": "IrfanView", "share": 0.17, "how": "Installed years ago, knows its shortcuts, has the plug-ins set up."},
+    {"name": "XnView MP / XnView", "share": 0.15, "how": "Uses it as a browser plus batch converter and metadata tool."},
+    {"name": "FastStone Image Viewer", "share": 0.12, "how": "Uses its full-screen mode, browser and simple editor daily."},
+    {"name": "ImageGlass", "share": 0.08, "how": "Chose it for the modern look and open-source licence."},
+    {"name": "Honeyview / Bandiview / qView / nomacs / PicView (other fast viewer)", "share": 0.08, "how": "Picked a small fast viewer; happy but not attached."},
+    {"name": "Adobe Bridge / Lightroom / Photoshop used as the viewer", "share": 0.08, "how": "Opens heavy Adobe apps just to look at a file, hates the wait, keeps the catalogue there."},
+    {"name": "Explorer thumbnails + whatever app opens (no viewer chosen)", "share": 0.07, "how": "Does not think about viewers; browses in Explorer."},
+    {"name": "Specialist tools (Blender, Honeyview for comics, MPC-HC/VLC for video, RawTherapee/darktable)", "share": 0.05, "how": "Uses a different app per file type."}
+  ],
+  "behaviours": [
+    {"name": "Speed-obsessed", "share": 0.15, "how": "Notices every 200 ms delay; will switch for speed alone."},
+    {"name": "Set-and-forget loyalist", "share": 0.20, "how": "Changed viewers once years ago, has muscle memory, hates relearning."},
+    {"name": "Format-hunter", "share": 0.12, "how": "Switches the moment an app opens a file type the old one fails on."},
+    {"name": "Trust / security cautious", "share": 0.15, "how": "Won't install unknown .exe from a solo dev without reviews, source or signing."},
+    {"name": "Feature maximalist", "share": 0.10, "how": "Likes one app that does view, edit, batch, convert."},
+    {"name": "Minimalist", "share": 0.10, "how": "Wants a viewer that does only viewing and stays out of the way."},
+    {"name": "Early adopter / tries every new tool", "share": 0.10, "how": "Installs new tools on a whim, posts about them."},
+    {"name": "Workflow-locked pro", "share": 0.08, "how": "Pipeline depends on catalogue/XMP/plugins/colour setup that cannot break."}
+  ],
+  "objections": [
+    "Another image viewer? Mine already works fine.",
+    "One developer, version 0.4: will it still be maintained next year?",
+    "Is an unknown .exe safe? Is it signed? Is it open source?",
+    "I would have to relearn shortcuts and reset my file associations.",
+    "Does it open MY files (my RAW camera, my plugin formats) correctly?",
+    "Windows only, no portable-everything story I rely on (or I also use Mac/Linux).",
+    "The speed difference is a few tens of milliseconds, I would not feel it.",
+    "It does too much (gallery, editor, importer, tray agent) and I only want a viewer.",
+    "My colour management / catalogue / XMP workflow must not change.",
+    "No plugins, no big community, hard to find help."
+  ],
+  "habits": [
+    "you open pictures from Explorer by double-click dozens of times a day",
+    "you cull a card of 500 RAW+JPG photos after every shoot",
+    "you flip through hundreds of screenshots and PNG exports from your work",
+    "you open phone photos your relatives sent you and want to print one",
+    "you read manga or comics from zip/cbz files",
+    "you check texture, HDR and 3D model files from your game project",
+    "you have a hard drive with 200,000 pictures from the last 15 years",
+    "you reinstall Windows every year or two and keep a list of apps"
+  ]
+}

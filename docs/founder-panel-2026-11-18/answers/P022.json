@@ -1,0 +1,18 @@
+{
+  "id": "P022",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 3,
+  "reason_code": "habit",
+  "reason": "I'd install the portable zip and throw a few cbz files and some RAWs at it, because 'opens zip/cbz and RAW' is the exact thing I care about. But Honeyview already does my comics fine and I'm not retraining my hands for a v0.4.1 from one guy.",
+  "why_switch_or_not": "26 of 32 formats and fast next/back on huge folders is interesting, and one app for RAW + archives + video would be nice instead of juggling Honeyview, VLC and RawTherapee. But the claim is 'opens', not 'opens correctly': I don't know if it keeps manga page order inside a cbz, does proper two-page spread / right-to-left reading, or remembers my place, and nothing in the list says it does. It also has no plug-in system and I'd have to tick every format and set default by hand, so I'd probably go back to Honeyview after a weekend.",
+  "current_app_pros": "Honeyview opens cbz/zip instantly, handles comic page order and reading direction, remembers where I was, and never crashes on my huge archive folders. VLC/MPC-HC play video without fuss, and RawTherapee/darktable develop my RAWs the way I want. Everything is stable and I know every shortcut.",
+  "current_app_pains": "Honeyview is old and abandoned, and some newer formats (AVIF, JXL, newer RAW bodies) don't open. Browsing a 200,000-picture drive means hopping between different apps depending on file type, which is annoying but I live with it.",
+  "objection": "Does it open MY files correctly, meaning my RAWs from my camera and my cbz files with the right page order and reading mode? One developer, version 0.4.1, and a 'we tied on some PSD/TGA' result doesn't make me trust it with 15 years of pictures.",
+  "would_change_my_mind": "A proper comic mode (right-to-left, two-page spread, resume position, correct natural sort inside cbz) shown working on a big archive, plus a few months of the developer still shipping fixes and no broken-file reports from other RAW users.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 10,
+  "price_too_expensive": 20
+}

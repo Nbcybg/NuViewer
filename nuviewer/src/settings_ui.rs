@@ -32,6 +32,8 @@ const ED_SUFFIX: u16 = 905;
 const ED_EXIF: u16 = 906;
 const ED_SHOW_PAIR: u16 = 907;
 const ED_WATERMARK: u16 = 908;
+const ED_HISTORY: u16 = 909;
+const ED_RAW_SENSOR: u16 = 910;
 // Viewer page.
 const V_CANVAS: u16 = 101;
 const V_PICK: u16 = 102;
@@ -49,6 +51,7 @@ const V_SIDEBAR: u16 = 113;
 const V_FIT_ENLARGE: u16 = 190;
 const V_ROTATE_SAVE: u16 = 114;
 const V_DOCS: u16 = 115;
+const V_PAIRS: u16 = 116;
 // Colour page.
 const C_ENABLE: u16 = 701;
 const C_OUT: u16 = 702;
@@ -83,6 +86,12 @@ const D_TURN_X: u16 = 611;
 const D_TURN_Y: u16 = 612;
 const D_TURN_Z: u16 = 613;
 const D_RESET: u16 = 614;
+const D_OUTLINE: u16 = 615;
+const D_SILHOUETTE: u16 = 616;
+const D_SUPPORT: u16 = 617;
+const D_BONES: u16 = 618;
+const D_BONE_NAMES: u16 = 619;
+const D_TURN_DPS: u16 = 620;
 // File types page.
 const T_APPLY: u16 = 210;
 // External programs page.
@@ -272,6 +281,7 @@ pub fn edit(current: &Settings) -> Option<Settings> {
     form.combo(V_HOLD, 182, 160, 270, 160, &HOLD_ITEMS, HOLD_VALUES.iter().position(|h| *h == c.hold_zoom).unwrap_or(0));
     form.label(464, 164, 170, 20, "\"Small\" = up to (% of screen):");
     form.edit(V_SMALL, 640, 160, 56, 24, &c.small_pct.to_string());
+    form.check(V_PAIRS, 28, 186, 660, 22, "RAW + JPG of one shot as one picture (the JPG stands for both; delete, move, copy and rename act on both)  (Shift+Q)", c.pair_group);
     form.group(12, 212, 696, 130, "Image sequences and playback");
     form.check(V_SEQ, 28, 238, 660, 22, "Fold numbered pictures (shot_0001.png, shot_0002.png …) into one gallery entry  (Q toggles)", c.sequences);
     form.label(28, 270, 200, 20, "A run needs at least (frames):");
@@ -340,6 +350,10 @@ pub fn edit(current: &Settings) -> Option<Settings> {
     form.edit(ED_WATERMARK, 180, 408, 380, 24, &c.editor_watermark);
     form.label(28, 440, 660, 56, "Quality, EXIF and the format apply to a new file and to a picture that is burned in (a burned-in JPEG stays a JPEG, a PNG stays a PNG). \"Export copy\" in the NuEditor panel starts from these and can also resize, reduce colours, aim at a file size, stamp the watermark text and remove a plain background.");
     form.check(ED_SHOW_PAIR, 12, 516, 696, 22, "NuViewer and NuGallery show a picture with its pair file (.nuedit) applied", c.editor_show_pair);
+    form.group(12, 548, 696, 112, "Undo history and camera RAW files");
+    form.label(28, 578, 300, 20, "Steps Ctrl+Z can go back (10-5000):");
+    form.edit(ED_HISTORY, 330, 576, 70, 24, &c.editor_history.to_string());
+    form.check(ED_RAW_SENSOR, 28, 612, 660, 22, "Open a camera RAW file from its sensor data (the sliders start at what the camera recorded); off = the camera's own JPEG look", c.editor_raw_sensor);
 
     // ---- page 7: CMYK & RAW ----
     form.begin_page(7);
@@ -379,7 +393,7 @@ pub fn edit(current: &Settings) -> Option<Settings> {
     form.label(380, 272, 220, 20, "Height above the horizon (-90 to 90):");
     form.edit(D_EL, 610, 268, 70, 24, &format!("{}", c.model.light_el));
     form.label(28, 304, 660, 60, "0 and 0 from the viewer shines straight at the model. A shadow needs the light above the horizon (height over about 15).");
-    form.group(12, 382, 696, 200, "Camera and axes");
+    form.group(12, 382, 696, 180, "Camera and axes");
     form.label(28, 410, 80, 20, "Projection:");
     form.combo(D_PROJECTION, 110, 406, 200, 90, &PROJECTION_ITEMS, if c.model.ortho { 1 } else { 0 });
     form.label(340, 410, 70, 20, "Up axis:");
@@ -392,7 +406,15 @@ pub fn edit(current: &Settings) -> Option<Settings> {
     form.label(332, 480, 30, 20, "Z:");
     form.combo(D_TURN_Z, 360, 476, 90, 120, &TURN_ITEMS, c.model.turns[2] as usize % 4);
     form.button(D_RESET, 548, 475, 140, 26, "Reset 3D settings", false);
-    form.label(28, 516, 660, 56, "While looking at a model, X / Y / Z turn it 90\u{00B0} about that axis (Shift = the other way) and U swaps the up axis. The choice is remembered for all models; the gallery thumbnails keep the file's own orientation.");
+    form.label(28, 502, 660, 62, "While looking at a model, X / Y / Z turn it 90\u{00B0} about that axis (Shift = the other way) and U swaps the up axis; remembered for all models. Shift+A starts the turntable (the speed button on the playback bar multiplies the speed below). Bones need a rigged glTF / GLB / VRM.");
+    form.group(12, 566, 696, 92, "Outline, support, skeleton, turntable");
+    form.check(D_OUTLINE, 28, 590, 210, 22, "Outline  (Shift+O)", c.model.outline);
+    form.check(D_SILHOUETTE, 244, 590, 210, 22, "Silhouette  (Shift+V)", c.model.silhouette);
+    form.check(D_SUPPORT, 460, 590, 236, 22, "Support preview  (Shift+U)", c.model.support);
+    form.check(D_BONES, 28, 618, 210, 22, "Bones  (Shift+W)", c.model.bones);
+    form.check(D_BONE_NAMES, 244, 618, 210, 22, "Bone names  (Shift+N)", c.model.bone_names);
+    form.label(460, 622, 176, 20, "Turntable, degrees a second:");
+    form.edit(D_TURN_DPS, 640, 618, 46, 24, &format!("{}", c.model.turntable_dps));
 
     // ---- page 2: file types ----
     form.begin_page(2);
@@ -494,6 +516,12 @@ pub fn edit(current: &Settings) -> Option<Settings> {
                 form.set_checked(D_NORMAL, m.normal_map);
                 form.set_checked(D_WIRE, m.wireframe);
                 form.set_checked(D_SHADOW, m.shadow);
+                form.set_checked(D_OUTLINE, m.outline);
+                form.set_checked(D_SILHOUETTE, m.silhouette);
+                form.set_checked(D_SUPPORT, m.support);
+                form.set_checked(D_BONES, m.bones);
+                form.set_checked(D_BONE_NAMES, m.bone_names);
+                form.set_text(D_TURN_DPS, &format!("{}", m.turntable_dps));
                 form.combo_set(D_LIGHT, 0);
                 form.set_text(D_AZ, &format!("{}", m.light_az));
                 form.set_text(D_EL, &format!("{}", m.light_el));
@@ -641,6 +669,7 @@ pub fn edit(current: &Settings) -> Option<Settings> {
                 s.disk_monitor = form.is_checked(V_DISK);
                 s.model_textures = form.is_checked(V_MODEL_TEX);
                 s.documents = form.is_checked(V_DOCS);
+                s.pair_group = form.is_checked(V_PAIRS);
                 s.wheel = WHEEL_VALUES[form.combo_index(M_WHEEL).min(WHEEL_VALUES.len() - 1)];
                 s.sidebar = form.is_checked(V_SIDEBAR);
                 s.fit_enlarge = form.is_checked(V_FIT_ENLARGE);
@@ -651,6 +680,8 @@ pub fn edit(current: &Settings) -> Option<Settings> {
                 s.editor_suffix = form.text(ED_SUFFIX).chars().filter(|c| !r#"\/:*?"<>|"#.contains(*c)).take(32).collect();
                 s.editor_exif = form.is_checked(ED_EXIF);
                 s.editor_show_pair = form.is_checked(ED_SHOW_PAIR);
+                s.editor_history = parse_percent(&form.text(ED_HISTORY), 10, 5000, cur.editor_history);
+                s.editor_raw_sensor = form.is_checked(ED_RAW_SENSOR);
                 if let Err(e) = crate::quick_agent::apply(form.is_checked(Q_RUN), form.is_checked(Q_STARTUP)) {
                     nv_win::shell::message(&e);
                     form.show_page(9);
@@ -663,6 +694,12 @@ pub fn edit(current: &Settings) -> Option<Settings> {
                 s.model.normal_map = form.is_checked(D_NORMAL);
                 s.model.wireframe = form.is_checked(D_WIRE);
                 s.model.shadow = form.is_checked(D_SHADOW);
+                s.model.outline = form.is_checked(D_OUTLINE);
+                s.model.silhouette = form.is_checked(D_SILHOUETTE);
+                s.model.support = form.is_checked(D_SUPPORT);
+                s.model.bones = form.is_checked(D_BONES);
+                s.model.bone_names = form.is_checked(D_BONE_NAMES);
+                s.model.turntable_dps = parse_degrees(&form.text(D_TURN_DPS), 1.0, 360.0, cur.model.turntable_dps);
                 s.model.light = LIGHT_VALUES[form.combo_index(D_LIGHT).min(LIGHT_VALUES.len() - 1)];
                 s.model.light_az = parse_degrees(&form.text(D_AZ), -180.0, 180.0, cur.model.light_az);
                 s.model.light_el = parse_degrees(&form.text(D_EL), -90.0, 90.0, cur.model.light_el);
@@ -707,8 +744,9 @@ impl App {
         let colour_changed = colour_key(&s) != colour_key(&self.settings);
         let colour_error = crate::colour::apply(&s, Some(self.hwnd)).err();
         let textures_changed = s.model_textures != self.settings.model_textures;
-        let documents_changed = s.documents != self.settings.documents;
+        let documents_changed = s.documents != self.settings.documents || s.pair_group != self.settings.pair_group;
         nv_core::folder::set_include_documents(s.documents);
+        nv_core::rawpair::set_group(s.pair_group);
         nv_codecs::set_model_textures(s.model_textures);
         self.fps = s.fps;
         let order_changed = s.sort != self.settings.sort || s.sort_desc != self.settings.sort_desc;

@@ -225,6 +225,7 @@ const G_EXPLORER_REMOVE: u16 = 1404;
 const G_EXPLORER_STATE: u16 = 1405;
 const G_WEBSITE: u16 = 1406;
 const G_SUPPORT: u16 = 1407;
+const G_FEEDBACK: u16 = 1411;
 const G_FONT_SAMPLE: u16 = 1408;
 const G_PICK_FORMAT: u16 = 1409;
 const G_PALETTE_SIZE: u16 = 1410;
@@ -233,10 +234,27 @@ const SNAP_FORMATS: [&str; 6] = ["png", "png16", "jpg", "webp", "tiff", "bmp"];
 const SNAP_SDR: [SdrAssume; 4] = [SdrAssume::AsShown, SdrAssume::Bt1886, SdrAssume::Rec709A, SdrAssume::Gamma22];
 const AFTER_IDS: [&str; 3] = ["save", "confirm", "clipboard"];
 
+/// The choices of the language list: automatic, the languages the programs are prepared for (see `nv_text::registry`: seven
+/// international ones and Thai, most of them still mock-ups that show English), then any other `lang/<code>.txt` that is found.
 fn languages() -> Vec<String> {
     let mut v = vec!["auto".to_string()];
-    v.extend(nv_core::i18n::available());
+    v.extend(nv_core::i18n::registry::LANGUAGES.iter().map(|l| l.code.to_string()));
+    for code in nv_core::i18n::available() {
+        if nv_core::i18n::registry::LANGUAGES.iter().all(|l| !l.code.eq_ignore_ascii_case(&code)) && !code.ends_with("-template") {
+            v.push(code);
+        }
+    }
     v
+}
+
+fn language_label(code: &str) -> String {
+    if code == "auto" {
+        return nv_core::i18n::t("general.lang_auto").to_string();
+    }
+    match nv_core::i18n::registry::LANGUAGES.iter().find(|l| l.code.eq_ignore_ascii_case(code)) {
+        Some(l) => nv_core::i18n::registry::list_label(l),
+        None => code.to_string(),
+    }
 }
 
 pub fn build_more(form: &Form, s: &Settings) {
@@ -299,9 +317,9 @@ pub fn build_more(form: &Form, s: &Settings) {
     form.group(12, 52, 696, 124, tx("general.group_language"));
     form.label(28, 80, 150, 20, tx("general.language"));
     let langs = languages();
-    let names: Vec<String> = langs.iter().map(|l| if l == "auto" { tx("general.lang_auto").to_string() } else { l.clone() }).collect();
+    let names: Vec<String> = langs.iter().map(|l| language_label(l)).collect();
     let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
-    form.combo(G_LANG, 180, 76, 300, 160, &name_refs, langs.iter().position(|l| *l == m.language).unwrap_or(0));
+    form.combo(G_LANG, 180, 76, 300, 160, &name_refs, langs.iter().position(|l| l.eq_ignore_ascii_case(&m.language)).unwrap_or(0));
     form.button(G_LANG_FOLDER, 490, 75, 198, 26, tx("general.lang_folder"), false);
     form.label(28, 110, 660, 54, tx("general.lang_hint"));
     form.group(12, 186, 696, 150, tx("general.group_explorer"));
@@ -311,8 +329,9 @@ pub fn build_more(form: &Form, s: &Settings) {
     form.label_id(G_EXPLORER_STATE, 28, 296, 660, 30, "");
     form.group(12, 346, 696, 96, tx("general.group_about"));
     form.label(28, 372, 660, 20, &format!("{}  {}   ·   {}", nv_core::about::PROGRAMS.join(" · "), env!("CARGO_PKG_VERSION"), nv_core::i18n::tf("about.made_by", &[&nv_core::about::STUDIO])));
-    form.button(G_WEBSITE, 28, 400, 300, 28, nv_core::about::WEBSITE, false);
-    form.button(G_SUPPORT, 338, 400, 300, 28, tx("general.support"), false);
+    form.button(G_WEBSITE, 28, 400, 220, 28, nv_core::about::WEBSITE.trim_start_matches("https://"), false);
+    form.button(G_SUPPORT, 256, 400, 200, 28, tx("general.support"), false);
+    form.button(G_FEEDBACK, 464, 400, 224, 28, tx("general.feedback"), false);
     form.group(12, 452, 696, 160, "Fonts and colours");
     form.label(28, 478, 660, 20, "The sentence a font is shown with in the viewer, the gallery and thumbnails (up to 100 characters):");
     form.edit(G_FONT_SAMPLE, 28, 504, 660, 24, &m.font_sample);
@@ -380,6 +399,7 @@ pub fn click_more(form: &Form, id: u16) -> bool {
         }
         G_WEBSITE => nv_win::shell::open_url(nv_core::about::WEBSITE),
         G_SUPPORT => nv_win::shell::open_url(nv_core::about::SUPPORT),
+        G_FEEDBACK => nv_win::shell::open_url(nv_core::about::FEEDBACK),
         _ => return false,
     }
     true

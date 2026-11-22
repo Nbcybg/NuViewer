@@ -1,0 +1,18 @@
+{
+  "id": "P010",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 4,
+  "reason_code": "trust",
+  "reason": "It's free and portable, so I'll unzip it and throw a card of RAW+JPG at it to see if the speed claims are real. But my culling pipeline can't break, and one dev on 0.4.1 with no plug-in system is not something I make default on a whim.",
+  "why_switch_or_not": "The speed numbers and the separate RAW/JPG listing are what would get me to try it, since a 500-shot cull is exactly where IrfanView's 600-900 ms rapid-next hurts. But I would not switch: no plug-ins, no community to ask when something breaks, and a v0.4.1 from one person who may drop it in a year. Setting default for formats by hand in Windows Settings is also a chore I would only do once I trust it.",
+  "current_app_pros": "IrfanView starts instantly, I know every shortcut by heart, my plug-ins and command-line batch setups are already configured, and it has worked the same way for years. It's tiny and never gets in my way.",
+  "current_app_pains": "Rapid next/back through big RAW and JPG files lags, RAW support depends on plug-ins and is only so-so, and the UI looks dated. Colour management is not something I fully trust there. It's mild annoyance, not a dealbreaker.",
+  "objection": "No plug-ins, no big community, hard to find help, and one developer on 0.4.1. If it breaks my cull workflow in the middle of a 500-photo batch I have nobody to ask and no fallback except going back to IrfanView.",
+  "would_change_my_mind": "A few months of stable releases and visible bug fixes, plus proof that my XMP/sidecar ratings and colour setup survive a cull untouched. Being able to rate or tag and reject in the viewer, with the RAW+JPG pair handled sanely, would make me look seriously.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 20,
+  "price_too_expensive": 40
+}

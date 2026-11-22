@@ -6,6 +6,7 @@ use crate::app::App;
 use crate::chrome::Btn;
 use crate::model::{Entry, Show};
 use crate::state::ViewMode;
+use crate::groups::GroupBy;
 use nv_core::folder::SortKey;
 use nv_win::menu::{popup, Entry as Item};
 
@@ -93,6 +94,8 @@ pub enum Cmd {
     CopyTo,
     MoveTo,
     Print,
+    Share,
+    ExtractFrames,
     NewFolder,
     Rename,
     Delete,
@@ -105,6 +108,10 @@ pub enum Cmd {
     BatchTimes,
     BatchStrip,
     Sort(SortKey),
+    /// Group view: what to group by / in which direction the groups run / the next grouping.
+    GroupBy(GroupBy),
+    GroupDir(bool),
+    GroupCycle,
     Show(Show),
     ToggleFolders,
     ToggleHidden,
@@ -133,6 +140,13 @@ pub enum Cmd {
     ZoomOut,
     ZoomReset,
     ToggleSequences,
+    TogglePairs,
+    Rate(nv_core::xmp::RateChange),
+    /// A plug-in's command: (plug-in, command) in `nv_core::plugins::current()`.
+    Plugin(usize, usize),
+    PluginsFolder,
+    PluginsReload,
+    RatingFilter(nv_core::xmp::Filter),
     Importer,
     Exit,
 }
@@ -178,6 +192,52 @@ impl App {
         Item::Submenu { text: "Open with".into(), items, enabled: first.is_some() }
     }
 
+    /// "Plug-ins": the commands that apply to the first selected file, then the plug-ins folder and a reload.
+    fn plugins_menu(&self, b: &mut Builder, first: Option<&Entry>) -> Item {
+        let loaded = nv_core::plugins::current();
+        let mut items: Vec<Item> = match first {
+            Some(e) => loaded.commands_for(&e.path).into_iter().map(|(pi, ci, name)| b.item(Cmd::Plugin(pi, ci), name)).collect(),
+            None => Vec::new(),
+        };
+        if items.is_empty() {
+            items.push(Item::item(u32::MAX, if loaded.plugins.is_empty() { "No plug-ins installed" } else { "No plug-in command for this file" }).enabled(false));
+        }
+        items.push(Item::Separator);
+        items.push(b.item(Cmd::PluginsFolder, "Open the plug-ins folder…"));
+        items.push(b.item(Cmd::PluginsReload, format!("Reload plug-ins ({} loaded{})", loaded.plugins.len(), if loaded.skipped.is_empty() { String::new() } else { format!(", {} skipped", loaded.skipped.len()) })));
+        Item::Submenu { text: "Plug-ins".into(), items, enabled: true }
+    }
+
+    /// "Rating": stars, reject and colour labels for the selected pictures (the checked ones are what the focused picture has).
+    fn rate_menu(&self, b: &mut Builder, enabled: bool) -> Item {
+        use nv_core::xmp::{Label, RateChange};
+        let now = self.sel.cursor.and_then(|c| self.listing.get(c)).and_then(|e| self.listing.ratings.get(&e.id)).copied().unwrap_or_default();
+        let mut items: Vec<Item> = (0..=5u8)
+            .map(|n| {
+                let text = if n == 0 { "No stars\tShift+0".to_string() } else { format!("{}\tShift+{n}", "\u{2605}".repeat(n as usize)) };
+                b.checked(Cmd::Rate(RateChange::Stars(n)), text, !now.rejected && now.stars == n)
+            })
+            .collect();
+        items.push(b.checked(Cmd::Rate(RateChange::ToggleReject), "Rejected\tCtrl+Shift+X", now.rejected));
+        items.push(Item::Separator);
+        for (l, key) in Label::ALL.into_iter().zip(["Shift+6", "Shift+7", "Shift+8", "Shift+9", "Shift+`"]) {
+            items.push(b.checked(Cmd::Rate(RateChange::Label(Some(l))), format!("{}\t{key}", l.name()), now.label == Some(l)));
+        }
+        items.push(b.item(Cmd::Rate(RateChange::Label(None)), "No label\tCtrl+Shift+`"));
+        Item::Submenu { text: "Rating (XMP)".into(), items, enabled }
+    }
+
+    /// "Show rating": only the pictures with at least so many stars, a colour label, not rated, rejected ...
+    fn rating_filter_items(&self, b: &mut Builder) -> Vec<Item> {
+        use nv_core::xmp::{Filter, Label};
+        let cur = self.listing.rating_filter;
+        let mut fs = vec![Filter::All, Filter::HideRejected];
+        fs.extend((1..=5).rev().map(Filter::AtLeast));
+        fs.extend([Filter::Unrated, Filter::Rejected]);
+        fs.extend(Label::ALL.into_iter().map(Filter::Label));
+        fs.into_iter().map(|f| b.checked(Cmd::RatingFilter(f), f.label(), cur == f)).collect()
+    }
+
     /// The right-click menu, in the order the gallery's design asks for.
     pub fn context_menu(&mut self, x: i32, y: i32) {
         let picked: Vec<&Entry> = self.sel.entries(&self.listing);
@@ -186,6 +246,7 @@ impl App {
         let many = self.sel.count(&self.listing) >= 2;
         let any_file = picked.iter().any(|e| !e.is_dir());
         let any_pic = picked.iter().any(|e| e.viewable());
+        let any_text = picked.iter().any(|e| nv_core::textfiles::is_text_path(&e.path));
         let all_rewritable = !picked.is_empty() && picked.iter().all(|e| nv_editor::save::Format::of_extension(&e.ext).is_some());
         let paste_ok = nv_win::files::clipboard_files(self.hwnd).is_some();
         let externals: Vec<String> = self.settings.external.iter().map(|e| e.name.clone()).collect();
@@ -200,6 +261,7 @@ impl App {
         menu.push(ow);
         let quick: Vec<Item> = [QuickOp::RotateLeft, QuickOp::RotateRight, QuickOp::FlipH, QuickOp::FlipV].iter().map(|&q| b.item(Cmd::Quick(q), q.label())).collect();
         menu.push(b.item(Cmd::NuEditor, "Edit in NuEditor	F4").enabled(any_pic && !many));
+        menu.push(b.item(Cmd::NuEditor, "Edit text in NuNote	F4").enabled(any_text && !many));
         menu.push(Item::Submenu { text: "Quick edit".into(), items: quick, enabled: all_rewritable });
         let mut with: Vec<Item> = externals.iter().enumerate().map(|(i, name)| b.item(Cmd::EditWith(i), name.clone())).collect();
         if !with.is_empty() {
@@ -213,6 +275,7 @@ impl App {
         menu.push(b.item(Cmd::Refresh, "Refresh\tF5"));
         menu.push(b.checked(Cmd::Shuffle, "Shuffle\tCtrl+R", shuffled));
         menu.push(b.checked(Cmd::ToggleSequences, "Group image sequences\tCtrl+G", self.settings.sequences));
+        menu.push(b.checked(Cmd::TogglePairs, "Group RAW + JPG pairs\tCtrl+Shift+G", self.settings.pair_group));
         let select = vec![
             b.item(Cmd::SelectItem, "Item (toggle)").enabled(has),
             b.item(Cmd::SelectAll, "All\tCtrl+A"),
@@ -220,6 +283,10 @@ impl App {
             b.item(Cmd::SelectInvert, "Invert"),
         ];
         menu.push(b.sub("Select", select));
+        let rate = self.rate_menu(&mut b, any_pic);
+        menu.push(rate);
+        let plugins = self.plugins_menu(&mut b, picked.iter().find(|e| !e.is_dir()).copied());
+        menu.push(plugins);
         menu.push(Item::Separator);
         menu.push(b.item(Cmd::CopyImage, "Copy picture").enabled(any_pic));
         menu.push(b.item(Cmd::CopyFile, "Copy file\tCtrl+C").enabled(has));
@@ -231,6 +298,8 @@ impl App {
         menu.push(b.item(Cmd::MoveTo, "Move to…\tF6").enabled(has));
         menu.push(Item::Separator);
         menu.push(b.item(Cmd::Print, "Print\tCtrl+P").enabled(any_pic));
+        menu.push(b.item(Cmd::Share, "Share to\u{2026}\tCtrl+Shift+H").enabled(any_file));
+        menu.push(b.item(Cmd::ExtractFrames, "Extract frames\u{2026}\tCtrl+Shift+F").enabled(any_file));
         menu.push(b.item(Cmd::NewFolder, "New folder\tCtrl+N"));
         menu.push(b.item(Cmd::Rename, "Rename\tF2").enabled(has && !many));
         menu.push(b.item(Cmd::Delete, "Delete\tDel").enabled(has));
@@ -272,6 +341,8 @@ impl App {
         menu.push(b.sub("View", view));
         let sort = self.sort_items(&mut b);
         menu.push(b.sub("Sort by", sort));
+        let group = self.group_items(&mut b);
+        menu.push(b.sub("Group by", group));
         let show: Vec<Item> = Show::ALL_CHOICES.iter().map(|&s| b.checked(Cmd::Show(s), s.label(), self.listing.show == s)).collect();
         menu.push(b.sub("Show only", show));
         menu.push(b.item(Cmd::Settings, "Settings…"));
@@ -365,6 +436,18 @@ impl App {
         v
     }
 
+    /// The "Group by" choices: none / type / app / name / date / size, then ascending or descending.
+    fn group_items(&self, b: &mut Builder) -> Vec<Item> {
+        let g = self.listing.group;
+        let mut v: Vec<Item> = GroupBy::ALL.iter().map(|&k| b.checked(Cmd::GroupBy(k), k.label().to_string(), g.by == k)).collect();
+        v.push(Item::Separator);
+        v.push(b.checked(Cmd::GroupDir(false), "Ascending", g.on() && !g.descending).enabled(g.on()));
+        v.push(b.checked(Cmd::GroupDir(true), "Descending", g.on() && g.descending).enabled(g.on()));
+        v.push(Item::Separator);
+        v.push(b.item(Cmd::GroupCycle, "Next grouping\tCtrl+Shift+J"));
+        v
+    }
+
     /// The entries under menu bar label `i` (File, Edit, View, Tools, Help).
     fn bar_menu(&self, i: usize, b: &mut Builder) -> Vec<Item> {
         let picked: Vec<&Entry> = self.sel.entries(&self.listing);
@@ -372,6 +455,7 @@ impl App {
         let many = self.sel.count(&self.listing) >= 2;
         let any_file = picked.iter().any(|e| !e.is_dir());
         let any_pic = picked.iter().any(|e| e.viewable());
+        let any_text = picked.iter().any(|e| nv_core::textfiles::is_text_path(&e.path));
         let all_rewritable = !picked.is_empty() && picked.iter().all(|e| nv_editor::save::Format::of_extension(&e.ext).is_some());
         let paste_ok = nv_win::files::clipboard_files(self.hwnd).is_some();
         let externals: Vec<String> = self.settings.external.iter().map(|e| e.name.clone()).collect();
@@ -383,6 +467,7 @@ impl App {
                 let ow = self.open_with_menu(b, &picked);
                 m.push(ow);
                 m.push(b.item(Cmd::NuEditor, "Edit in NuEditor\tF4").enabled(any_pic && !many));
+                m.push(b.item(Cmd::NuEditor, "Edit text in NuNote\tF4").enabled(any_text && !many));
                 let mut with: Vec<Item> = externals.iter().enumerate().map(|(k, name)| b.item(Cmd::EditWith(k), name.clone())).collect();
                 if !with.is_empty() {
                     with.push(Item::Separator);
@@ -391,11 +476,15 @@ impl App {
                 with.push(b.item(Cmd::SetUpPrograms, "Set up the list…"));
                 m.push(Item::Submenu { text: "Edit with…".into(), items: with, enabled: any_file });
                 m.push(b.item(Cmd::ShowLocation, "Show file location\tCtrl+E").enabled(has));
+                let rate = self.rate_menu(b, any_pic);
+                m.push(rate);
                 m.push(Item::Separator);
                 m.push(b.item(Cmd::NewFolder, "New folder\tCtrl+N"));
                 m.push(b.item(Cmd::Rename, "Rename\tF2").enabled(has && !many));
                 m.push(b.item(Cmd::Delete, "Delete\tDel").enabled(has));
                 m.push(b.item(Cmd::Print, "Print\tCtrl+P").enabled(any_pic));
+                m.push(b.item(Cmd::Share, "Share to\u{2026}\tCtrl+Shift+H").enabled(any_file));
+                m.push(b.item(Cmd::ExtractFrames, "Extract frames\u{2026}\tCtrl+Shift+F").enabled(any_file));
                 m.push(b.item(Cmd::Properties, "Properties"));
                 m.push(Item::Separator);
                 m.push(b.item(Cmd::Settings, "Settings…"));
@@ -427,12 +516,17 @@ impl App {
                 m.push(Item::Separator);
                 let sort = self.sort_items(b);
                 m.push(b.sub("Sort by", sort));
+                let group = self.group_items(b);
+                m.push(b.sub("Group by", group));
                 let show: Vec<Item> = Show::ALL_CHOICES.iter().map(|&s| b.checked(Cmd::Show(s), s.label(), self.listing.show == s)).collect();
                 m.push(b.sub("Show only", show));
+                let rf = self.rating_filter_items(b);
+                m.push(b.sub("Show rating", rf));
                 m.push(b.checked(Cmd::ToggleFolders, "Folders", self.listing.folders));
                 m.push(b.checked(Cmd::ToggleHidden, "Hidden files", self.persist.hidden));
                 m.push(b.checked(Cmd::ToggleNames, "File names under thumbnails", self.persist.names));
                 m.push(b.checked(Cmd::ToggleSequences, "Group image sequences\tCtrl+G", self.settings.sequences));
+                m.push(b.checked(Cmd::TogglePairs, "Group RAW + JPG pairs\tCtrl+Shift+G", self.settings.pair_group));
                 m.push(b.checked(Cmd::RawLook, "RAW: camera look (not sensor data)\tShift+R", self.settings.raw_mode.is_camera_look()));
                 m.push(Item::Separator);
                 m.push(b.checked(Cmd::PinTop, "Keep the toolbar open\tCtrl+T", self.panels.pin_top));
@@ -482,12 +576,17 @@ impl App {
                 }
                 menu.push(Item::Separator);
                 menu.push(b.checked(Cmd::Shuffle, "Shuffle\tCtrl+R", o.shuffle.is_some()));
+                menu.push(Item::Separator);
+                let group = self.group_items(&mut b);
+                menu.push(b.sub("Group by", group));
             }
             Btn::Show => {
                 for s in Show::ALL_CHOICES {
                     menu.push(b.checked(Cmd::Show(s), s.label(), self.listing.show == s));
                 }
                 menu.push(Item::Separator);
+                let rf = self.rating_filter_items(&mut b);
+                menu.push(b.sub("Show rating", rf));
                 menu.push(b.checked(Cmd::ToggleFolders, "Folders", self.listing.folders));
                 menu.push(b.checked(Cmd::ToggleHidden, "Hidden files", self.persist.hidden));
             }
@@ -501,6 +600,7 @@ impl App {
                 menu.push(b.sub("Batch (selected files)", batch));
                 menu.push(b.item(Cmd::Compress, "Compress selected (.zip)"));
                 menu.push(b.checked(Cmd::ToggleSequences, "Group image sequences\tCtrl+G", self.settings.sequences));
+                menu.push(b.checked(Cmd::TogglePairs, "Group RAW + JPG pairs\tCtrl+Shift+G", self.settings.pair_group));
                 menu.push(Item::Separator);
                 for m in ViewMode::ALL {
                     menu.push(b.checked(Cmd::View(m), m.label(), self.mode == m));
@@ -572,6 +672,8 @@ impl App {
             Cmd::CopyTo => self.transfer_selected(false),
             Cmd::MoveTo => self.transfer_selected(true),
             Cmd::Print => self.print_selected(),
+            Cmd::Share => self.share_selected(),
+            Cmd::ExtractFrames => self.extract_frames_selected(),
             Cmd::NewFolder => self.new_folder(),
             Cmd::Rename => self.start_rename(),
             Cmd::Delete => self.delete_selected(false),
@@ -584,6 +686,9 @@ impl App {
             Cmd::BatchTimes => self.batch_times(),
             Cmd::BatchStrip => self.batch_strip(),
             Cmd::Sort(k) => self.set_sort(k),
+            Cmd::GroupBy(k) => self.set_group(k),
+            Cmd::GroupDir(d) => self.set_group_dir(d),
+            Cmd::GroupCycle => self.cycle_group(),
             Cmd::Show(s) => self.set_show(s),
             Cmd::ToggleFolders => {
                 self.listing.folders = !self.listing.folders;
@@ -638,6 +743,21 @@ impl App {
             Cmd::ZoomOut => self.zoom_cells(-1.0),
             Cmd::ZoomReset => self.reset_cell(),
             Cmd::ToggleSequences => self.toggle_sequences(),
+            Cmd::TogglePairs => self.toggle_pairs(),
+            Cmd::Rate(c) => self.rate_selected(c),
+            Cmd::Plugin(pi, ci) => self.run_plugin(pi, ci),
+            Cmd::PluginsFolder => {
+                let dir = nv_core::plugins::plugins_dir();
+                let _ = std::fs::create_dir_all(&dir);
+                nv_win::shell::open_url(&dir.display().to_string());
+            }
+            Cmd::PluginsReload => {
+                let l = nv_core::plugins::load(self.settings.plugins);
+                self.refresh(Vec::new());
+                let skipped = if l.skipped.is_empty() { String::new() } else { format!(" — skipped: {}", l.skipped.iter().map(|(id, why)| format!("{id} ({why})")).collect::<Vec<_>>().join("; ")) };
+                self.toast(format!("{} plug-in{} loaded{skipped}", l.plugins.len(), if l.plugins.len() == 1 { "" } else { "s" }));
+            }
+            Cmd::RatingFilter(f) => self.set_rating_filter(f),
             Cmd::Importer => self.launch_importer(),
             Cmd::Exit => self.exit(),
             Cmd::QuickPng => self.quick_to(nv_core::quick::Target::Png),

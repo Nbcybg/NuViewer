@@ -75,8 +75,12 @@ impl App {
             if self.mode != Mode::Viewer || self.folder.files.is_empty() {
                 return;
             }
-            if self.is_model() {
-                self.toast("NuEditor works on pictures, not 3D models");
+            // A text, Markdown, JSON ... file goes to NuNote (the notepad), not to the picture editor.
+            if let Some(p) = self.folder.files.get(self.folder.index).filter(|p| nv_core::textfiles::is_text_path(p)).cloned() {
+                match nv_core::textfiles::open_in_notepad(&p) {
+                    Ok(()) => {}
+                    Err(e) => self.toast(e),
+                }
                 return;
             }
             // NuEditor next to us: hand the picture over (this window closes, the editor brings it back).
@@ -94,7 +98,17 @@ impl App {
     /// angle, so nothing is lost and nothing is written twice. False if there is no NuEditor next to this program.
     fn launch_nueditor(&mut self) -> bool {
         let Some(exe) = std::env::current_exe().ok().map(|e| e.with_file_name("nueditor.exe")).filter(|p| p.is_file()) else { return false };
-        let Some(path) = self.folder.files.get(self.folder.index).cloned() else { return false };
+        let Some(source) = self.folder.files.get(self.folder.index).cloned() else { return false };
+        // A video, a PDF, a 3D model, an animation that is not a GIF: NuEditor gets the frame being looked at (a GIF is edited whole).
+        let (source, _) = nv_codecs::split_page(&source);
+        let path = match self.frame_to_edit(&source) {
+            Ok(Some((p, _note))) => p,
+            Ok(None) => self.folder.files[self.folder.index].clone(),
+            Err(e) => {
+                self.toast(format!("Couldn't take the frame to edit: {e}"));
+                return false;
+            }
+        };
         let turn = self.rotation();
         let mut cmd = std::process::Command::new(exe);
         cmd.arg(&path).arg("--from").arg("viewer");

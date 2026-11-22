@@ -19,6 +19,7 @@ mod draw;
 mod gfx;
 mod hints;
 mod grid;
+mod groups;
 mod info;
 mod input;
 mod menus;
@@ -27,6 +28,7 @@ mod ops;
 mod panels;
 mod pick;
 mod preview;
+mod rating;
 mod state;
 mod tools;
 mod tree;
@@ -79,6 +81,8 @@ fn main() {
     colour::apply_at_startup(&settings);
     nv_codecs::set_model_textures(settings.model_textures);
     nv_core::folder::set_include_documents(true);
+    nv_core::rawpair::set_group(settings.pair_group);
+    nv_core::plugins::load(settings.plugins);
 
     // One gallery window: a second launch hands its folder to the first.
     if !flag("--new-window") {

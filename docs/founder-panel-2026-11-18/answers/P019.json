@@ -1,0 +1,18 @@
+{
+  "id": "P019",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 4,
+  "reason_code": "habit",
+  "reason": "I'd grab the portable zip because 26 of 32 formats is the kind of claim I like to test with my own odd files. But XnView MP already does my browsing, batch convert and metadata work, so I wouldn't give up its file associations for a 0.4.1 from one person.",
+  "why_switch_or_not": "The speed numbers and the format list get me to download it, since I switch the moment something opens a file my current app chokes on. I'd only make it default if it opened files XnView fails on in my own folders, and nothing in the description says that. Metadata editing isn't listed (XnView MP's metadata tools matter to me), printing isn't mentioned (my relatives' phone photos usually end up printed), and HEIC needs an extra Microsoft extension. I'd also have to redo associations and shortcuts by hand in Windows Settings, which is exactly the chore I dread.",
+  "current_app_pros": "XnView MP is a browser, batch converter and metadata tool in one. It opens a huge range of formats, handles my RAW+JPG folders for culling, and I already know where everything is.",
+  "current_app_pains": "It feels a bit heavy and slow to open a single picture or flip through a big folder compared with a pure viewer. The interface is cluttered. But nothing bad enough that I'm hunting for a replacement.",
+  "objection": "It's v0.4.1 from one developer, and I can't tell it replaces XnView's metadata and batch tools or prints a photo, so I'd be trading a mature app for an unproven one and redoing all my associations.",
+  "would_change_my_mind": "Proof that it opens files from my own folders that XnView MP fails on (odd RAWs, HEIC from relatives' phones), plus metadata viewing/editing and easy printing.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 20,
+  "price_too_expensive": 40
+}

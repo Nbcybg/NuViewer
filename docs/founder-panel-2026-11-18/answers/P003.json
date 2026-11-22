@@ -1,0 +1,18 @@
+{
+  "id": "P003",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 6,
+  "reason_code": "trust",
+  "reason": "I install new tools on a whim, so I'd grab the portable zip and throw some of my cbz folders and screenshot dumps at it. But making it my default after one month from one developer at v0.4.1? Not without seeing the source or a signature.",
+  "why_switch_or_not": "The speed numbers and the zip/cbz support are what get me to try it, since I flip through hundreds of PNG screenshots and big comic archives. But I'm already happy with my small fast viewer, and the reasons the page gives are mostly things I don't need (RAW, PSD, 3D, editor, scanner importer). Without a plug-in system, and with a one-person v0.4.1 and an English-only UI, I'd keep my current viewer as the default and use NuViewer for the odd archive or format it handles better.",
+  "current_app_pros": "Opens instantly, tiny footprint, handles zip/cbz folders and PNG screenshots without fuss, and I know all the keys. Nothing gets in the way when I page through a few hundred images.",
+  "current_app_pains": "Nothing much. A few odd formats don't open and the archive browsing is basic, but I'm not annoyed enough to go looking.",
+  "objection": "An unknown .exe from one person: is it signed, is the source open, and will it still be maintained in a year? The page says nothing about any of that, and I keep my whole collection in these folders.",
+  "would_change_my_mind": "Open source code, or at least a code-signed installer with a clear changelog. Plus a month of it handling my big cbz folders with no crashes and no memory bloat.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

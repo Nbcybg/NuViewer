@@ -1,0 +1,18 @@
+{
+  "id": "P021",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 2,
+  "reason_code": "trust",
+  "reason": "I'd grab the portable zip just to see how it handles a PSD and a PNG with alpha, but a one-person 0.4.1 exe is not going anywhere near my default-app slot. My real work happens in other tools anyway, and Windows Photos does the one thing I ask of a viewer on family-photo days.",
+  "why_switch_or_not": "Speed numbers and 26 file types don't matter much to me, because I open a handful of relatives' phone photos and then print one. The ICC colour management and PSD/alpha support are the only things that interest me, and I'd test those once. Nothing says it prints or handles HEIC without Microsoft's extension, and I'd have to tick formats in Settings myself, so it costs me effort for no gain over Photos.",
+  "current_app_pros": "It's already there, double-click opens any phone photo, and printing goes straight through the Windows print dialog. I never have to think about it, and it can't break my pipeline.",
+  "current_app_pains": "Nothing that really bothers me. It's a bit slow to open sometimes and it doesn't show PSD or AI, but I use Photoshop and Illustrator for those, not a viewer.",
+  "objection": "Is an unknown .exe from one developer safe? Nothing says it's code-signed or open source, and I'm not putting an unsigned app into my default file associations on a machine my work depends on.",
+  "would_change_my_mind": "A code-signed installer or published source code, plus a clear way to print from it and proof that the PSD/alpha/ICC display matches Photoshop.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 8,
+  "price_too_expensive": 20
+}

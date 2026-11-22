@@ -1,0 +1,18 @@
+{
+  "id": "P045",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 6,
+  "reason_code": "trust",
+  "reason": "The format list (EXR, DDS, TGA, GLB/FBX, PSD, AI) is exactly what I check for the game project, so I'd run the portable zip once. But one dev on 0.4 with nothing about source or signing, I'm not making it my default.",
+  "why_switch_or_not": "I'd try it because IrfanView handles my HDR/EXR and 3D files badly and I'd like one window for textures and models. I wouldn't switch: IrfanView is set up the way I like, the speed gap (ms vs ms) means nothing to me, and I won't make an unknown .exe from one person the default for every file association. If the dev vanishes in a year I'd be re-doing my setup. I'd use it alongside, only for the odd texture/model file.",
+  "current_app_pros": "IrfanView opens instantly, I know every shortcut, the plug-ins are set up, it's tiny and has been around for decades so I trust it. PSD, PNG with alpha and quick resize/convert all work fine for my daily use.",
+  "current_app_pains": "It's weak on EXR/HDR and has no 3D model preview, so for textures and models I switch to other tools. The interface looks dated, and colour management is not great.",
+  "objection": "One developer, version 0.4: will it still be maintained next year, and can I check what the exe does before I run it? Nothing in the page says source or signing.",
+  "would_change_my_mind": "Published source code or a code-signed installer, plus a few independent reviews from other artists and a release history showing steady updates over a year or more.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 35
+}

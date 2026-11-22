@@ -1141,7 +1141,7 @@ dependencies = [
 
 [[package]]
 name = "nueditor"
-version = "0.4.1"
+version = "0.6.0"
 dependencies = [
  "nv-codecs",
  "nv-core",
@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "nugallery"
-version = "0.4.1"
+version = "0.6.0"
 dependencies = [
  "nv-codecs",
  "nv-core",
@@ -1166,7 +1166,7 @@ dependencies = [
 
 [[package]]
 name = "nuimporter"
-version = "0.4.1"
+version = "0.6.0"
 dependencies = [
  "nv-codecs",
  "nv-core",
@@ -1269,8 +1269,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nunote"
+version = "0.6.0"
+dependencies = [
+ "nv-core",
+ "nv-win",
+ "windows",
+]
+
+[[package]]
 name = "nuquick"
-version = "0.4.1"
+version = "0.6.0"
 dependencies = [
  "nv-codecs",
  "nv-core",
@@ -1280,7 +1289,7 @@ dependencies = [
 
 [[package]]
 name = "nuviewer"
-version = "0.4.1"
+version = "0.6.0"
 dependencies = [
  "nv-codecs",
  "nv-core",
@@ -1293,7 +1302,7 @@ dependencies = [
 
 [[package]]
 name = "nuviewer-setup"
-version = "0.4.1"
+version = "0.6.0"
 dependencies = [
  "miniz_oxide 0.9.1",
  "nv-win",
@@ -1302,7 +1311,7 @@ dependencies = [
 
 [[package]]
 name = "nv-codecs"
-version = "0.4.1"
+version = "0.6.0"
 dependencies = [
  "brotli-decompressor",
  "fbxcel-dom",
@@ -1334,7 +1343,7 @@ dependencies = [
 
 [[package]]
 name = "nv-core"
-version = "0.4.1"
+version = "0.6.0"
 dependencies = [
  "flate2",
  "nv-codecs",
@@ -1342,12 +1351,14 @@ dependencies = [
  "nv-media",
  "nv-text",
  "png",
+ "roxmltree 0.20.0",
 ]
 
 [[package]]
 name = "nv-editor"
-version = "0.4.1"
+version = "0.6.0"
 dependencies = [
+ "gif",
  "image-webp",
  "jpeg-encoder",
  "png",
@@ -1355,14 +1366,14 @@ dependencies = [
 
 [[package]]
 name = "nv-media"
-version = "0.4.1"
+version = "0.6.0"
 dependencies = [
  "windows",
 ]
 
 [[package]]
 name = "nv-render"
-version = "0.4.1"
+version = "0.6.0"
 dependencies = [
  "nv-codecs",
  "windows",
@@ -1370,15 +1381,16 @@ dependencies = [
 
 [[package]]
 name = "nv-text"
-version = "0.4.1"
+version = "0.6.0"
 
 [[package]]
 name = "nv-win"
-version = "0.4.1"
+version = "0.6.0"
 dependencies = [
  "nv-text",
  "png",
  "windows",
+ "windows-collections",
  "windows-core",
 ]
 

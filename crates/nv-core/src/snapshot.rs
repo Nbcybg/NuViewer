@@ -91,8 +91,20 @@ fn encode8(format: &str, quality: u8, w: u32, h: u32, rgb: &[u8]) -> Result<Vec<
 /// Save a frame we already have as pixels (an animated GIF / WebP / APNG: no video decoder involved, no colour work).
 /// `n` is the frame number shown in the name where a video has its time.
 pub fn take_shown(src: &Path, n: u64, prefs: &Prefs, shown: Shown) -> Result<Saved, String> {
+    take_shown_labeled(src, &format!("frame {n}"), prefs, shown)
+}
+
+/// `take_shown` with its own words for the part of the name where a video has its time ("frame 12", "page 3", "view").
+/// A picture with transparency is saved as PNG when the chosen format cannot carry it (nothing is flattened onto black).
+pub fn take_shown_labeled(src: &Path, label: &str, prefs: &Prefs, shown: Shown) -> Result<Saved, String> {
     let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "picture".into());
-    let format = if prefs.snapshot_format == "png16" { "png" } else { prefs.snapshot_format.as_str() };
+    let mut format = if prefs.snapshot_format == "png16" { "png" } else { prefs.snapshot_format.as_str() };
+    let alpha = shown.rgba.chunks_exact(4).any(|p| p[3] < 255);
+    let mut note = String::new();
+    if alpha && !crate::frames::format_keeps_alpha(format) {
+        note = format!("Saved as PNG: {} cannot keep transparency", format.to_uppercase());
+        format = "png";
+    }
     let rgb: Vec<u8> = shown.rgba.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
     let bytes = if format == "png" {
         convert::encode(&Pixels::new(shown.width, shown.height, shown.rgba), Out::Png, [0; 3], None)?
@@ -101,11 +113,11 @@ pub fn take_shown(src: &Path, n: u64, prefs: &Prefs, shown: Shown) -> Result<Sav
     };
     let dir = folder_for(prefs, src);
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let pattern = prefs.snapshot_name.replace("{time}", &format!("frame {n}"));
+    let pattern = prefs.snapshot_name.replace("{time}", label);
     let name = file_name(&pattern, &stem, 0, extension(format));
     let dst = crate::fileops::unique_path(&dir, std::ffi::OsStr::new(&name));
     nv_editor::save::write_atomic(&dst, &bytes).map_err(|e| format!("{}: {e}", dst.display()))?;
-    Ok(Saved { path: dst, note: String::new() })
+    Ok(Saved { path: dst, note })
 }
 
 /// Save the frame of `src` at `ms`. `shown` is the fallback when ffmpeg can't be used.

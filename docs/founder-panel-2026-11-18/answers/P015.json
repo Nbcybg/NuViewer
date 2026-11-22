@@ -1,0 +1,18 @@
+{
+  "id": "P015",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 2,
+  "reason_code": "habit",
+  "reason": "I'd grab the portable zip and run it on one card of photos out of curiosity, but ImageGlass already does what I need and I don't want to relearn keys and menus. A one-person 0.4.1 with no plug-ins and no community is not something I'd trust as my default.",
+  "why_switch_or_not": "The speed numbers are nice for culling 500 RAW+JPG, so I'd test it once on a real card. But it always lists RAW and JPG as separate pictures, so I'd be flipping through 1000 files instead of 500, and I'd have to see whether that annoys me. The English-only interface is fine for me, but a lot of features I'd never use (3D models, editor, scanner importer) don't make me switch, and having to tick formats and press Set default in Windows Settings is more work than just staying put.",
+  "current_app_pros": "ImageGlass looks modern and clean, it's open source, I know where everything is, and it opens my phone photos, screenshots and the RAW files I shoot without any fuss.",
+  "current_app_pains": "Nothing much. It can be a little slow to flip through a big folder of RAW files after a shoot, but I've lived with that for years.",
+  "objection": "One developer, version 0.4.1, no plug-ins, no big community. If something breaks or he stops working on it I have nobody to ask for help, and I'd have to relearn a viewer I'm already comfortable with.",
+  "would_change_my_mind": "If it were noticeably faster than ImageGlass on my own 500 RAW+JPG card and had an option to treat each RAW+JPG pair as one shot so culling doesn't double, and had been stable for a year or two with other people using it.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 0,
+  "price_too_expensive": 0
+}

@@ -2,6 +2,7 @@
 name = "nv-media"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 # Video and audio playback through Windows' Media Foundation (video, sound) and winmm (waveOut). Both are loaded by hand the
 # first time a media file is opened (`load.rs`), so a program that links this crate pays nothing at start-up.

@@ -1,0 +1,18 @@
+{
+  "id": "P005",
+  "would_try": true,
+  "buys": true,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 18,
+  "reason_code": "need",
+  "reason": "I open TGA, DDS, EXR and GLB files from my game project all week, and waiting on Bridge or Photoshop to look at one is stupid. If it really opens those in a fraction of a second, it becomes my double-click default and Bridge stays only for the catalogue.",
+  "why_switch_or_not": "The format list is the hook: HDR/EXR/TGA/DDS plus GLB/OBJ/FBX/STL and PSD in one lightweight viewer, with a gallery and batch convert so I don't need three tools. I would not drop Bridge or Lightroom though, because my catalogue and ratings live there and NuViewer has no plug-in system. I'm also wary of a 0.4.1 from one developer and want to see it handle my real files before I trust it.",
+  "current_app_pros": "Bridge/Photoshop open everything I throw at them, PSD layers are exact, and my catalogue, keywords and ratings are already there. Colour handling is the reference everyone else is judged against.",
+  "current_app_pains": "Launching a heavy Adobe app just to glance at a texture takes seconds, and the wait adds up over a day. It is overkill for checking a TGA or HDR, and it cannot show my 3D models at all without other tools.",
+  "objection": "One developer, version 0.4.1: it could be abandoned, or it could choke on an odd DDS or EXR variant. The benchmark is the developer's own, so I want to verify it with my own game assets.",
+  "would_change_my_mind": "If it mishandled my own DDS/EXR/TGA files (wrong alpha, wrong HDR exposure or colour) or crashed on a big GLB, I would drop it the same day.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 30,
+  "price_too_expensive": 60
+}

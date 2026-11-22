@@ -1,0 +1,18 @@
+{
+  "id": "P024",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 8,
+  "reason_code": "habit",
+  "reason": "I'd install it tonight because I install everything, and the speed numbers and the zip/cbz support are interesting. But XnView MP is my file browser, batch converter and metadata tool in one, and a brand-new 0.4.1 from one dev isn't going to replace all of that in a month.",
+  "why_switch_or_not": "I'd open my 500-shot RAW+JPG cull in it to see if the next/back speed is real, and I'd throw a few big cbz and zip folders at it. But the listing doesn't say anything about metadata editing (IPTC/EXIF) or ratings and tagging, which I use all the time in XnView, and I'd have to re-tick every file association and relearn shortcuts. It might become my quick-look viewer, but XnView stays as the main tool.",
+  "current_app_pros": "XnView MP opens nearly everything, handles huge folders and archives, has a good thumbnail browser, solid batch convert/rename, and metadata tools. It's stable and I know where everything is.",
+  "current_app_pains": "It can feel sluggish when flipping through big RAW files and 500-shot folders, and the interface is cluttered. Nothing is bad enough to make me leave.",
+  "objection": "Relearning shortcuts and resetting associations for a 0.4.1 from one developer, when I can't tell from the listing if it replaces XnView's metadata and batch tools. Showing RAW and JPG as separate pictures also doubles my cull count, and I don't see a way to handle them as pairs.",
+  "would_change_my_mind": "Proof that the culling flow (ratings/tags/reject and moving or deleting files) and metadata editing are as fast and complete as XnView's, plus an option to import XnView-style shortcuts.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

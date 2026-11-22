@@ -1,0 +1,18 @@
+{
+  "id": "P088",
+  "would_try": true,
+  "buys": true,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 12,
+  "reason_code": "need",
+  "reason": "Waiting for Bridge or Photoshop to launch just to look at one file is the thing I hate most, and a viewer that opens in about 120-350 ms and steps at 40-50 ms is exactly what I'd set as the double-click default. It's free and per-user, so trying it costs me nothing.",
+  "why_switch_or_not": "I'd make it the default for double-clicking files in Explorer and for a quick look at RAW and JPG, because of the speed numbers and because RAW and JPG show as separate pictures, which is how I cull. I would NOT move my catalogue or Lightroom/Bridge ratings and keywords over. Nothing in the description says it reads or writes XMP, star ratings or colour labels, so it stays next to Adobe, not instead of it.",
+  "current_app_pros": "Bridge and Lightroom hold my catalogue, ratings, labels, keywords and XMP sidecars, and the colour management matches what I deliver. Photoshop opens anything and edits it. Nothing else has my 15 years of metadata.",
+  "current_app_pains": "Slow to open. Bridge and Photoshop take seconds to launch just to look at a file, and flipping through RAWs in Bridge lags while it builds previews. Heavy on RAM and subscription-priced.",
+  "objection": "My colour management, catalogue and XMP workflow must not change. I can't see any mention of XMP or ratings, and a developer-measured benchmark on one PC with a version 0.4.1 from a single person isn't proof it stays fast on my 200,000 pictures or that it won't mangle my sidecars.",
+  "would_change_my_mind": "Proof it reads and honours XMP ratings and labels without writing anything to my files or sidecars unless I ask, and that it stays this fast on a folder of thousands of RAWs on my own machine.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 35
+}

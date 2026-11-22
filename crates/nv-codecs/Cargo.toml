@@ -2,6 +2,7 @@
 name = "nv-codecs"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 zune-jpeg = "0.4"
@@ -45,6 +46,7 @@ features = [
   "Win32_Graphics_GdiPlus",
   "Win32_UI_WindowsAndMessaging",
   "Foundation",
+  "UI",
   "Data_Pdf",
   "Storage",
   "Storage_Streams",

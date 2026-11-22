@@ -2,9 +2,11 @@
 name = "nv-win"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 windows-core = "0.62"
+windows-collections = "0.3"
 nv-text = { path = "../nv-text" }
 png = { workspace = true }
 
@@ -36,4 +38,10 @@ features = [
   "Win32_UI_Shell_PropertiesSystem",
   "Win32_System_Variant",
   "Win32_UI_WindowsAndMessaging",
+  "ApplicationModel",
+  "ApplicationModel_DataTransfer",
+  "Foundation",
+  "Foundation_Collections",
+  "Storage",
+  "Storage_Streams",
 ]

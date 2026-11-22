@@ -8,6 +8,8 @@ pub struct WinState {
     pub fullscreen: bool,
     /// The window's rectangle when it is a window: x, y, width, height (outer, screen pixels).
     pub rect: Option<(i32, i32, i32, i32)>,
+    /// The window was maximised (the rectangle is the one it returns to).
+    pub maximized: bool,
 }
 
 pub fn path() -> PathBuf {
@@ -21,6 +23,7 @@ pub fn path() -> PathBuf {
 pub fn parse(text: &str) -> Option<WinState> {
     let mut fullscreen = None;
     let mut rect = None;
+    let mut maximized = false;
     for line in text.lines() {
         let Some((k, v)) = line.split_once('=') else { continue };
         match k.trim().to_ascii_lowercase().as_str() {
@@ -37,10 +40,11 @@ pub fn parse(text: &str) -> Option<WinState> {
                     }
                 }
             }
+            "maximized" => maximized = matches!(v.trim(), "1" | "true"),
             _ => {}
         }
     }
-    fullscreen.map(|fullscreen| WinState { fullscreen, rect })
+    fullscreen.map(|fullscreen| WinState { fullscreen, rect, maximized })
 }
 
 pub fn serialize(s: &WinState) -> String {
@@ -48,6 +52,7 @@ pub fn serialize(s: &WinState) -> String {
     if let Some((x, y, w, h)) = s.rect {
         out += &format!("rect = {x},{y},{w},{h}\n");
     }
+    out += &format!("maximized = {}\n", if s.maximized { 1 } else { 0 });
     out
 }
 
@@ -74,7 +79,7 @@ mod tests {
 
     #[test]
     fn round_trip() {
-        for s in [WinState { fullscreen: true, rect: Some((-1920, 40, 1280, 800)) }, WinState { fullscreen: false, rect: None }] {
+        for s in [WinState { fullscreen: true, rect: Some((-1920, 40, 1280, 800)), maximized: false }, WinState { fullscreen: false, rect: None, maximized: true }] {
             assert_eq!(parse(&serialize(&s)), Some(s));
         }
     }

@@ -1,0 +1,18 @@
+{
+  "id": "P049",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 6,
+  "reason_code": "trust",
+  "reason": "I'd install it because it claims PSD, AI, AVIF and alpha, but one developer and version 0.4.1 is not what I hand my whole file-opening life to. FastStone already does the viewer, browser and editor job and I know where everything is.",
+  "why_switch_or_not": "I'd try it on my own PSDs, AI files and PNGs with alpha, and on a couple of RAW files from my camera, and see whether the colours and transparency are right. The 26 of 32 formats and the gallery with batch convert are tempting, but the speed numbers don't matter much to me because FastStone is fast enough on my files. Until it proves it shows my layered PSDs and AI files correctly, I'd keep FastStone as the default and use NuViewer for the formats FastStone chokes on.",
+  "current_app_pros": "FastStone's full-screen mode with the hover toolbars, the browser, and the built-in editor with batch convert/rename all live in one app I've used for years. It opens most of my PSD, PNG and RAW files without fuss, and I know the shortcuts by heart.",
+  "current_app_pains": "It's slow on rapid next/back through big PSD and RAW files, and it handles AVIF, WebP, JPEG XL and AI poorly or not at all. The colour management is weak, so wide-gamut files look off. The UI looks like 2008 and development is slow.",
+  "objection": "Does it open MY files correctly? A tied result with IrfanView on some PSD/TGA files is not reassuring, and I have no idea how it treats layered PSDs, CMYK or my AI files. It is also one person's 0.4.1 with no plug-ins, so if the developer disappears I've moved my workflow onto something dead.",
+  "would_change_my_mind": "If my own PSD, AI and alpha PNG files open with correct colour and transparency on the first try, and the editor and batch tools match what FastStone gives me, I'd make it the default. A few months of regular updates would help too.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

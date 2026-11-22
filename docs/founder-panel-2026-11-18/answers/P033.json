@@ -1,0 +1,18 @@
+{
+  "id": "P033",
+  "would_try": true,
+  "buys": true,
+  "switch_decision": "replace",
+  "purchases_first_month": 22,
+  "reason_code": "need",
+  "reason": "Windows Photos can't open half of what I look at (TGA, DDS, EXR, HDR, GLB, FBX), so I'm already bouncing between tools, and a viewer that opens all of them and is fast would be the first thing I'd double-click. Speed is the thing I'd switch for, but only if it holds up on my own files.",
+  "why_switch_or_not": "I'd switch for TGA/DDS/EXR/HDR plus GLB/OBJ/FBX in one fast viewer and the 40-50 ms next/back. The doubts are that the benchmark is the developer's own on one PC, and that it's 0.4.1 from one person. I'd also have to redo associations by hand in Windows Settings, which is annoying but a one-time job.",
+  "current_app_pros": "It's already the default, so a double-click just works. It starts without any setup, handles ordinary JPG/PNG fine, and I never have to think about it.",
+  "current_app_pains": "It's laggy to open and noticeably slow when I step through a folder. It can't open TGA, DDS, EXR, HDR or any 3D model, so for those I have to launch something heavier. The gallery chokes on big folders.",
+  "objection": "I don't trust a one-person 0.4.1 with a 200,000-picture drive until I've seen it on my own files. The speed numbers come from the developer's own benchmark, and nothing says how it behaves in folders with tens of thousands of images, or whether it opens big EXR/DDS files cleanly.",
+  "would_change_my_mind": "Opening a 4K EXR, a DDS with mips and a folder of ~50,000 mixed files on my own machine, and it staying as fast as claimed (it would flip me to no if it didn't). A crash or a wrong-looking texture would end it too.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 25,
+  "price_too_expensive": 60
+}

@@ -4,8 +4,11 @@
 /// The maker.
 pub const STUDIO: &str = "Noobcyborg studio";
 /// Where to reach the project and where to support it.
-pub const WEBSITE: &str = "https://nuviewer.noobcygorg.com";
-pub const SUPPORT: &str = "https://buymeacoffee.com/noobcyborg";
+pub const WEBSITE: &str = "https://nuviewer.noobcyborg.com";
+/// Help and questions: the NuViewer channel on Discord.
+pub const SUPPORT: &str = "https://discord.com/channels/1572474506872750212/1572474507363491842";
+/// Bug reports, ideas and "what stops you switching": the same channel.
+pub const FEEDBACK: &str = "https://discord.com/channels/1572474506872750212/1572474507363491842";
 
 /// The programs of the family, in the order the credits list them.
 pub const PROGRAMS: [&str; 4] = ["NuViewer", "NuGallery", "NuEditor", "NuImporter"];
@@ -31,7 +34,7 @@ pub const LIBRARIES: &[(&str, &str)] = &[
 pub fn credit_lines() -> Vec<String> {
     use crate::i18n::{t, tf};
     let version = env!("CARGO_PKG_VERSION");
-    let mut v = vec![String::new(), format!("{}  {version}", PROGRAMS.join("  ·  ")), tf("about.made_by", &[&STUDIO]), format!("{}   {WEBSITE}", t("about.website")), format!("{}   {SUPPORT}", t("about.support")), String::new(), t("about.built_on").to_string()];
+    let mut v = vec![String::new(), format!("{}  {version}", PROGRAMS.join("  ·  ")), tf("about.made_by", &[&STUDIO]), format!("{}   {WEBSITE}", t("about.website")), format!("{}   {SUPPORT}", t("about.support")), format!("{}   {FEEDBACK}", t("about.feedback")), String::new(), t("about.built_on").to_string()];
     // Two to a line keeps the block short.
     for pair in LIBRARIES.chunks(2) {
         v.push(pair.iter().map(|(n, what)| format!("{n} ({what})")).collect::<Vec<_>>().join("   ·   "));
@@ -56,7 +59,12 @@ mod tests {
         let text = lines.join("\n");
         assert!(text.contains(STUDIO));
         assert!(text.contains(env!("CARGO_PKG_VERSION")));
-        assert!(text.contains(WEBSITE) && text.contains(SUPPORT));
+        assert!(text.contains(WEBSITE) && text.contains(SUPPORT) && text.contains(FEEDBACK));
+        assert_eq!(WEBSITE, "https://nuviewer.noobcyborg.com");
+        assert!(SUPPORT.starts_with("https://discord.com/channels/") && FEEDBACK.starts_with("https://discord.com/channels/"));
+        for l in lines.iter().filter(|l| l.contains("https://")) {
+            assert_eq!(l.matches("https://").count(), 1, "one link per line, so a click is unambiguous: {l}");
+        }
         for (name, _) in LIBRARIES {
             assert!(text.contains(name), "{name}");
         }

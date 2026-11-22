@@ -1,0 +1,18 @@
+{
+  "id": "P012",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 6,
+  "reason_code": "habit",
+  "reason": "I'd install it because it lists TGA, DDS, EXR, HDR, GLB and cbz in one place, and that's most of what I open. But I don't want to change how I open things, and I'm not making it default for a month on one dev's say-so.",
+  "why_switch_or_not": "The format list is the draw: TGA/DDS/EXR/HDR plus GLB/OBJ/FBX and zip/cbz in one free viewer would save me bouncing between apps, and the Space-bar preview from Explorer fits how I already browse. But I wouldn't make it my default: it's v0.4.1 from one person, it doesn't say it has comic-reader features like page flipping, so I can't tell if it beats what I already do for manga, and I'd have to tick all the formats in Windows Settings myself. I'd keep Explorer as home and open NuViewer for the odd texture, HDR or model, maybe a manga zip.",
+  "current_app_pros": "Explorer thumbnails just work and I don't have to think about it. Double-click opens whatever app is attached to the file type, and I know where everything is.",
+  "current_app_pains": "Explorer can't preview a lot of my formats (DDS, EXR, TGA often blank or wrong), so I end up opening the texture, HDR or model in a heavy 3D or paint program just to look at it. cbz files are awkward too, since I usually unzip them or use a separate reader.",
+  "objection": "No plugins, no big community, hard to find help. It's one developer on version 0.4.1, so if it breaks on some DDS or EXR variant or the dev stops, I'm on my own and have to relearn something else.",
+  "would_change_my_mind": "If it opened my own DDS/TGA/EXR/GLB files correctly on the first try, and a cbz opened as a page-by-page reader with arrow keys. Then I'd set it as default for those formats.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 8,
+  "price_too_expensive": 20
+}

@@ -1,0 +1,18 @@
+{
+  "id": "P089",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 5,
+  "reason_code": "habit",
+  "reason": "I install new tools on a whim, so I'd definitely try it on a card of my own RAW+JPG files. But IrfanView already does what I need with shortcuts I know by heart, and I'm not going to re-learn everything for a speed gain I probably can't feel.",
+  "why_switch_or_not": "The 85 ms vs 600-900 ms on rapid next is the one number that might matter for culling 500 shots, so I'd test that first. If it really feels smoother on RAW files and the colour is right, I might keep it for culling only. Still, one developer, v0.4.1, no plug-ins, and I'd have to set up the default formats by hand in Windows Settings. For my phone photos, screenshots and PDFs IrfanView is already fine, so I would not make NuViewer the default.",
+  "current_app_pros": "IrfanView starts instantly, is tiny and free, and I know all its shortcuts. My plug-ins are set up, and batch convert and rename already work the way I want.",
+  "current_app_pains": "Rapid next/back through big RAW+JPG batches can lag. The interface looks dated. Nothing else really bugs me.",
+  "objection": "A difference of a few tens of milliseconds on a single open isn't something I'd notice. A new one-person viewer also means a new set of shortcuts to learn, and I don't know whether it will still be maintained in a year.",
+  "would_change_my_mind": "If culling a 500-shot RAW+JPG card felt clearly faster and smoother than IrfanView on my own machine, with rating or marking and delete that I can do with the keyboard alone, I'd make it my default for photos.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

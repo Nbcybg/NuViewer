@@ -1,0 +1,18 @@
+{
+  "id": "P085",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 6,
+  "reason_code": "habit",
+  "reason": "I'd install it because DDS/EXR/TGA and FBX/GLB in one viewer would save me opening the engine, but my current viewer is fine for everyday pictures and I won't re-learn shortcuts and re-tick file associations for it. Default stays where it is.",
+  "why_switch_or_not": "The pull is the game-project stuff: textures, HDR, alpha PSD and a quick look at a model without launching anything, plus the Explorer Space-bar preview. Against that, it is 0.4.1 from one guy, I don't know if it handles my alpha/normal-map files right, and I'd have to set the defaults myself in Windows Settings. Speed claims don't move me much, my viewer is already instant on JPG/PNG.",
+  "current_app_pros": "Tiny, opens instantly, I know every key by heart, never crashes, handles PNG/JPG/WebP and my day-to-day alpha PNGs fine.",
+  "current_app_pains": "It can't open DDS, EXR or HDR properly and doesn't show 3D models or PSD with any accuracy, so for those I jump to other tools. Otherwise nothing really bugs me.",
+  "objection": "Another image viewer from a single developer at 0.4.1: I don't want to relearn keys and move my associations for something that might be abandoned or show my textures with wrong colour or alpha.",
+  "would_change_my_mind": "Proof that it opens my own DDS/EXR/TGA texture files with correct alpha and colour and shows channels, plus a few months of steady updates, would make it my default for those formats.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 8,
+  "price_too_expensive": 20
+}

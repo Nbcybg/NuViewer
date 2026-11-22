@@ -1,6 +1,16 @@
 # NuViewer
 
-A very fast, very light image viewer for Windows. Written in Rust on Win32 + Direct3D 11.
+A very fast, very light image viewer for Windows. Written in Rust on Win32 + Direct3D 11. Free, MIT licence, open source.
+
+Website <https://nuviewer.noobcyborg.com> · Support and user feedback <https://discord.com/channels/1572474506872750212/1572474507363491842>
+
+**Can you trust it?** It has no network code at all (checked by its own tests), never rewrites a picture behind your back, and every
+file it writes is listed in [`docs/TRUST.md`](docs/TRUST.md), together with how to check the download (SHA-256) and what is *not* done yet
+(it is not code-signed). **What it does that others do not:** opens TGA / DDS / EXR / HDR / PSD with alpha / GLB / OBJ / FBX / cbz and
+[hundreds more](docs/formats.csv) in one small program; next / previous in a frame; **cull** photos with star ratings and colour labels
+that Bridge, Lightroom, darktable and XnView read (`Shift+1…5`, `Shift+6…9`, saved in `.xmp` sidecars); RAW + JPG as two pictures or as one
+(`Shift+Q`); **comic / book reading** (`B` two pages, `Ctrl+B` right to left, `Shift+B` where the pairs start); **printing** (NuGallery:
+right-click > Print, `Ctrl+P`); extra formats and commands through [plug-ins](docs/plugins.md).
 
 - Opens in about 60 ms for typical photos (about 125 ms for a 12 MP phone photo) and flips between images in a frame
   (neighbours are decoded ahead of time). EXIF rotation is done by the GPU, so rotated photos cost nothing extra.
@@ -52,7 +62,30 @@ long side, so zooming in far gets soft (re-rendering at the zoom level is not do
 `J` steps through name → date modified → size → type, `Shift+J` reverses, `R` shuffles. The gallery, the film strip, the
 slideshow and the arrow keys all use that same list, so what the film strip shows is exactly what the arrow keys will visit.
 The sort is remembered (Settings > Mouse & keyboard, or `sort =` / `sort_desc =` in `settings.ini`); shuffle never is. RAW and JPG of one
-shot are always separate entries.
+shot are separate entries unless you ask for them as one (`Shift+Q`, see below).
+
+**RAW + JPG.** The factory rule is that the RAW and the JPG of one shot are two pictures, each with its own number in the list: nothing is hidden,
+so nothing is skipped when you cull or hand files to an editor. For a folder full of pairs there is a switch, `Shift+Q` in the viewer and
+`Ctrl+Shift+G` in NuGallery (also View menu, right-click menu and Settings > Viewer): **one picture for each pair**, the JPG (or HEIF) standing for both.
+Then delete, move, copy, rename and drag act on **both files**, undo brings both back, and a rating goes to both sidecars. A RAW without a JPG, or a JPG without a
+RAW, is always listed on its own, and "RAW only" in NuGallery still shows the RAW files. Nothing is merged on disk.
+
+## Ratings, colour labels and culling (XMP)
+
+`Shift+1` … `Shift+5` give 1 to 5 stars (`Shift+0` none; the same key again clears it), `Ctrl+Shift+X` rejects, and `Shift+6` `Shift+7` `Shift+8` `Shift+9` `` Shift+` ``
+are the labels red, yellow, green, blue, purple (`` Ctrl+Shift+` `` removes it). They work in the viewer, in NuGallery (several selected pictures take the
+same value) and in the right-click menu (**Rating**). The value is written at once into the picture's **XMP sidecar** with the fields every
+photo program reads (`xmp:Rating`, -1 = rejected, and `xmp:Label`):
+an existing `IMG_0001.CR2.xmp` (darktable) or `IMG_0001.xmp` (Bridge, Lightroom, XnView) is updated in place and **everything else in it is kept byte for byte**;
+without one, a RAW gets `IMG_0001.xmp` and every other file `IMG_0001.jpg.xmp`. The picture itself is never touched. A rating inside the
+picture's own XMP (a JPEG exported from Lightroom) is read too. NuGallery draws the stars and the label on the thumbnails and **View > Show rating** (or the
+toolbar's Show button) keeps only what you want: three stars and up, not rated, rejected, hide rejected, one colour. The viewer shows the rating in the top bar.
+
+## Plug-ins
+
+A folder in `%APPDATA%\NuViewer\plugins` can add **a picture format** (a program that turns a file into a PNG) or **a command** in the right-click
+menu (**Plug-ins**). Plug-ins are separate programs, can only use files inside their own folder, are stopped when they take too long, and `plugins = off`
+loads none: [`docs/plugins.md`](docs/plugins.md), with two examples in `docs/plugin-examples/`.
 
 **Film strip** (pointer on the right edge, or `L`, or the viewer-controls button): thumbnails come from the gallery's cache, only the
 rows on screen are made. The current picture is outlined; click a thumbnail to jump, wheel over the strip scrolls it.
@@ -137,7 +170,7 @@ thread so the window never waits. Details, speed numbers and status: `docs/nuedi
 * **Panel** (right, Tab hides it): White balance (temperature, tint, four-axis shift, `W` picker), Light, Colour, Detail (sharpen,
   clarity, vignette, bloom), Composition (rotate, Pitch / Yaw / Zoom, `,` `.` turn 45, `H` `V` flip, `R` crop and straighten with
   Ctrl+drag), Heal, Film (LUT, noise reduction, grain, film blur), Curves, Hue wheel, Presets, Export copy. Drag or wheel a slider,
-  right-click or double-click puts it back, right-click a header resets the group, `0` resets all, `C` shows the original, `S` splits
+  right-click puts it back, double click = the value before the last save, triple click = zero, right-click a header resets the group, `0` resets all, `C` shows the original, `S` splits
   original | edited.
 * **Heal tools**: `K` clone and `J` heal (Ctrl+click the place to copy from, then paint), `M` remove, `P` patch (outline the flaw,
   drag it onto a good place), `E` red-eye, `[` `]` brush size.
@@ -159,6 +192,9 @@ Press **F1** (or **H**) in the app for this list; these are the defaults and **S
 |---|---|
 | ← → · Space · Backspace · PgUp PgDn · Home End | previous / next / first / last (pages first in a document) |
 | `Ctrl+←` `Ctrl+→` · `Ctrl+Home` `Ctrl+End` | previous / next / first / last *file* |
+| `Shift+1`…`Shift+5` · `Shift+0` · `Ctrl+Shift+X` | stars 1 to 5 · no stars · reject (saved in the picture's `.xmp` sidecar) |
+| `Shift+6` `7` `8` `9` · `` Shift+` `` · `` Ctrl+Shift+` `` | colour label red / yellow / green / blue · purple · none |
+| `Shift+Q` | RAW + JPG as one picture / two pictures (gallery: `Ctrl+Shift+G`) |
 | Mouse wheel | previous / next picture, page or frame (in the gallery: scroll; in 3D: zoom) |
 | Hold left button · drag while held | zoom to 100% (200% if the picture is smaller than half the screen) and pan; release returns to the fitted view |
 | `Ctrl` + drag | zoom into the dragged area (Esc cancels) |
@@ -246,6 +282,20 @@ volume); there is no video or audio decoder yet.
 - **0.4.0:** fonts (specimen sheet with your own sentence, Settings > General), many more archives / disc images (CAB, ISO, DMG, WIM, cpio, RPM, DEB, tar in gzip ...), game packs, Krita / OpenRaster / GIMP XCF / Paint Shop Pro / CorelDRAW / XPS / DWF / U3D / VRML files, see `CHANGELOG.md` and `docs/session19.md`.
 - **0.3.2:** the 16 NuGallery bugs and 2 viewer bugs of 2026-11-17 (a video as the first picture no longer freezes on its first frame; damaged / streamed zips open; folder tree with right click, drag and drop and sideways scroll; Back / Forward keep the view; hints; Open with; video preview with controls; fit enlarges small pictures), see `CHANGELOG.md` and `docs/session18.md`.
 - **0.3.1:** more clipart and legacy formats (PCD, DCX, CLP, CIN, DPX, PDN, WAL, WAD, CPT, PS, HP-GL, CGM, flat DXF); the full list of what opens, what NuEditor can edit and each format's name is in `docs/formats.csv`.
+
+## New in 0.6.0
+
+Details, what was checked and what was not: `docs/session22.md`, `CHANGELOG.md`; installing and the portable copy: `docs/INSTALL.md`.
+
+- **NuGallery group view** (View > Sort by > Group by, `Ctrl+Shift+J`): by type, app, name, date or size, ascending or descending, with a header strip per group.
+- **NuNote**, the notepad (`nunote.exe`; `E` in the viewer / `F4` in the gallery on a text file): syntax colours for text, Markdown, JSON, HTML, XML, CSS, JS / TS, YAML, TOML, INI, Rust, Python, C-family, shell, SQL, batch, PowerShell; rendered Markdown beside the source (`Ctrl+1` source, `Ctrl+2` rendered, `Ctrl+3` split);
+  keeps the file's encoding and line ends; find / replace (`Ctrl+F` / `Ctrl+H`), go to line (`Ctrl+G`), word wrap (`Ctrl+W`), zoom (`Ctrl+wheel`).
+- **Extract frames** (`Ctrl+Shift+F`, every program): video / animation as numbered pictures, PDF as pictures of all pages, 3D as a turntable from the current view; transparency is kept (PNG when the chosen format cannot).
+  **Share to...** (`Ctrl+Shift+H`): the Windows share sheet.
+- **Sliders:** double click = the value before the last save, triple click = zero (NuEditor, Settings). RAW files in NuEditor show the camera's own white balance in kelvin; a GIF is edited as a whole; a video / PDF / 3D model hands the frame you are looking at to the editor.
+- **3D view:** bones (`Shift+W`) and their names (`Shift+N`), outline (`Shift+O`), silhouette (`Shift+V`), support preview (`Shift+U`), turntable (`Shift+A` / `P`, speed on the playback bar).
+- **Formats:** Spine, Toon Boom, Moho / Anime Studio, Adobe Animate (`xfl`), Pencil2D, Synfig, OpenToonz, TVPaint. **Languages:** English, Chinese (Simplified), Spanish, Japanese, German, French, Portuguese (Brazil) and Thai are prepared (only English and Thai have text yet).
+- **Setup, uninstall, portable:** a complete installer with an uninstaller that asks what to keep, and a portable zip that keeps its data beside the programs.
 
 ## New in 0.3.0
 

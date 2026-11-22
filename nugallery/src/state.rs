@@ -2,6 +2,7 @@
 //! view, the sizes, which panels are pinned. A plain `key = value` file like the viewer's; unknown keys are kept out of the way.
 
 use crate::model::Show;
+use crate::groups::GroupBy;
 use nv_core::folder::SortKey;
 use std::path::PathBuf;
 
@@ -58,11 +59,14 @@ pub struct Persist {
     pub pin_left: bool,
     pub pin_right: bool,
     pub names: bool,
+    /// The group view: what the files are grouped by, and in which direction the groups run.
+    pub group: GroupBy,
+    pub group_desc: bool,
 }
 
 impl Default for Persist {
     fn default() -> Self {
-        Persist { dir: None, view: ViewMode::Thumbs, cell: CELL_DEFAULT, show: Show::Media, folders: true, hidden: false, sort: SortKey::Name, sort_desc: false, pin_top: false, pin_left: false, pin_right: false, names: true }
+        Persist { dir: None, view: ViewMode::Thumbs, cell: CELL_DEFAULT, show: Show::Media, folders: true, hidden: false, sort: SortKey::Name, sort_desc: false, pin_top: false, pin_left: false, pin_right: false, names: true, group: GroupBy::None, group_desc: false }
     }
 }
 
@@ -113,6 +117,8 @@ impl Persist {
                 "pin_left" => p.pin_left = parse_bool(v).unwrap_or(p.pin_left),
                 "pin_right" => p.pin_right = parse_bool(v).unwrap_or(p.pin_right),
                 "names" => p.names = parse_bool(v).unwrap_or(p.names),
+                "group" => p.group = GroupBy::from_id(v).unwrap_or(p.group),
+                "group_desc" => p.group_desc = parse_bool(v).unwrap_or(p.group_desc),
                 _ => {}
             }
         }
@@ -122,7 +128,7 @@ impl Persist {
     pub fn serialize(&self) -> String {
         let b = |v: bool| if v { "1" } else { "0" };
         format!(
-            "# NuGallery state (written by the program)\ndir = {}\nview = {}\ncell = {}\nshow = {}\nfolders = {}\nhidden = {}\nsort = {}\nsort_desc = {}\npin_top = {}\npin_left = {}\npin_right = {}\nnames = {}\n",
+            "# NuGallery state (written by the program)\ndir = {}\nview = {}\ncell = {}\nshow = {}\nfolders = {}\nhidden = {}\nsort = {}\nsort_desc = {}\npin_top = {}\npin_left = {}\npin_right = {}\nnames = {}\ngroup = {}\ngroup_desc = {}\n",
             self.dir.as_ref().map(|d| d.display().to_string()).unwrap_or_default(),
             self.view.id(),
             self.cell,
@@ -135,6 +141,8 @@ impl Persist {
             b(self.pin_left),
             b(self.pin_right),
             b(self.names),
+            self.group.id(),
+            b(self.group_desc),
         )
     }
 }
@@ -145,7 +153,7 @@ mod tests {
 
     #[test]
     fn round_trip() {
-        let p = Persist { dir: Some(PathBuf::from("D:\\รูป\\2025")), view: ViewMode::Details, cell: 128.0, show: Show::Raw, folders: false, hidden: true, sort: SortKey::Size, sort_desc: true, pin_top: true, pin_left: true, pin_right: false, names: false };
+        let p = Persist { dir: Some(PathBuf::from("D:\\รูป\\2025")), view: ViewMode::Details, cell: 128.0, show: Show::Raw, folders: false, hidden: true, sort: SortKey::Size, sort_desc: true, pin_top: true, pin_left: true, pin_right: false, names: false, group: GroupBy::Date, group_desc: true };
         assert_eq!(Persist::parse(&p.serialize()), p);
     }
 

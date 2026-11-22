@@ -1,0 +1,18 @@
+{
+  "id": "P020",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 5,
+  "reason_code": "habit",
+  "reason": "I install new tools on a whim, so I'll definitely try it, but FastStone already does my full-screen browsing, resizing and quick edits and I have no real problem with it. One developer and version 0.4.1 isn't enough for me to hand over my default.",
+  "why_switch_or_not": "The speed numbers are nice, but my photos are phone shots and screenshots, and FastStone is fast enough on those. The thing that would pull me in is the Space-bar preview from Explorer and the screenshot importer, if they work well. I wouldn't switch until I know my phone photos open, and HEIC needing Microsoft's HEVC extension is a red flag. I also doubt its editor can replace the FastStone editor I use every day.",
+  "current_app_pros": "FastStone's full-screen mode, thumbnail browser and simple editor (resize, crop, annotate, red-eye) are all in one place and I know them by heart. It opens my phone photos, screenshots and the odd PDF without fuss, and it's been stable for years.",
+  "current_app_pains": "Nothing big. It looks dated and it's a little slow when I flick through a lot of pictures quickly. Some of the odd formats a friend sends don't open.",
+  "objection": "Will my phone photos (HEIC) and my camera RAW open correctly, and will the editor do what I do in FastStone? I've also seen one-person viewers get abandoned, so I don't want to move my whole routine over to something that may stop being updated.",
+  "would_change_my_mind": "I'd switch if my phone HEIC photos and RAW files open correctly with no extra setup, and I could do my daily FastStone edits (resize, crop, annotate) in it. A few months of steady updates would also help.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 10,
+  "price_too_expensive": 25
+}

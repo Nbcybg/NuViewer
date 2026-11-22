@@ -1,0 +1,18 @@
+{
+  "id": "P080",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 3,
+  "reason_code": "habit",
+  "reason": "I've got IrfanView set up exactly how I like it, with the plug-ins and shortcuts in my fingers, and I'm not going to relearn a viewer from one developer at version 0.4.1. I'd grab the portable zip, throw a few PSDs and a cbz at it, then go back to what I know.",
+  "why_switch_or_not": "The speed numbers are nice and the zip/cbz and PSD support catch my eye, but IrfanView already opens my files fast enough and I know every key. There's no plug-in system, one person behind it, and I can't tell if it will still be maintained in two years, so I wouldn't make it my default.",
+  "current_app_pros": "IrfanView is tiny, starts instantly, and I know all the shortcuts. My plug-ins are installed and it opens PNG, PSD and the odd AI file without fuss. It's free and has never crashed on me. There's years of forum answers when something odd comes up.",
+  "current_app_pains": "Not much. PSD with layers or alpha is sometimes shown wrong or flat. Reading a cbz means going through a plug-in or unpacking it first, and it's clumsy for comics. Rapid next/back through big files is a bit sluggish, but I live with it.",
+  "objection": "No plugins, no big community, nobody to ask for help, and it's one guy at 0.4.1. If he stops, I'm stuck having to switch back.",
+  "would_change_my_mind": "If it read my cbz comics noticeably better than IrfanView (smooth page-turning, remembers where I stopped) and showed my layered PSDs with alpha correctly, and the developer showed a track record of a year or more of updates.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 8,
+  "price_too_expensive": 20
+}

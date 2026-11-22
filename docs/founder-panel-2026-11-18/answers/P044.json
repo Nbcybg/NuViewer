@@ -1,0 +1,18 @@
+{
+  "id": "P044",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 4,
+  "reason_code": "trust",
+  "reason": "It reads like a lot of what I want, but one developer at version 0.4 with no plug-in system makes me unwilling to move my whole setup onto it. I'd install the portable zip and see how it handles my RAW folders, but IrfanView stays the default.",
+  "why_switch_or_not": "The things that interest me are RAW and JPG showing as separate pictures, the gallery with batch rename/convert, and the editor with white balance, curves and sidecar edits, because I'd like one app for culling and light fixes. But I'd be giving up my IrfanView plug-ins and shortcuts, and I reinstall Windows every year or two. I won't build my workflow around something that may be abandoned, so I'd have to trust it a lot more before it becomes my default.",
+  "current_app_pros": "IrfanView is tiny and fast enough. I know all the shortcuts. My plug-ins are already set up. Batch convert and rename work the way I expect. It has been stable for years and I never have to think about it.",
+  "current_app_pains": "Rapid next/back through big RAW folders is slow when I'm culling. The interface looks dated. RAW handling relies on plug-ins and is not great. The editing tools are basic, so I still bounce to another app for real corrections.",
+  "objection": "One developer, version 0.4. Will it still be maintained next year, and will my edits and sidecar files still open if it is dropped?",
+  "would_change_my_mind": "A year or more of regular updates, a public roadmap, and a documented, open sidecar format so my edits are not locked in. Seeing it hold up on a few hundred of my RAW+JPG shoots would help too.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 40,
+  "price_too_expensive": 80
+}

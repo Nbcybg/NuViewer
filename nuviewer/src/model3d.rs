@@ -11,6 +11,7 @@ fn on_off(on: bool) -> &'static str {
 impl App {
     pub fn model_key(&mut self, a: Action) {
         let (textures, normal_maps) = self.meta.get(&self.id_at(self.folder.index)).map(|m| (m.textures, m.normal_maps)).unwrap_or((0, 0));
+        let bones = self.renderer.bone_count(self.id_at(self.folder.index));
         let m = &mut self.settings.model;
         let msg = match a {
             Action::ToggleTexture => {
@@ -28,6 +29,33 @@ impl App {
             Action::ToggleShadow => {
                 m.shadow = !m.shadow;
                 format!("Shadow {}", on_off(m.shadow))
+            }
+            Action::ToggleOutline => {
+                m.outline = !m.outline;
+                format!("Outline {}", on_off(m.outline))
+            }
+            Action::ToggleSilhouette => {
+                m.silhouette = !m.silhouette;
+                format!("Silhouette {}", on_off(m.silhouette))
+            }
+            Action::ToggleSupport => {
+                m.support = !m.support;
+                format!("Support preview {}{}", on_off(m.support), if m.support && m.silhouette { " (hidden while the silhouette is on)" } else { "" })
+            }
+            Action::ToggleBones => {
+                m.bones = !m.bones;
+                format!("Bones {}{}", on_off(m.bones), if bones == 0 { " (this model has no skeleton)" } else { "" })
+            }
+            Action::ToggleBoneNames => {
+                m.bone_names = !m.bone_names;
+                if m.bone_names {
+                    m.bones = true; // names without bones would show nothing
+                }
+                format!("Bone names {}{}", on_off(m.bone_names), if bones == 0 { " (this model has no skeleton)" } else { "" })
+            }
+            Action::ToggleTurntable => {
+                self.turntable_toggle();
+                return;
             }
             Action::CycleShading => {
                 m.shading = m.shading.next();

@@ -43,6 +43,12 @@ fn werr(what: &str, e: windows::core::Error) -> String {
 
 /// Render page `page` (1-based, clamped to the document) of the PDF at `path`. `thumb` = small, fast render.
 pub fn render(path: &Path, page: u32, thumb: bool) -> Result<Image, String> {
+    render_with(path, page, if thumb { 640 } else { crate::render_long_side() }, true)
+}
+
+/// `render` at an own size (the long side in pixels), and with the choice of the paper: `paper` = pages on white like every PDF
+/// reader; false = transparent where nothing is painted (what "extract pages as pictures" keeps for formats that carry alpha).
+pub fn render_with(path: &Path, page: u32, long_side: u32, paper: bool) -> Result<Image, String> {
     if !WINRT_READY.with(|ok| *ok) {
         return Err("pdf: the Windows runtime could not be initialised".into());
     }
@@ -60,7 +66,7 @@ pub fn render(path: &Path, page: u32, thumb: bool) -> Result<Image, String> {
     let pg = doc.GetPage(index).map_err(|e| werr("page", e))?;
     let size = pg.Size().map_err(|e| werr("page size", e))?;
     let (pw, ph) = (size.Width.max(1.0), size.Height.max(1.0));
-    let long = if thumb { 640.0 } else { crate::render_long_side() as f32 };
+    let long = long_side.max(16) as f32;
     let s = long / pw.max(ph);
     let (w, h) = (((pw * s).round() as u32).max(1), ((ph * s).round() as u32).max(1));
     crate::check_size(w as u64, h as u64)?;
@@ -68,6 +74,10 @@ pub fn render(path: &Path, page: u32, thumb: bool) -> Result<Image, String> {
     let opts = PdfPageRenderOptions::new().map_err(|e| werr("options", e))?;
     opts.SetDestinationWidth(w).map_err(|e| werr("options", e))?;
     opts.SetDestinationHeight(h).map_err(|e| werr("options", e))?;
+    if !paper {
+        // The engine paints white paper by default; a transparent background is what lets the alpha of a page come out.
+        opts.SetBackgroundColor(windows::UI::Color { A: 0, R: 255, G: 255, B: 255 }).map_err(|e| werr("options", e))?;
+    }
     let stream = InMemoryRandomAccessStream::new().map_err(|e| werr("stream", e))?;
     pg.RenderWithOptionsToStreamAsync(&stream, &opts).map_err(|e| werr("render", e))?.join().map_err(|e| werr("render", e))?;
 
@@ -80,7 +90,9 @@ pub fn render(path: &Path, page: u32, thumb: bool) -> Result<Image, String> {
     reader.ReadBytes(&mut bytes).map_err(|e| werr("stream", e))?;
 
     let mut img = crate::pngdec::decode(&bytes, true)?;
-    flatten_on_white(&mut img.rgba);
+    if paper {
+        flatten_on_white(&mut img.rgba);
+    }
     img.page = Some((index + 1, count));
     Ok(img)
 }

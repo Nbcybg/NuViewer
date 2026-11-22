@@ -1,0 +1,18 @@
+{
+  "id": "P053",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 4,
+  "reason_code": "habit",
+  "reason": "Photos opens my screenshots and PNG exports fine and I'm not going to re-do my default associations for a viewer from one guy at v0.4.1. The only thing that pulls me is TGA/DDS/EXR/GLB, which Photos can't show, so I'd keep it around for those.",
+  "why_switch_or_not": "I wouldn't make it my default: the speed numbers (40-50 ms next/back) are something I wouldn't feel flipping through screenshots, and I'd have to tick the formats and press Set default myself and then trust it. But I'd install the portable zip and try it on my TGA, DDS, EXR, HDR and GLB/FBX files, because Photos can't open those and right now I jump into other tools for a quick look. If it handles those cleanly I'd open it by hand for that and leave Photos alone for everything else.",
+  "current_app_pros": "It's already there, double-click opens the picture, and it just works for PNG and JPG screenshots. I never think about it, there is nothing to configure.",
+  "current_app_pains": "It can't open most of my game and VFX formats (TGA, DDS, EXR, HDR, models), so for those I need another tool. Otherwise nothing really bugs me for screenshots.",
+  "objection": "The speed difference is a few tens of milliseconds and I would not feel it, and a one-person v0.4.1 isn't something I'd trust as the default for everything.",
+  "would_change_my_mind": "If it showed my TGA/DDS/EXR files correctly (alpha, mip levels, HDR exposure) and I could still use it for those without making it the default for everything, I'd use it more. To make it the default I'd need to see it stay stable for months, with no crashes on odd files.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 40
+}

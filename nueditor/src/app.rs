@@ -146,6 +146,10 @@ pub struct App {
     decode_ms: f64,
     /// RAW: what the camera recorded (from the file), one line.
     camera: Option<String>,
+    /// An animated GIF: all its frames (the first is `full`) with their delays. The edits apply to every frame when saving.
+    anim: Option<Vec<(Pixels, u32)>>,
+    /// RAW: the as-shot temperature / tint the Temperature and Tint sliders are shown around (kelvin instead of a bare number).
+    raw_base: Option<nv_editor::rawbase::RawBase>,
     /// The unedited picture at the size it is shown at.
     proxy: Option<Arc<Pixels>>,
     /// Counts the proxies built, so the worker can tell one from another.
@@ -257,6 +261,8 @@ impl App {
             reduced: false,
             decode_ms: 0.0,
             camera: None,
+            anim: None,
+            raw_base: None,
             proxy: None,
             proxy_gen: 0,
             jobs,
@@ -404,12 +410,23 @@ impl App {
                 self.view.nav_drag = false;
                 self.tool_release();
             }
+            // A slider: double click = the value it had before the last save (when the picture was opened or the edits were
+            // last kept), triple click = zero (its default).
             Event::DoubleClick { x, y, .. } => {
                 if self.double_click_image(x, y) {
+                } else if self.band_slider_reset(x, y, true) {
+                } else if let Some(Hit::Row(i)) = self.hit(x, y) {
+                    self.restore_param(i);
+                } else if let Some(Hit::Item(i)) = self.hit(x, y) {
+                    self.item_double(i);
+                }
+            }
+            Event::TripleClick { x, y, .. } => {
+                if self.band_slider_reset(x, y, false) {
                 } else if let Some(Hit::Row(i)) = self.hit(x, y) {
                     self.reset_param(i);
                 } else if let Some(Hit::Item(i)) = self.hit(x, y) {
-                    self.item_right(i);
+                    self.item_triple(i);
                 }
             }
             Event::RightClick { x, y } if self.entry.is_some() => self.entry_menu(x, y),
@@ -488,6 +505,12 @@ impl App {
             Ok(d) => {
                 self.decode_ms = d.ms;
                 self.camera = d.camera;
+                self.raw_base = d.base;
+                self.anim = d.anim;
+                if let Some(a) = &self.anim {
+                    let n = a.len();
+                    self.say(&format!("Animated GIF, {n} frames: you see the first; your edits are applied to all {n} when you save"));
+                }
                 self.reduced = d.reduced_from.is_some();
                 let img = d.image;
                 self.full = Some(Pixels::new(img.width, img.height, img.rgba));
@@ -729,8 +752,10 @@ impl App {
 
     fn snapshot(&mut self) {
         self.undo.push(self.recipe.clone());
-        if self.undo.len() > 200 {
-            self.undo.remove(0);
+        let keep = self.settings.editor_history.clamp(10, 5000) as usize;
+        if self.undo.len() > keep {
+            let extra = self.undo.len() - keep;
+            self.undo.drain(..extra);
         }
         self.redo.clear();
     }
@@ -762,6 +787,17 @@ impl App {
         let t = ((x - track[0]) / (track[2] - track[0]).max(1.0)).clamp(0.0, 1.0);
         let info = &PARAMS[i];
         self.set_param(i, info.min + (info.max - info.min) * t);
+    }
+
+    /// Double click on a slider: back to the value it had before the last save (`kept`).
+    fn restore_param(&mut self, i: usize) {
+        let before = self.kept.v[i];
+        if (self.recipe.v[i] - before).abs() > 1e-6 {
+            self.snapshot();
+            self.recipe.set_index(i, before);
+            self.changed();
+            self.say("Slider back to the value it had before the last save (triple click = zero)");
+        }
     }
 
     fn reset_param(&mut self, i: usize) {
@@ -931,6 +967,8 @@ impl App {
             0x5A if m.ctrl => self.undo(),
             0x59 if m.ctrl => self.redo(),
             0x53 if m.ctrl && m.shift => self.save_copy_dialog(),
+            0x48 if m.ctrl && m.shift => self.share_picture(),
+            0x46 if m.ctrl && m.shift => self.extract_frames(),
             0x53 if m.ctrl => self.save_now(),
             0x43 if m.ctrl && !m.shift => self.copy_picture(),
             0x43 if !m.ctrl => {
@@ -1007,14 +1045,15 @@ impl App {
         }
     }
 
+    /// A camera RAW file is never rewritten (the edit goes to its pair file, or into a new JPEG / PNG / ... next to it).
     fn can_burn(&self) -> bool {
-        !self.reduced
+        !self.reduced && !nv_codecs::is_raw_ext(&self.path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default())
     }
 
     /// Carry out a way of saving. Ok(path to show) or an error already reported to the user.
     fn save_as(&mut self, choice: Choice) -> Result<Option<PathBuf>, ()> {
         let Some(full) = &self.full else { return Ok(None) };
-        let f = Full { path: &self.path, pixels: full };
+        let f = Full { path: &self.path, pixels: full, anim: self.anim.as_deref() };
         let saved = match choice {
             Choice::Burn => flow::burn_in(&f, &self.recipe, &flow::CopyOptions::from_settings(&self.settings)),
             Choice::NewFile => flow::new_file(&f, &self.recipe, &flow::CopyOptions::from_settings(&self.settings)),
@@ -1105,6 +1144,8 @@ impl App {
     fn begin_load(&mut self, path: PathBuf) {
         self.path = path.clone();
         self.camera = None;
+        self.raw_base = None;
+        self.anim = None;
         self.loading = true;
         self.error = None;
         self.full = None;
@@ -1273,6 +1314,14 @@ impl App {
 
     fn value_text(&self, i: usize) -> String {
         let v = self.recipe.v[i];
+        if let Some(b) = &self.raw_base {
+            if i == P::Temp as usize {
+                return b.kelvin_text(v);
+            }
+            if i == P::Tint as usize {
+                return b.tint_text(v);
+            }
+        }
         let range = PARAMS[i].max - PARAMS[i].min;
         let s = if range <= 10.0 { format!("{v:.2}") } else { format!("{v:.0}") };
         if v > 0.0 && PARAMS[i].min < 0.0 { format!("+{s}") } else { s }
@@ -1503,7 +1552,12 @@ impl App {
                 let info = &PARAMS[*i];
                 let live = engine::is_implemented(*i);
                 let (label_c, value_c) = if live { (text_c, if self.recipe.is_default(*i) { dim_c } else { accent }) } else { (rgb(0x6B7078, 1.0), rgb(0x6B7078, 1.0)) };
-                let label = if live { nv_text::tr(info.label).into_owned() } else { format!("{}  ({})", nv_text::tr(info.label), nv_text::tr("soon")) };
+                let label = match (&self.raw_base, *i) {
+                    (Some(b), i) if i == P::Temp as usize => b.kelvin_label(),
+                    (Some(b), i) if i == P::Tint as usize => b.tint_label(),
+                    _ if live => nv_text::tr(info.label).into_owned(),
+                    _ => format!("{}  ({})", nv_text::tr(info.label), nv_text::tr("soon")),
+                };
                 self.text.draw(r, &label, px(12.0), row[0] + 14.0 * d, row[1] + 5.0 * d, label_c);
                 self.text.draw_right(r, &values[n], px(12.0), row[2] - 14.0 * d, row[1] + 5.0 * d, value_c);
                 let _ = r.fill_rect(*track, rgb(0x2E3238, 1.0));

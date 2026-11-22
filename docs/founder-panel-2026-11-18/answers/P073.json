@@ -1,0 +1,18 @@
+{
+  "id": "P073",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 6,
+  "reason_code": "habit",
+  "reason": "FastStone already does everything I need in one app (full screen, browser, editor, batch), so a new viewer from one guy has to beat that, and speed alone doesn't. It's free and portable so I'd poke at it, but I wouldn't make it default.",
+  "why_switch_or_not": "I like that it's an all-in-one with gallery, batch convert and editor, so the 'does too much' worry isn't really mine, but FastStone already covers that and I know where everything is. The speed numbers are nice but I don't open 5 pictures in a row at once, I open a few relatives' photos and print one, and the page doesn't say anything about printing. Version 0.4.1 from a single developer also makes me think it may have rough edges, and the English-only menus and the HEIC extension requirement could be annoying with phone photos.",
+  "current_app_pros": "FastStone's full-screen mode with the hidden edge menus, the thumbnail browser, and the simple editor (resize, crop, red-eye, text) are all in one place, and I can print and batch convert from it without opening anything else.",
+  "current_app_pains": "It feels a bit slow flipping through big photos and the interface looks old, but nothing that actually stops me from doing things.",
+  "objection": "FastStone already does view + edit + batch + print for me, and I have no proof NuViewer can print a photo or that one developer will keep updating it.",
+  "would_change_my_mind": "If it clearly had an easy Print option for a phone photo (size, paper, fit to page) and I tried it on my own photos and it felt smoother than FastStone with no crashes.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 8,
+  "price_too_expensive": 20
+}

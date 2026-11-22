@@ -1,0 +1,18 @@
+{
+  "id": "P095",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 3,
+  "reason_code": "habit",
+  "reason": "I'd grab the portable zip because it's free and I'm curious about the speed, but XnView MP already opens everything I throw at it, including the HEIC my relatives send. I don't see anything here that XnView fails on for me.",
+  "why_switch_or_not": "The speed numbers are nice, but I cull RAW+JPG in XnView and it's fast enough for me, and I only hunt for a new viewer when my current one chokes on a file. 26 of 32 types doesn't beat XnView's format list, and HEIC needing Microsoft's HEVC extension is a step backwards for phone photos. It also ships a gallery, editor, importer and a Space-bar agent, which is exactly the 'does too much' feeling I distrust.",
+  "current_app_pros": "XnView MP opens nearly every format I meet, including HEIC. It browses folders, batch converts, edits metadata (IPTC/EXIF) and handles RAW+JPG side by side. It's free for private use and I know the shortcuts by heart.",
+  "current_app_pains": "It feels a bit heavy and slow to start, and thumbnails of big RAW folders can lag. The interface is cluttered. But none of it is bad enough to make me change.",
+  "objection": "It does too much (gallery, editor, importer, tray agent) and I only want a viewer. It's version 0.4.1 from one developer, and it needs an extra Microsoft extension for HEIC, so my relatives' phone photos might not open out of the box. I also don't see printing mentioned, and I want to print one of those photos.",
+  "would_change_my_mind": "Opening HEIC out of the box and printing straight from the viewer. Or a file type from a client that XnView can't open but NuViewer can.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

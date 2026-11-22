@@ -170,6 +170,36 @@ pub(crate) fn camera_to_srgb(xyz_to_cam: &[[f32; 3]]) -> M3 {
     invert(&rgb_to_cam).unwrap_or(IDENTITY)
 }
 
+/// Chromaticity of the Planckian locus at `t` kelvin (Kim et al., 1667 K to 25000 K).
+fn planck_xy(t: f32) -> (f32, f32) {
+    let t = t.clamp(1667.0, 25000.0);
+    let (t2, t3) = (t * t, t * t * t);
+    let x = if t <= 4000.0 { -0.2661239e9 / t3 - 0.2343589e6 / t2 + 0.8776956e3 / t + 0.179910 } else { -3.0258469e9 / t3 + 2.1070379e6 / t2 + 0.2226347e3 / t + 0.240390 };
+    let y = if t <= 2222.0 {
+        -1.1063814 * x * x * x - 1.34811020 * x * x + 2.18555832 * x - 0.20219683
+    } else if t <= 4000.0 {
+        -0.9549476 * x * x * x - 1.37418593 * x * x + 2.09137015 * x - 0.16748867
+    } else {
+        3.0817580 * x * x * x - 5.87338670 * x * x + 3.75112997 * x - 0.37001483
+    };
+    (x, y)
+}
+
+/// CIE 1960 (u, v) of a chromaticity.
+fn uv1960(x: f32, y: f32) -> (f32, f32) {
+    let d = -2.0 * x + 12.0 * y + 3.0;
+    (4.0 * x / d, 6.0 * y / d)
+}
+
+/// The tint of a white point: its distance from the Planckian locus (in the 1960 uv plane, the way Duv is measured), scaled
+/// by 3000 like Adobe's tint, with the sign of NuEditor's Tint slider: positive = towards magenta, negative = towards green.
+pub fn tint_of_xy(x: f32, y: f32, cct: f32) -> f32 {
+    let (px, py) = planck_xy(cct);
+    let ((u, v), (pu, pv)) = (uv1960(x, y), uv1960(px, py));
+    let duv = ((u - pu).powi(2) + (v - pv).powi(2)).sqrt() * if v >= pv { 1.0 } else { -1.0 };
+    -duv * 3000.0
+}
+
 /// Correlated colour temperature (K) of a chromaticity (McCamy's approximation).
 fn cct_of_xy(x: f32, y: f32) -> f32 {
     let n = (x - 0.3320) / (0.1858 - y);
@@ -189,7 +219,7 @@ pub(crate) fn pick_matrix(matrices: &[(Illuminant, Vec<f32>)], neutral: [f32; 3]
 }
 
 /// `pick_matrix`, and the colour temperature (K) of the as-shot white balance when two illuminants allowed solving for it.
-pub(crate) fn pick_matrix_cct(matrices: &[(Illuminant, Vec<f32>)], neutral: [f32; 3]) -> Option<(M3, String, Option<f32>)> {
+pub(crate) fn pick_matrix_cct(matrices: &[(Illuminant, Vec<f32>)], neutral: [f32; 3]) -> Option<(M3, String, Option<(f32, f32)>)> {
     let get = |names: &[Illuminant]| names.iter().find_map(|i| matrices.iter().find(|(k, _)| k == i).and_then(|(_, m)| flat3(m)));
     let low = get(&[Illuminant::A, Illuminant::Tungsten, Illuminant::IsoStudioTungsten]);
     let high = get(&[Illuminant::D65, Illuminant::Daylight, Illuminant::FineWeather, Illuminant::D75, Illuminant::CloudyWeather, Illuminant::D55, Illuminant::D50]);
@@ -214,9 +244,9 @@ pub(crate) fn pick_matrix_cct(matrices: &[(Illuminant, Vec<f32>)], neutral: [f32
                     break;
                 }
             }
-            let _ = xy;
+            let tint = tint_of_xy(xy[0], xy[1], cct);
             let w = ((1e6 / cct - mired_d) / (mired_a - mired_d)).clamp(0.0, 1.0);
-            Some((blend(w), format!("camera colour matrix interpolated for {:.0} K", cct), Some(cct)))
+            Some((blend(w), format!("camera colour matrix interpolated for {:.0} K", cct), Some((cct, tint))))
         }
         (Some(m), None) | (None, Some(m)) => Some((m, "camera colour matrix".to_string(), None)),
         (None, None) => matrices.iter().filter_map(|(i, m)| flat3(m).map(|m| (*i as u16, m))).min_by_key(|(i, _)| *i).map(|(_, m)| (m, "camera colour matrix".to_string(), None)),
@@ -233,6 +263,8 @@ pub struct CameraData {
     pub wb: Option<[f32; 2]>,
     /// Colour temperature (K) of the as-shot white balance, solved from the camera's own colour matrices (two illuminants needed).
     pub kelvin: Option<f32>,
+    /// Tint of the as-shot white balance (distance from the daylight / blackbody line, x3000; positive = magenta). Needs `kelvin`.
+    pub tint: Option<f32>,
     pub iso: Option<u32>,
     /// The exposure compensation dialled in (EV).
     pub exposure_bias: Option<f32>,
@@ -243,7 +275,7 @@ impl CameraData {
     pub fn summary(&self) -> String {
         let mut parts = vec![format!("{} {}", self.make, self.model).trim().to_string()];
         match (self.kelvin, self.wb) {
-            (Some(k), Some(w)) => parts.push(format!("as shot {:.0} K (red x{:.2}, blue x{:.2})", k, w[0], w[1])),
+            (Some(k), Some(w)) => parts.push(format!("as shot {:.0} K{} (red x{:.2}, blue x{:.2})", k, self.tint.map(|t| format!(", tint {t:+.0}")).unwrap_or_default(), w[0], w[1])),
             (None, Some(w)) => parts.push(format!("as-shot balance red x{:.2}, blue x{:.2}", w[0], w[1])),
             _ => {}
         }
@@ -269,15 +301,18 @@ pub fn camera_data(path: &Path) -> Option<CameraData> {
         let w = raw.wb_coeffs;
         (w[..3].iter().all(|v| v.is_finite() && *v > 0.0)).then(|| [w[0] / w[1], w[2] / w[1]])
     };
-    let kelvin = wb.and_then(|w| {
+    let (kelvin, tint) = match wb.and_then(|w| {
         let neutral = [1.0 / w[0], 1.0, 1.0 / w[1]];
         let matrices: Vec<(Illuminant, Vec<f32>)> = raw.color_matrix.iter().map(|(k, v)| (*k, v.clone())).collect();
         pick_matrix_cct(&matrices, neutral).and_then(|(_, _, k)| k)
-    });
+    }) {
+        Some((k, t)) => (Some(k), Some(t)),
+        None => (None, None),
+    };
     let exif = dec.raw_metadata(&src, &params).ok().map(|m| m.exif);
     let iso = exif.as_ref().and_then(|e| e.iso_speed.or(e.iso_speed_ratings.map(|i| i as u32)));
     let exposure_bias = exif.as_ref().and_then(|e| e.exposure_bias.as_ref()).filter(|r| r.d != 0).map(|r| r.n as f32 / r.d as f32);
-    Some(CameraData { make: raw.clean_make.clone(), model: raw.clean_model.clone(), wb, kelvin, iso, exposure_bias })
+    Some(CameraData { make: raw.clean_make.clone(), model: raw.clean_model.clone(), wb, kelvin, tint, iso, exposure_bias })
 }
 
 /// The colour filter array: 2x2 Bayer or 6x6 X-Trans, as colours 0 (R), 1 (G), 2 (B).
@@ -639,6 +674,28 @@ pub fn develop(path: &Path, mode: RawMode) -> Result<Image, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_blackbody_locus_is_where_the_books_put_it() {
+        let (x, y) = planck_xy(6500.0);
+        assert!((x - 0.3135).abs() < 0.001 && (y - 0.3237).abs() < 0.001, "{x} {y}");
+        let (x, y) = planck_xy(2856.0); // illuminant A
+        assert!((x - 0.4476).abs() < 0.002 && (y - 0.4074).abs() < 0.002, "{x} {y}");
+    }
+
+    #[test]
+    fn tint_is_zero_on_the_locus_and_signed_off_it() {
+        for t in [3000.0f32, 5000.0, 6500.0, 9000.0] {
+            let (x, y) = planck_xy(t);
+            assert!(tint_of_xy(x, y, t).abs() < 0.5, "{t} K on the locus");
+            // A greener white (more y) has a negative tint, a more magenta one (less y) a positive tint.
+            assert!(tint_of_xy(x, y + 0.01, t) < -5.0);
+            assert!(tint_of_xy(x, y - 0.01, t) > 5.0);
+        }
+        // Daylight D65 sits a little on the green side of the locus.
+        let d65 = tint_of_xy(0.3127, 0.3290, 6504.0);
+        assert!((-15.0..-5.0).contains(&d65), "{d65}");
+    }
 
     /// A mosaic of a flat colour: every site holds that colour's value (as the sensor would for a uniform patch).
     fn flat_mosaic(cfa: Cfa, w: usize, h: usize, rgb: [u16; 3]) -> Vec<u16> {

@@ -60,6 +60,15 @@ impl App {
         match t {
             Target::Param(i) => {
                 let v = self.recipe.v[i];
+                // A RAW file's temperature and tint are typed in kelvin / tint units around what the camera chose.
+                if let Some(b) = &self.raw_base {
+                    if i == P::Temp as usize {
+                        return format!("{:.0}", b.kelvin_at(v));
+                    }
+                    if i == P::Tint as usize {
+                        return format!("{:.0}", b.tint_at(v));
+                    }
+                }
                 if v.fract().abs() < 1e-4 { format!("{v:.0}") } else { format!("{v:.3}").trim_end_matches('0').trim_end_matches('.').to_string() }
             }
             Target::Num(n) => {
@@ -199,6 +208,11 @@ impl App {
         };
         match e.target {
             Target::Param(i) => {
+                let v = match &self.raw_base {
+                    Some(b) if i == P::Temp as usize => b.slider_for_kelvin(v).clamp(PARAMS[i].min, PARAMS[i].max),
+                    Some(b) if i == P::Tint as usize => b.slider_for_tint(v).clamp(PARAMS[i].min, PARAMS[i].max),
+                    _ => v,
+                };
                 if (self.recipe.v[i] - v).abs() > 1e-6 {
                     self.snapshot();
                     self.recipe.set_index(i, v);

@@ -67,7 +67,8 @@ pub fn seven_zip(configured: &str) -> Option<PathBuf> {
     }
     let mut places: Vec<PathBuf> = Vec::new();
     for var in ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "LOCALAPPDATA"] {
-        if let Some(base) = std::env::var_os(var) {
+        let value = if var == "LOCALAPPDATA" { std::env::var_os("NUVIEWER_REAL_LOCALAPPDATA").or_else(|| std::env::var_os(var)) } else { std::env::var_os(var) };
+        if let Some(base) = value {
             let base = PathBuf::from(base);
             places.push(base.join("7-Zip").join("7z.exe"));
             places.push(base.join("Programs").join("7-Zip").join("7z.exe"));

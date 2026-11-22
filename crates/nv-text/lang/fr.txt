@@ -1,0 +1,8 @@
+# NuViewer - French (Français) - MOCK-UP, not translated yet.
+# This file only reserves the language: it has a name, so the language list can show it, and nothing else, so every text shows in
+# English until it is translated. To translate: copy the keys you want from en.txt (or the "en-template.txt" the Settings page
+# writes), put the translation after the "=", and delete this paragraph. Keys you leave out stay English.
+# Format: key = text   ("\n" is a line break, "{0}" "{1}" are filled in by the program, "&" marks the Alt+letter of a menu).
+# Plural rule, number format and fonts of this language are in crates/nv-text/src/registry.rs.
+
+lang.name = Français

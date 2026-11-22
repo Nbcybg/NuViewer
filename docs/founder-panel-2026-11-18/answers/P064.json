@@ -1,0 +1,18 @@
+{
+  "id": "P064",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 5,
+  "reason_code": "habit",
+  "reason": "The 40-50 ms next/back is enough to make me install it and run my own RAW+JPG and PNG folders through it. But my current fast viewer is already quick and I'm not unhappy, so I won't hand over the default until it beats it on my own files.",
+  "why_switch_or_not": "Next/back at 40-50 ms and rapid next x5 would matter to me when culling, and separate RAW and JPG entries is how I want them. But the benchmark compares against IrfanView, FastStone and ImageGlass, which are not my viewer. I have no number against Honeyview or qView, which are already fast, so I can't tell if it's actually faster for me. It also ships a gallery, editor, importer and a Space-bar agent from Explorer, and I only want a viewer.",
+  "current_app_pros": "Opens instantly, tiny, no clutter, flips through a folder of PNG exports and screenshots without lag, and I never have to think about it.",
+  "current_app_pains": "Nothing much. RAW support is weak, so for RAW I sometimes fall back to something else, and colour handling is basic. I'm not annoyed enough to be hunting for a replacement.",
+  "objection": "It does too much, and I don't believe a one-person 0.4.x app with a gallery, editor and importer stays this fast. The speed numbers are the developer's own, on one PC, against slower viewers than mine. I need to know the extra pieces don't run in the background or slow startup.",
+  "would_change_my_mind": "Seeing it open and flip through 500 RAW+JPG pairs or big PNGs visibly faster than my current viewer on my own machine, with no tray agent running unless I turn it on.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

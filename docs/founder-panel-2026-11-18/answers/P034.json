@@ -1,0 +1,18 @@
+{
+  "id": "P034",
+  "would_try": true,
+  "buys": true,
+  "switch_decision": "replace",
+  "purchases_first_month": 20,
+  "reason_code": "quality",
+  "reason": "Windows Photos is slow to open and I can feel it on every double-click, and it won't open my PSD or AI files at all. A portable zip that opens JPG/PNG in 120-350 ms and handles PSD/AI is worth a real test, and it costs nothing.",
+  "why_switch_or_not": "Speed is the whole reason, because I notice 200 ms. If the next/back numbers hold on my own machine and my PSDs with alpha open right, I'd switch. It's free, per-user and portable, so trying it costs me nothing, and I'd just add it to my reinstall list. I'm not sure about one-dev software, but I'd see in a week whether it holds up.",
+  "current_app_pros": "It's already there, nothing to install, and it opens normal JPG/PNG on double-click. It also survives a fresh Windows install without any setup from me.",
+  "current_app_pains": "It's slow to launch and slow when I flip through a folder. It has no PSD or AI preview, and it doesn't show alpha properly on my transparent PNGs. It also feels heavy for just looking at a picture.",
+  "objection": "Does it show my PSDs and transparent PNGs correctly, with the right alpha and colours? The brief says it only tied with IrfanView on some PSD files, and 'opens' isn't the same as 'looks right'. I don't want a viewer that shows my layered files slightly wrong.",
+  "would_change_my_mind": "If my own PSD and AI files showed wrong colours or broken transparency, or if it felt no faster than Photos on my machine, I'd drop it.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 10,
+  "price_too_expensive": 25
+}

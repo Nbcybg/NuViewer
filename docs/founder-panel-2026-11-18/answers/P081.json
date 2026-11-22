@@ -1,0 +1,18 @@
+{
+  "id": "P081",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 6,
+  "reason_code": "trust",
+  "reason": "I'd grab the portable zip and throw some TGA, DDS and EXR files at it because Photos can't show those anyway, but I'm not making an unknown one-person .exe my default for 200k pictures. Photos is already the default and I don't think about it.",
+  "why_switch_or_not": "The format list is the only thing that interests me: TGA, DDS, EXR, HDR, GLB and OBJ in one quick viewer would save me opening Blender or Photoshop just to check a texture. But it's a 0.4.1 from one person, I can't tell from the page if it's signed or open source, and making it default means ticking formats in Windows Settings and learning a new gallery. For normal JPG/PNG, saving 200 ms over Photos isn't worth any of that for me.",
+  "current_app_pros": "Windows Photos is just there. Double-click a picture and it opens, no setup, no surprises, and I never have to think about it. It handles my normal JPG/PNG/screenshots fine.",
+  "current_app_pains": "It can't open most of what I actually work with (TGA, DDS, EXR, HDR, GLB), so I end up opening heavy apps just to look at a texture. It's also slowish to start and clunky for browsing big folders. Otherwise it doesn't bug me enough to go looking for a replacement.",
+  "objection": "Is it safe? An unknown .exe from a single developer, and the page doesn't say it's code-signed or open source. Windows SmartScreen will probably warn me, and I'm not putting that on the machine I do my work on without some proof.",
+  "would_change_my_mind": "A signed installer that doesn't trigger SmartScreen, or source code I (or someone I trust) can check, plus a few weeks of seeing it handle my DDS/EXR/TGA files without problems. Then I'd make it the default for texture folders at least.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 35
+}

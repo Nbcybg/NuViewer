@@ -255,6 +255,11 @@ pub struct Settings {
     /// Fold runs of numbered files into one gallery entry.
     pub sequences: bool,
     pub sequence_min: u32,
+    /// RAW + JPG pairs of one shot are listed as one picture (the JPG stands for both; delete / move / copy / rename act on both).
+    /// Off = every file is its own picture, which is the factory rule.
+    pub pair_group: bool,
+    /// Load plug-ins from `%APPDATA%\NuViewer\plugins` (extra formats and menu commands, see `plugins`). Off loads nothing.
+    pub plugins: bool,
     pub fps: u32,
     /// Keep the playback controls on screen instead of only near the bottom edge.
     pub controls_always: bool,
@@ -278,6 +283,10 @@ pub struct Settings {
     pub editor_exif: bool,
     /// The viewer and the gallery show a picture with its pair file (`.nuedit`) applied.
     pub editor_show_pair: bool,
+    /// How many steps Ctrl+Z can go back in NuEditor (10..=5000).
+    pub editor_history: u32,
+    /// NuEditor opens a camera RAW file from its sensor data (true) or from the camera's own JPEG look (false).
+    pub editor_raw_sensor: bool,
     /// Text of the watermark NuEditor can stamp on a copy.
     pub editor_watermark: String,
     /// How the pictures of a folder are ordered (next / previous, gallery, film strip), and whether that is reversed.
@@ -325,6 +334,8 @@ impl Default for Settings {
             taskbar_edge: true,
             sequences: false,
             sequence_min: 10,
+            pair_group: false,
+            plugins: true,
             fps: 24,
             controls_always: false,
             disk_monitor: false,
@@ -339,6 +350,8 @@ impl Default for Settings {
             editor_suffix: "_edit".to_string(),
             editor_exif: true,
             editor_show_pair: true,
+            editor_history: 200,
+            editor_raw_sensor: true,
             editor_watermark: String::new(),
             sort: SortKey::Name,
             sort_desc: false,
@@ -449,6 +462,8 @@ impl Settings {
                 "top_bar" => s.top_bar = parse_bool(v).unwrap_or(s.top_bar),
                 "taskbar_edge" => s.taskbar_edge = parse_bool(v).unwrap_or(s.taskbar_edge),
                 "sequences" => s.sequences = parse_bool(v).unwrap_or(s.sequences),
+                "pair_group" => s.pair_group = parse_bool(v).unwrap_or(s.pair_group),
+                "plugins" => s.plugins = parse_bool(v).unwrap_or(s.plugins),
                 "sequence_min" => s.sequence_min = v.parse().ok().filter(|p| (2..=10_000).contains(p)).unwrap_or(s.sequence_min),
                 "fps" => s.fps = v.parse().ok().filter(|p| (1..=240).contains(p)).unwrap_or(s.fps),
                 "controls_always" => s.controls_always = parse_bool(v).unwrap_or(s.controls_always),
@@ -470,6 +485,8 @@ impl Settings {
                 "editor_suffix" => s.editor_suffix = v.chars().filter(|c| !"\\/:*?\"<>|".contains(*c)).take(32).collect(),
                 "editor_exif" => s.editor_exif = parse_bool(v).unwrap_or(s.editor_exif),
                 "editor_show_pair" => s.editor_show_pair = parse_bool(v).unwrap_or(s.editor_show_pair),
+                "editor_history" => s.editor_history = v.parse::<u32>().map(|n| n.clamp(10, 5000)).unwrap_or(s.editor_history),
+                "editor_raw_sensor" => s.editor_raw_sensor = parse_bool(v).unwrap_or(s.editor_raw_sensor),
                 "editor_watermark" => s.editor_watermark = v.chars().take(120).collect(),
                 "sort" => s.sort = SortKey::from_id(v).unwrap_or(s.sort),
                 "sort_desc" => s.sort_desc = parse_bool(v).unwrap_or(s.sort_desc),
@@ -502,6 +519,12 @@ impl Settings {
                 "model_normal_map" => s.model.normal_map = parse_bool(v).unwrap_or(s.model.normal_map),
                 "model_wireframe" => s.model.wireframe = parse_bool(v).unwrap_or(s.model.wireframe),
                 "model_shadow" => s.model.shadow = parse_bool(v).unwrap_or(s.model.shadow),
+                "model_outline" => s.model.outline = parse_bool(v).unwrap_or(s.model.outline),
+                "model_silhouette" => s.model.silhouette = parse_bool(v).unwrap_or(s.model.silhouette),
+                "model_support" => s.model.support = parse_bool(v).unwrap_or(s.model.support),
+                "model_bones" => s.model.bones = parse_bool(v).unwrap_or(s.model.bones),
+                "model_bone_names" => s.model.bone_names = parse_bool(v).unwrap_or(s.model.bone_names),
+                "model_turntable_dps" => s.model.turntable_dps = v.parse::<f32>().ok().filter(|d| d.is_finite()).map(|d| d.clamp(1.0, 360.0)).unwrap_or(s.model.turntable_dps),
                 _ if s.more.apply(&k, v) => {}
                 _ => {
                     if let Some(rest) = k.strip_prefix("key.") {
@@ -555,7 +578,7 @@ impl Settings {
             b(self.top_bar),
             b(self.taskbar_edge)
         );
-        out += &format!("sequences = {}\nsequence_min = {}\nfps = {}\ncontrols_always = {}\n", b(self.sequences), self.sequence_min, self.fps, b(self.controls_always));
+        out += &format!("sequences = {}\nsequence_min = {}\nfps = {}\ncontrols_always = {}\npair_group = {}\nplugins = {}\n", b(self.sequences), self.sequence_min, self.fps, b(self.controls_always), b(self.pair_group), b(self.plugins));
         out += &format!("disk_monitor = {}\nmodel_textures = {}\nfit_enlarge = {}\n", b(self.disk_monitor), b(self.model_textures), b(self.fit_enlarge));
         out += &format!(
             "rotate_save = {}\n",
@@ -566,13 +589,15 @@ impl Settings {
         );
         out += &format!("editor_save = {}\neditor_ask = {}\nconfirm_delete = {}\neditor_graph = {}\n", self.editor_save.id(), b(self.editor_ask), b(self.confirm_delete), self.editor_graph.id());
         out += &format!(
-            "editor_format = {}\neditor_quality = {}\neditor_suffix = {}\neditor_exif = {}\neditor_show_pair = {}\neditor_watermark = {}\n",
+            "editor_format = {}\neditor_quality = {}\neditor_suffix = {}\neditor_exif = {}\neditor_show_pair = {}\neditor_watermark = {}\neditor_history = {}\neditor_raw_sensor = {}\n",
             self.editor_format.id(),
             self.editor_quality,
             self.editor_suffix,
             b(self.editor_exif),
             b(self.editor_show_pair),
-            self.editor_watermark.replace(['\r', '\n'], " ")
+            self.editor_watermark.replace(['\r', '\n'], " "),
+            self.editor_history,
+            b(self.editor_raw_sensor)
         );
         out += &format!("sort = {}\nsort_desc = {}\nfilm_strip = {}\nread_rtl = {}\nread_start = {}\n", self.sort.id(), b(self.sort_desc), b(self.film_strip), b(self.read_rtl), self.read_start);
         let m = &self.model;
@@ -593,14 +618,20 @@ impl Settings {
             }
         );
         out += &format!(
-            "model_turn_x = {}\nmodel_turn_y = {}\nmodel_turn_z = {}\nmodel_texture = {}\nmodel_normal_map = {}\nmodel_wireframe = {}\nmodel_shadow = {}\n",
+            "model_turn_x = {}\nmodel_turn_y = {}\nmodel_turn_z = {}\nmodel_texture = {}\nmodel_normal_map = {}\nmodel_wireframe = {}\nmodel_shadow = {}\nmodel_outline = {}\nmodel_silhouette = {}\nmodel_support = {}\nmodel_bones = {}\nmodel_bone_names = {}\nmodel_turntable_dps = {}\n",
             m.turns[0],
             m.turns[1],
             m.turns[2],
             b(m.texture),
             b(m.normal_map),
             b(m.wireframe),
-            b(m.shadow)
+            b(m.shadow),
+            b(m.outline),
+            b(m.silhouette),
+            b(m.support),
+            b(m.bones),
+            b(m.bone_names),
+            m.turntable_dps
         );
         out += &self.more.serialize();
         for (i, e) in self.external.iter().enumerate() {
@@ -666,6 +697,8 @@ mod tests {
         s.editor_suffix = "-web".into();
         s.editor_exif = false;
         s.editor_show_pair = false;
+        s.editor_history = 77;
+        s.editor_raw_sensor = false;
         s.editor_watermark = "(c) Me = 2026".into();
         s.sort = SortKey::Modified;
         s.sort_desc = true;
@@ -684,10 +717,18 @@ mod tests {
             normal_map: false,
             wireframe: true,
             shadow: true,
+            outline: true,
+            silhouette: true,
+            support: true,
+            bones: true,
+            bone_names: true,
+            turntable_dps: 72.0,
         };
         s.top_bar = false;
         s.taskbar_edge = false;
         s.sequences = true;
+        s.pair_group = true;
+        s.plugins = false;
         s.sequence_min = 4;
         s.fps = 30;
         s.controls_always = true;

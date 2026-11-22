@@ -35,6 +35,7 @@ The first digit is the family: 1xxx file access, 2xxx format, 3xxx contents, 4xx
 | NV-7005 | Undo failed | What the undo needs (the file or its backup) is no longer there. |
 | NV-7006 | Clipboard failed | Another program is holding the clipboard. Try again. |
 | NV-7007 | Settings not saved | The settings file could not be written (%APPDATA%\NuViewer\settings.ini). |
+| NV-7008 | Rating not saved | The .xmp sidecar next to the picture could not be written (read-only folder, full disk, or another program has it open). The picture itself is never touched. |
 | NV-8001 | Colour profile problem | The ICC profile could not be read or used; the picture is shown without conversion. |
 | NV-9999 | Unexpected error | Something unexpected happened. The text after the code says what. |
 

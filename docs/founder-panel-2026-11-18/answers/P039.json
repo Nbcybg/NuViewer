@@ -1,0 +1,18 @@
+{
+  "id": "P039",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 3,
+  "reason_code": "trust",
+  "reason": "It is free and opens zip/cbz, so I will throw a few of my volumes at it. But one developer on version 0.4 is not something I make my default for a collection I have spent years building around.",
+  "why_switch_or_not": "Opening cbz/zip directly and fast next/back is the part that interests me, since I flip through hundreds of pages in a sitting. But the page says nothing about reading comics in particular, like page order or two-page layout, so I cannot tell if it beats what I already have set up. I would not move my default until I know it will still be updated next year.",
+  "current_app_pros": "IrfanView is quick, I know every shortcut by heart, and the plug-ins I need are already installed and working. It has never broken on me or changed behind my back, and it is easy to run from a folder.",
+  "current_app_pains": "Not much for single pictures. Reading a long cbz in it is more clunky than I would like, but it works and I have my routine for it.",
+  "objection": "One developer, version 0.4: will it still be maintained next year? If it stops, I have re-learned another viewer for nothing.",
+  "would_change_my_mind": "A year or more of regular updates and a visible history of fixes, plus a proper way to read a cbz volume page by page that I can try on my biggest archives without it stalling.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 10,
+  "price_too_expensive": 25
+}

@@ -1,0 +1,18 @@
+{
+  "id": "P083",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 6,
+  "reason_code": "trust",
+  "reason": "The speed numbers are exactly what I care about and I'd install it to test on my own RAW folders, but I won't hand my culling workflow to one developer on version 0.4. If it vanishes in a year I'd have to re-learn everything.",
+  "why_switch_or_not": "Rapid next x5 in about 85 ms against 600-900 ms for FastStone would be a real difference when I'm culling hundreds of RAW+JPG frames, and showing RAW and JPG as separate pictures is how I want it. But nobody has told me how it handles my 40 MP RAW files, how culling works (rating, marking, moving rejects), or that it has a proper full-screen mode like FastStone's. Nothing in the description says it reads cbz comfortably as a manga reader, only that it opens zip/cbz archives. I'd keep FastStone as the default until I have tested it on my own cards.",
+  "current_app_pros": "FastStone's full-screen mode with the hover toolbars, the browser with thumbnails, and the simple editor all in one program. I know every shortcut and have used it for years. It opens zip/cbz and my RAW files well enough.",
+  "current_app_pains": "It is slow when I hammer next through big RAW or JPG folders, with a visible lag of 600+ ms across several quick presses. The development is slow too, and a few formats fail.",
+  "objection": "One developer, version 0.4: will it still be maintained next year? I'm not moving my whole culling routine onto a project that may be abandoned.",
+  "would_change_my_mind": "A month of using it on a real shoot with no crashes, plus clear culling features (ratings, marks, move/delete rejects) and a visible update history showing it is being kept up.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 30,
+  "price_too_expensive": 60
+}

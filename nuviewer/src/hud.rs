@@ -24,6 +24,10 @@ const HELP: &[&str] = &[
     "Right click: menu (Open with…, Settings…)  ·  middle click: close  ·  top edge: info bar",
     "G  Tab  Enter     gallery  ·  arrows select, wheel scrolls, Ctrl+wheel sets the size",
     "Q  fold numbered pictures into image sequences (gallery)  ·  P play / pause  ·  C pin the controls  ·  D disk speed",
+    "Shift+Q  RAW + JPG of one shot as one picture / two separate pictures (Settings > Viewer; the JPG stands for both, delete / move / copy / rename act on both)",
+    "Rating (saved in the .xmp sidecar, Bridge / Lightroom / darktable / XnView read it; the picture is never touched):  Shift+1 … Shift+5 stars (Shift+0 none, the same key again clears)  ·  Ctrl+Shift+X reject",
+    "Colour label:  Shift+6 red  ·  Shift+7 yellow  ·  Shift+8 green  ·  Shift+9 blue  ·  Shift+`  purple  ·  Ctrl+Shift+`  none    (the top bar shows it; the gallery can show only some: View > Show rating)",
+    "Right-click > Plug-ins: commands and formats added by plug-in folders in %APPDATA%\\NuViewer\\plugins (docs/plugins.md)",
     "F11 / Alt+Enter fullscreen   I info/EXIF   S slideshow   + / − faster / slower",
     "Order: J sort by name / date / size / type  ·  Shift+J ascending / descending  ·  R shuffle (random order, R again restores the sort)",
     "Film strip: pointer at the right edge (or L)  ·  click a thumbnail to jump  ·  wheel scrolls it  ·  its header sorts and shuffles",
@@ -49,6 +53,8 @@ pub struct Hud {
     pub used: HashSet<u64>,
     /// File size text of the current picture (id, text) so the top bar doesn't stat the file every frame.
     pub size_cache: Option<(u64, String)>,
+    /// The rating of the picture the info bar was last built for (read once per picture, and after a change).
+    pub rating: Option<(u64, nv_core::xmp::Meta)>,
     /// The links of the credit lines on screen (rectangle, address): a click on one opens it.
     pub links: Vec<([f32; 4], String)>,
     /// Where the rename box was drawn: (x of the text start, top, bottom of the text line, left, right of the box).
@@ -57,7 +63,7 @@ pub struct Hud {
 
 impl Hud {
     pub fn new() -> Self {
-        Hud { toast: None, show_info: false, show_help: false, info_rows: Vec::new(), info_for: None, used: HashSet::new(), size_cache: None, links: Vec::new(), rename_geom: None }
+        Hud { toast: None, show_info: false, show_help: false, info_rows: Vec::new(), info_for: None, used: HashSet::new(), size_cache: None, rating: None, links: Vec::new(), rename_geom: None }
     }
 }
 
@@ -159,6 +165,7 @@ impl App {
     /// Draw every HUD element on top of the frame that `begin()` started. Call right before `end()`.
     pub fn draw_hud(&mut self) {
         self.hud.used.clear();
+        self.draw_bone_names();
         let (w, h) = self.renderer.size();
         let (w, h) = (w as f32, h as f32);
         let d = self.gallery.dpi;
@@ -347,6 +354,17 @@ impl App {
             parts.push(disk);
         }
         parts.push(self.position_text());
+        let rating = match self.hud.rating {
+            Some((rid, m)) if rid == id => m,
+            _ => {
+                let m = nv_core::xmp::read(&path);
+                self.hud.rating = Some((id, m));
+                m
+            }
+        };
+        if !rating.is_empty() {
+            parts.push(rating.describe());
+        }
         if self.folder.order.shuffle.is_some() {
             parts.push("shuffled".to_string());
         } else if self.folder.order != Default::default() {

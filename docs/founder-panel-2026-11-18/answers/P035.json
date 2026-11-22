@@ -1,0 +1,18 @@
+{
+  "id": "P035",
+  "would_try": false,
+  "buys": false,
+  "switch_decision": "ignore",
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "I don't install .exe files from one unknown developer with no reviews or signing, and my small fast viewer already does what I need. Version 0.4.1 from a single person is exactly what I stay away from.",
+  "why_switch_or_not": "I open photos my relatives send and sometimes print one. My current viewer does that fine, so I have no reason to take a security risk on a solo-dev app. The list of RAW, 3D, video and editor features means nothing to me, and I worry an app that does that much will want to take over my picture files and change how colours look when I print.",
+  "current_app_pros": "Small, starts instantly, opens phone JPGs and screenshots, and doesn't get in my way. I know where everything is.",
+  "current_app_pains": "Nothing really. Now and then a format won't open, but I almost never hit that.",
+  "objection": "A solo developer's unsigned installer with no reviews or source I can check. Also, I don't want my colours or print output to change.",
+  "would_change_my_mind": "A signed installer, open source I can read, or independent reviews from people I trust, plus a clear statement that it leaves my files and colours untouched.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 0,
+  "price_too_expensive": 0
+}

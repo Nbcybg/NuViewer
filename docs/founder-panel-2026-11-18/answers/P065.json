@@ -1,0 +1,18 @@
+{
+  "id": "P065",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 2,
+  "reason_code": "habit",
+  "reason": "I'd grab the portable zip since it costs nothing and I can delete it, open a cbz or two, and then go back to XnView MP because that's where my shortcuts and my batch convert are. Faster next/back doesn't fix a problem I actually feel.",
+  "why_switch_or_not": "It reads cbz, which is the one thing I'd test, and a portable zip means I don't have to touch my file associations to try it. But XnView already does my browsing, batch converting and metadata work, and I never complain about speed on phone photos and screenshots. A one-person 0.4.1 with no plug-ins, plus re-ticking every format in Windows Settings and learning new keys, is too much hassle for 'faster than IrfanView', which I don't even use.",
+  "current_app_pros": "XnView MP opens everything I throw at it, including cbz for manga. The thumbnail browser, batch convert and metadata/EXIF editing are all in one place, and I know where every shortcut is without thinking.",
+  "current_app_pains": "Nothing much. It's a bit heavy to start and the interface is cluttered, but I've never wanted to change it.",
+  "objection": "I'd have to relearn shortcuts and reset my file associations, and I'd have to trust a brand new one-developer viewer with my manga folders and my batch conversions. It lists batch rename/convert but says nothing about metadata editing, which I use.",
+  "would_change_my_mind": "A manga reading mode in cbz that is clearly better than XnView (page spread, right-to-left, remembering where I stopped), a way to import XnView's shortcuts so I don't relearn anything, and a few months of releases showing the developer isn't going to vanish.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 0,
+  "price_too_expensive": 0
+}

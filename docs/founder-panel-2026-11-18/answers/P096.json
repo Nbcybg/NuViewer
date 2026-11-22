@@ -1,0 +1,18 @@
+{
+  "id": "P096",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 5,
+  "reason_code": "habit",
+  "reason": "I'd install it just to see what it opens that Photos can't, but my daily stuff is phone photos, screenshots and the odd PDF, and Photos already handles those. I'm not going to go through the 'Set default' steps for something one guy made.",
+  "why_switch_or_not": "26 of 32 file types is the sort of number that gets me to download it, and I'd throw my odd files at it (RAW, PSD, WebP, weird PDFs). But for phone photos and screenshots I don't see a reason to change what opens on double-click, and I'd have to tick every format myself in Windows Settings. HEIC still needs Microsoft's HEVC extension, so my iPhone-type files get no benefit. If a format in my pile that Photos fails on opens fine, it stays installed as the second viewer. It won't replace Photos on its own.",
+  "current_app_pros": "It's already there and double-click just works. It opens my phone photos and screenshots without any setup and it's what everyone in the house knows.",
+  "current_app_pains": "It's slow to start sometimes, it chokes or shows nothing on stranger formats, and browsing a folder of 200,000 old pictures is a bit sluggish. Nothing that has made me leave so far.",
+  "objection": "One developer, version 0.4.1, no plugins, no community. If I hit a problem or he gives up on it, there's nobody to ask and no forum to search, and I would have set it as default for my 200,000 pictures.",
+  "would_change_my_mind": "Seeing that it opens a format that Photos fails on in my own folder, plus proof it still gets updates and has some user community or help page.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 10,
+  "price_too_expensive": 25
+}

@@ -2,6 +2,7 @@
 name = "nugallery"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 # NuGallery: the folder browser / gallery. Its own program (own window, own process) so the viewer stays small and fast;
 # the two hand work to each other through `nv_win::instance` (see docs/gallery-split.md).

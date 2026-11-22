@@ -1,0 +1,18 @@
+{
+  "id": "P001",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 3,
+  "reason_code": "habit",
+  "reason": "FastStone already does what I need every day and I have my muscle memory in it. The portable zip costs me nothing to try, but I don't see enough reason to swap a tool that works.",
+  "why_switch_or_not": "I'd unzip the portable build and throw a few PSDs, AIs and alpha PNGs at it, mostly out of curiosity about the format coverage and the speed claims. But it lists a gallery, an editor, video, audio, 3D models and a scanner importer, which is the opposite of 'just a viewer that stays out of my way', and FastStone's full-screen mode, browser and simple editor are already in my hands daily. A one-person 0.4.1 with no plug-ins and English-only UI doesn't give me enough reason to move my file associations.",
+  "current_app_pros": "FastStone's full-screen mode with the hover toolbars, the thumbnail browser and the quick editor all in one small tool I know by heart. It opens my everyday JPG/PNG/PSD fast enough and I don't have to think about it.",
+  "current_app_pains": "Rapid next/back through big folders lags a bit and it won't open some of the stranger formats (AI/PSD fidelity is not perfect, alpha handling is so-so). Nothing that makes me want to switch.",
+  "objection": "Another image viewer? Mine already works fine, and this one is a one-developer 0.4.1 that tries to be a gallery, editor, media player and 3D viewer, when all I want is a viewer.",
+  "would_change_my_mind": "If PSD and AI files with transparency showed exactly like in Photoshop/Illustrator, with colour-managed accuracy I can verify on my own files, and a pure viewing mode that hides the editor, gallery and everything else.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 10,
+  "price_too_expensive": 20
+}

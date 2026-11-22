@@ -50,6 +50,8 @@ impl Texture {
 }
 
 pub struct Renderer {
+    /// The colour the frame was cleared to (what a silhouette, an outline and the bone dots contrast with).
+    bg: [f32; 4],
     device: ID3D11Device,
     ctx: ID3D11DeviceContext,
     swapchain: IDXGISwapChain1,
@@ -255,6 +257,7 @@ impl Renderer {
                 current: None,
                 size: (width.max(1), height.max(1)),
                 mesh: None,
+                bg: [0.1, 0.1, 0.1, 1.0],
                 pano: None,
                 pending: None,
                 vram,
@@ -568,6 +571,16 @@ impl Renderer {
         self.mesh.as_mut().ok_or("mesh pipeline")?.upload(&self.device, &self.ctx, id, mesh)
     }
 
+    /// Where the joints of model `id` are in the window (pixels), for drawing their names: (name, point, parent joint).
+    pub fn bone_points(&self, id: u64, orbit: &Orbit, style: &ModelStyle) -> Vec<(String, Option<[f32; 2]>, Option<usize>)> {
+        self.mesh.as_ref().map(|m| m.bone_points(id, orbit, style, self.size)).unwrap_or_default()
+    }
+
+    /// How many joints model `id` has (0 = no skeleton).
+    pub fn bone_count(&self, id: u64) -> usize {
+        self.mesh.as_ref().and_then(|m| m.meshes.get(&id)).map(|g| g.source_bones()).unwrap_or(0)
+    }
+
     pub fn has_mesh(&self, id: u64) -> bool {
         self.mesh.as_ref().map(|m| m.meshes.contains_key(&id)).unwrap_or(false)
     }
@@ -576,7 +589,7 @@ impl Renderer {
     pub fn draw_mesh(&mut self, id: u64, orbit: &Orbit, style: &ModelStyle) -> Result<bool, String> {
         let Some(rtv) = self.rtv.clone() else { return Ok(false) };
         let Some(pipe) = self.mesh.as_mut() else { return Ok(false) };
-        let drawn = pipe.draw(&self.device, &self.ctx, &rtv, self.size, id, orbit, style)?;
+        let drawn = pipe.draw(&self.device, &self.ctx, &rtv, self.size, id, orbit, style, self.bg)?;
         if drawn {
             // Back to the 2D state `begin` set up.
             unsafe {
@@ -685,6 +698,7 @@ impl Renderer {
             let vp = D3D11_VIEWPORT { TopLeftX: 0.0, TopLeftY: 0.0, Width: w, Height: h, MinDepth: 0.0, MaxDepth: 1.0 };
             self.ctx.RSSetViewports(Some(&[vp]));
             self.ctx.ClearRenderTargetView(&rtv, &clear);
+            self.bg = clear;
             self.ctx.OMSetBlendState(&self.blend, None, 0xFFFF_FFFF);
             self.ctx.IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
             self.ctx.VSSetShader(&self.vs, None);

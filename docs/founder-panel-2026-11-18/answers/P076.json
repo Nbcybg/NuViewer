@@ -1,0 +1,18 @@
+{
+  "id": "P076",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 6,
+  "reason_code": "habit",
+  "reason": "I'd install it on a whim and poke at it, because I try everything. But FastStone already does the one thing I need, which is open my relatives' photos and print one, so I wouldn't make a new app my default for that.",
+  "why_switch_or_not": "The speed numbers are cool and I'd want to see rapid next/back for myself, but my files are phone JPGs and screenshots and FastStone is fast enough for those. The page doesn't say anything about printing, and that's my main use. I also don't see anything for FastStone's simple editor that I use daily (resize, crop, red-eye). It's one developer on version 0.4.1, so I'd be setting it as the default for a long time with no sign of how it will be maintained.",
+  "current_app_pros": "FastStone's full-screen mode with the hover toolbars, the thumbnail browser, and a simple editor for crop/resize/rotate. It's all in one app, and I know where everything is.",
+  "current_app_pains": "Nothing much really. It looks a bit old and it's a little slow when I hold the arrow key through lots of photos, but I rarely notice it.",
+  "objection": "I can't tell if it can print, and I don't know whether this one-person app will still be updated in a year. Neither of those is a problem I'd be taking on just for a few milliseconds of speed.",
+  "would_change_my_mind": "A print dialog that works as well as FastStone's, a basic crop/resize editor, and a few months of regular updates from the developer.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 8,
+  "price_too_expensive": 20
+}

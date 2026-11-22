@@ -113,6 +113,10 @@ pub struct Prefs {
     pub snapshot_tonemap: ToneMap,
     pub snapshot_peak: u32,
     pub snapshot_keep_hdr: bool,
+    /// Extract frames (every program): every n-th frame of a video / animation is saved (1 = all), and how many pictures a 3D model's
+    /// turntable makes (1 = just the view on screen). The file format, quality and folder are the video snapshot's.
+    pub frames_every: u32,
+    pub frames_model: u32,
     /// NuImporter: what happens to a fresh import ("save", "confirm", "clipboard"), where it goes (empty = Pictures\NuViewer),
     /// the format and quality it is saved in, and the name pattern ({source} {date} {time} {n}).
     pub import_after: String,
@@ -161,6 +165,8 @@ impl Default for Prefs {
             snapshot_tonemap: ToneMap::Reinhard,
             snapshot_peak: 1000,
             snapshot_keep_hdr: false,
+            frames_every: 1,
+            frames_model: 36,
             import_after: "confirm".into(),
             import_dir: String::new(),
             import_format: "png".into(),
@@ -253,6 +259,8 @@ impl Prefs {
                 }
             }
             "palette_size" => self.palette_size = pct(v, 2, 16, self.palette_size),
+            "frames_every" => self.frames_every = v.trim().parse::<u32>().map(|n| n.clamp(1, 1000)).unwrap_or(self.frames_every),
+            "frames_model" => self.frames_model = v.trim().parse::<u32>().map(|n| n.clamp(1, 720)).unwrap_or(self.frames_model),
             _ => return false,
         }
         true
@@ -261,7 +269,7 @@ impl Prefs {
     pub fn serialize(&self) -> String {
         let b = |v: bool| if v { "true" } else { "false" };
         format!(
-            "dim_pct = {}\ncanvas_mode = {}\ncanvas_image = {}\ncanvas_shade = {}\nplay_loop = {}\nplay_pingpong = {}\nautoplay = {}\nvolume = {}\nmuted = {}\nscrub_preview = {}\nseven_zip = {}\nffmpeg = {}\narchive_format = {}\narchive_level = {}\npdf_page = {}\npdf_quality = {}\nlanguage = {}\nsnapshot_format = {}\nsnapshot_quality = {}\nsnapshot_dir = {}\nsnapshot_name = {}\nsnapshot_sdr = {}\nsnapshot_tonemap = {}\nsnapshot_peak = {}\nsnapshot_keep_hdr = {}\nimport_after = {}\nimport_dir = {}\nimport_format = {}\nimport_quality = {}\nimport_name = {}\nimport_edit = {}\ntether_dir = {}\nscreenshot_keys = {}\nfont_sample = {}\npick_format = {}\npalette_size = {}\n",
+            "dim_pct = {}\ncanvas_mode = {}\ncanvas_image = {}\ncanvas_shade = {}\nplay_loop = {}\nplay_pingpong = {}\nautoplay = {}\nvolume = {}\nmuted = {}\nscrub_preview = {}\nseven_zip = {}\nffmpeg = {}\narchive_format = {}\narchive_level = {}\npdf_page = {}\npdf_quality = {}\nlanguage = {}\nsnapshot_format = {}\nsnapshot_quality = {}\nsnapshot_dir = {}\nsnapshot_name = {}\nsnapshot_sdr = {}\nsnapshot_tonemap = {}\nsnapshot_peak = {}\nsnapshot_keep_hdr = {}\nimport_after = {}\nimport_dir = {}\nimport_format = {}\nimport_quality = {}\nimport_name = {}\nimport_edit = {}\ntether_dir = {}\nscreenshot_keys = {}\nfont_sample = {}\npick_format = {}\npalette_size = {}\nframes_every = {}\nframes_model = {}\n",
             self.dim_pct,
             self.canvas_mode.id(),
             self.canvas_image,
@@ -297,7 +305,9 @@ impl Prefs {
             b(self.screenshot_keys),
             self.font_sample,
             self.pick_format,
-            self.palette_size
+            self.palette_size,
+            self.frames_every,
+            self.frames_model
         )
     }
 }

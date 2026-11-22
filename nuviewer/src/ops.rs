@@ -34,6 +34,15 @@ impl Slideshow {
 
 
 impl App {
+    /// Ctrl+Shift+H / "Share to...": the file in front goes to the Windows share sheet.
+    pub fn share_current(&mut self) {
+        let Some(i) = self.target() else { return };
+        let path = self.folder.files[i].clone();
+        if let Err(e) = nv_win::share::share_files(self.hwnd, &[path]) {
+            self.toast(e);
+        }
+    }
+
     /// Index of the file actions apply to: the open image, or the selected tile in the gallery.
     pub fn target(&self) -> Option<usize> {
         let i = if self.mode == Mode::Gallery { self.gallery.selected } else { self.folder.index };
@@ -377,7 +386,18 @@ impl App {
                     invalidate(self.hwnd);
                     return;
                 }
-                self.push_undo(UndoOp::Moved { from: old.clone(), to: new.clone() });
+                // The RAW of a grouped pair takes the new name too, so the pair stays a pair.
+                let mut ops = vec![UndoOp::Moved { from: old.clone(), to: new.clone() }];
+                if nv_core::rawpair::group() {
+                    for c in nv_core::rawpair::companions_of(&old) {
+                        let to = nv_core::rawpair::renamed_companion(&c, &new);
+                        // never over a file that is already there
+                        if !to.exists() && std::fs::rename(&c, &to).is_ok() {
+                            ops.push(UndoOp::Moved { from: c, to });
+                        }
+                    }
+                }
+                self.push_undo(if ops.len() == 1 { ops.remove(0) } else { UndoOp::Group(ops) });
                 self.rekey_file(&old, &new);
                 self.toast(format!("Renamed to {}", file_name_of(&new)));
             }
@@ -407,23 +427,90 @@ impl App {
         self.after_list_change();
     }
 
+    // ---- star ratings and colour labels (XMP sidecars) --------------------------------------------
+
+    /// Rate or label the picture on screen (the selected one in the gallery). Saved at once in the picture's `.xmp` sidecar, in
+    /// the same fields Bridge, Lightroom, darktable and XnView use; the picture is never touched. A grouped RAW + JPG pair gets
+    /// the same rating on both files.
+    pub fn rate(&mut self, change: nv_core::xmp::RateChange) {
+        let Some(i) = self.target() else { return };
+        let path = self.folder.files[i].clone();
+        let after = nv_core::xmp::read(&path).changed(change);
+        let mut failed = None;
+        for p in nv_core::rawpair::with_companions(&path) {
+            if let Err(e) = nv_core::xmp::write(&p, &after) {
+                failed = Some(e);
+            }
+        }
+        self.hud.rating = Some((self.id_at(i), after));
+        match failed {
+            None => self.toast(format!("{}  —  {}", file_name_of(&path), after.describe())),
+            Some(e) => self.toast(crate::hud::failure(7008, format!("Rating not saved: {e}"))),
+        }
+        invalidate(self.hwnd);
+    }
+
+    // ---- plug-ins ---------------------------------------------------------------------------------
+
+    /// Plug-ins menu > Reload: read the plug-ins folder again (new formats appear in the list at once).
+    pub fn reload_plugins(&mut self) {
+        let l = nv_core::plugins::load(self.settings.plugins);
+        self.relist_folder();
+        let skipped = if l.skipped.is_empty() { String::new() } else { format!(" — skipped: {}", l.skipped.iter().map(|(id, why)| format!("{id} ({why})")).collect::<Vec<_>>().join("; ")) };
+        self.toast(format!("{} plug-in{} loaded{skipped}", l.plugins.len(), if l.plugins.len() == 1 { "" } else { "s" }));
+    }
+
+    // ---- RAW + JPG pairs --------------------------------------------------------------------------
+
+    /// List the folder again (what is listed changed: documents, RAW + JPG grouping), staying on the same picture.
+    pub fn relist_folder(&mut self) {
+        let Some(cur) = self.folder.current().cloned() else { return };
+        let order = self.folder.order;
+        if let Ok(list) = FolderList::open_with(&cur, order) {
+            let gallery = self.mode == Mode::Gallery;
+            self.replace_folder(list);
+            if gallery {
+                self.enter_gallery();
+            }
+        }
+    }
+
+    /// RAW + JPG of one shot: listed as two pictures (factory) or as one (the JPG stands for both). Q+Shift, the menus, Settings.
+    pub fn toggle_pairs(&mut self) {
+        self.settings.pair_group = !self.settings.pair_group;
+        nv_core::rawpair::set_group(self.settings.pair_group);
+        let _ = self.settings.save();
+        self.relist_folder();
+        self.toast(if self.settings.pair_group { "RAW + JPG grouped: one picture for each pair (delete, move, copy and rename act on both)" } else { "RAW and JPG listed separately" });
+        invalidate(self.hwnd);
+    }
+
     // ---- delete ----------------------------------------------------------------------------------
 
     pub fn delete_target(&mut self, permanent: bool) {
         let Some(i) = self.target() else { return };
         let path = self.folder.files[i].clone();
-        let name = file_name_of(&path);
+        // With RAW + JPG pairs grouped the picture stands for both files: both go.
+        let paths = nv_core::rawpair::with_companions(&path);
+        let name = paths.iter().map(|p| file_name_of(p)).collect::<Vec<_>>().join(" + ");
         if permanent {
             if !shell::confirm(self.hwnd, &format!("Permanently delete \"{name}\"?\n\nThis can't be undone.")) {
                 invalidate(self.hwnd);
                 return;
             }
-            match std::fs::remove_file(&path) {
-                Ok(()) => {
-                    self.drop_file_at(i);
-                    self.toast(format!("Deleted {name} permanently"));
+            let mut failed = None;
+            for p in &paths {
+                if let Err(e) = std::fs::remove_file(p) {
+                    failed = Some(e);
+                    break;
                 }
-                Err(e) => self.toast(crate::hud::failure(7002, format!("Couldn't delete: {e}"))),
+            }
+            if !paths[0].exists() {
+                self.drop_file_at(i);
+            }
+            match failed {
+                None => self.toast(format!("Deleted {name} permanently")),
+                Some(e) => self.toast(crate::hud::failure(7002, format!("Couldn't delete: {e}"))),
             }
         } else {
             // Ask first (Settings > Viewer turns this off): Enter = yes, Esc = no. Ctrl+Z brings the file back either way.
@@ -431,13 +518,29 @@ impl App {
                 invalidate(self.hwnd);
                 return;
             }
-            match shell::recycle(self.hwnd, &path) {
-                Ok(()) => {
-                    self.push_undo(UndoOp::Deleted { original: path });
-                    self.drop_file_at(i);
-                    self.toast(format!("Moved {name} to the Recycle Bin — Ctrl+Z to undo"));
+            let mut done = Vec::new();
+            let mut failed = None;
+            for p in &paths {
+                match shell::recycle(self.hwnd, p) {
+                    Ok(()) => done.push(UndoOp::Deleted { original: p.clone() }),
+                    Err(e) => {
+                        failed = Some(e);
+                        break;
+                    }
                 }
-                Err(e) => self.toast(crate::hud::failure(7002, format!("Couldn't delete: {e}"))),
+            }
+            let front_gone = !done.is_empty() && !paths[0].exists();
+            match done.len() {
+                0 => {}
+                1 => self.push_undo(done.remove(0)),
+                _ => self.push_undo(UndoOp::Group(done)),
+            }
+            if front_gone {
+                self.drop_file_at(i);
+            }
+            match failed {
+                None => self.toast(format!("Moved {name} to the Recycle Bin — Ctrl+Z to undo")),
+                Some(e) => self.toast(crate::hud::failure(7002, format!("Couldn't delete: {e}"))),
             }
         }
         invalidate(self.hwnd);
@@ -466,17 +569,26 @@ impl App {
             Ok(new) => {
                 self.last_dest = Some(dest.clone());
                 let dest_name = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| dest.display().to_string());
-                if mv {
-                    self.push_undo(UndoOp::Moved { from: src, to: new });
-                    self.drop_file_at(i);
-                    self.toast(format!("Moved to {dest_name} — Ctrl+Z to undo"));
-                } else {
-                    self.push_undo(UndoOp::Copied { copy: new.clone() });
-                    if new.parent() == Some(self.folder.dir.as_path()) {
-                        self.folder.insert_sorted(new);
-                        self.after_list_change();
+                // The RAW of a grouped pair travels with its JPG.
+                let mut ops = vec![if mv { UndoOp::Moved { from: src.clone(), to: new.clone() } } else { UndoOp::Copied { copy: new.clone() } }];
+                let mut extra_fail = None;
+                let companions = if nv_core::rawpair::group() { nv_core::rawpair::companions_of(&src) } else { Vec::new() };
+                for c in companions {
+                    match if mv { fileops::move_file(&c, &dest) } else { fileops::copy_file(&c, &dest) } {
+                        Ok(n) => ops.push(if mv { UndoOp::Moved { from: c, to: n } } else { UndoOp::Copied { copy: n } }),
+                        Err(e) => extra_fail = Some(e),
                     }
-                    self.toast(format!("Copied to {dest_name} — Ctrl+Z to undo"));
+                }
+                self.push_undo(if ops.len() == 1 { ops.remove(0) } else { UndoOp::Group(ops) });
+                if mv {
+                    self.drop_file_at(i);
+                } else if new.parent() == Some(self.folder.dir.as_path()) {
+                    self.folder.insert_sorted(new);
+                    self.after_list_change();
+                }
+                match extra_fail {
+                    Some(e) => self.toast(crate::hud::failure(7003, format!("The RAW file did not go with it: {e}"))),
+                    None => self.toast(format!("{} to {dest_name} — Ctrl+Z to undo", if mv { "Moved" } else { "Copied" })),
                 }
             }
         }
@@ -496,7 +608,7 @@ impl App {
         if self.undo_rotation() {
             return; // a turn that isn't saved yet comes first
         }
-        let Some(op) = self.undo.pop() else {
+        let Some(popped) = self.undo.pop() else {
             // Nothing of this session's own: a burn-in made in NuEditor (the journal is shared) can still be taken back.
             if let Some(path) = self.folder.current().cloned() {
                 let dir = crate::rotate::backup_dir();
@@ -509,7 +621,18 @@ impl App {
             self.toast("Nothing to undo");
             return;
         };
+        match popped {
+            // A pair that was one step comes back as one step (the front file first: the RAW that follows then finds its JPG listed
+            // and stays part of that pair).
+            UndoOp::Group(ops) => ops.into_iter().for_each(|o| self.undo_one(o)),
+            op => self.undo_one(op),
+        }
+        invalidate(self.hwnd);
+    }
+
+    fn undo_one(&mut self, op: UndoOp) {
         match op {
+            UndoOp::Group(ops) => ops.into_iter().for_each(|o| self.undo_one(o)),
             UndoOp::Moved { from, to } => {
                 let back = if from.parent() == to.parent() {
                     std::fs::rename(&to, &from).map(|_| from.clone()).map_err(|e| e.to_string())

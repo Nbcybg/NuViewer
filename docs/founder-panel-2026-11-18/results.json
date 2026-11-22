@@ -1,0 +1,413 @@
+{
+ "business": "NuViewer 0.4.1 (free Windows image viewer / gallery / editor suite)",
+ "seed": 2611,
+ "dealt": 100,
+ "answered": 100,
+ "skipped": [],
+ "buys": 11,
+ "passes": 89,
+ "buy_rate": 0.11,
+ "by_segment": [
+  [
+   "3D / game / VFX artist (TGA, DDS, EXR, HDR, GLB, OBJ, FBX)",
+   12,
+   0.25
+  ],
+  [
+   "Power user / IT / developer (keyboard-driven, lightweight, tinkerer)",
+   13,
+   0.15384615384615385
+  ],
+  [
+   "Digital artist / designer / illustrator (PSD, AI, PNG, alpha)",
+   17,
+   0.11764705882352941
+  ],
+  [
+   "Photographer (RAW+JPG, culling)",
+   20,
+   0.1
+  ],
+  [
+   "Office / general home user (phone photos, screenshots, PDF)",
+   28,
+   0.07142857142857142
+  ],
+  [
+   "Collector / archivist / manga-comic reader (huge folders, zips, cbz)",
+   10,
+   0.0
+  ]
+ ],
+ "by_behaviour": [
+  [
+   "Speed-obsessed",
+   15,
+   0.4666666666666667
+  ],
+  [
+   "Feature maximalist",
+   10,
+   0.2
+  ],
+  [
+   "Format-hunter",
+   12,
+   0.16666666666666666
+  ],
+  [
+   "Minimalist",
+   10,
+   0.0
+  ],
+  [
+   "Early adopter / tries every new tool",
+   10,
+   0.0
+  ],
+  [
+   "Workflow-locked pro",
+   8,
+   0.0
+  ],
+  [
+   "Trust / security cautious",
+   15,
+   0.0
+  ],
+  [
+   "Set-and-forget loyalist",
+   20,
+   0.0
+  ]
+ ],
+ "by_income": [
+  [
+   "$74,000 and up",
+   34,
+   0.14705882352941177
+  ],
+  [
+   "$48,000 to $74,000",
+   33,
+   0.12121212121212122
+  ],
+  [
+   "under $48,000",
+   33,
+   0.06060606060606061
+  ]
+ ],
+ "why_not": [
+  [
+   "trust",
+   41,
+   [
+    "I install new tools on a whim, so I'd grab the portable zip and throw some of my cbz folders and screenshot dumps at it. But making it my default after one month from one developer at v0.4.1? Not without seeing the source or a signature.",
+    "The speed numbers are exactly what I care about, so I'd grab the portable zip and throw my PNG exports at it. But it's one dev, v0.4.1, and nothing says it's signed or open source, so I'm not making it my default until I've seen it behave for a while."
+   ],
+   [
+    "P003",
+    "P006"
+   ]
+  ],
+  [
+   "habit",
+   39,
+   [
+    "FastStone already does what I need every day and I have my muscle memory in it. The portable zip costs me nothing to try, but I don't see enough reason to swap a tool that works.",
+    "I'd install it because it lists TGA, DDS, EXR, HDR, GLB and cbz in one place, and that's most of what I open. But I don't want to change how I open things, and I'm not making it default for a month on one dev's say-so."
+   ],
+   [
+    "P001",
+    "P012"
+   ]
+  ],
+  [
+   "need",
+   9,
+   [
+    "The speed and the format list (TGA, DDS, EXR, HDR, GLB, OBJ, FBX in one viewer) are worth an install, but nothing I read says it handles XMP/metadata or catalogue work, and that is what I use XnView MP for every week. I'm not making a 0.4.1 one-dev app my default until I know my colour and metadata workflow survives.",
+    "Everything I open is phone photos, screenshots and PDFs, and Explorer plus whatever opens them already handles that. I would poke at it once or twice with a weird file, but nothing here fixes a problem I actually have."
+   ],
+   [
+    "P002",
+    "P026"
+   ]
+  ]
+ ],
+ "why_yes": [
+  [
+   "need",
+   6,
+   [
+    "I open TGA, DDS, EXR and GLB files from my game project all week, and waiting on Bridge or Photoshop to look at one is stupid. If it really opens those in a fraction of a second, it becomes my double-click default and Bridge stays only for the catalogue.",
+    "It claims TGA, DDS, EXR, HDR, GLB, OBJ and FBX in one viewer, and ImageGlass makes me juggle other tools for half of those. If it holds up on my real files, I switch."
+   ],
+   [
+    "P005",
+    "P011"
+   ]
+  ],
+  [
+   "quality",
+   5,
+   [
+    "Speed is the only thing I care about, and 85 ms for five quick nexts against 600-900 ms in FastStone is a gap I would feel every day. If it holds up on my own folders, it becomes what double-click opens.",
+    "Rapid next x5 in 85 ms against 600-900 ms is a gap I would feel when I run through hundreds of RAW+JPG frames, and Windows Photos is the slowest thing I own at that. It is free and portable, so I lose nothing by trying it on a real shoot folder."
+   ],
+   [
+    "P004",
+    "P029"
+   ]
+  ]
+ ],
+ "flip": [
+  "If PSD and AI files with transparency showed exactly like in Photoshop/Illustrator, with colour-managed accuracy I can verify on my own files, and a pure viewing mode that hides the editor, gallery and everything else.",
+  "Proof that it reads and writes XMP/metadata without breaking existing sidecars, plus a side-by-side showing my TGA/DDS/EXR files render the same as in XnView MP, and a few months of updates that show the developer is sticking with it.",
+  "Open source code, or at least a code-signed installer with a clear changelog. Plus a month of it handling my big cbz folders with no crashes and no memory bloat.",
+  "A code-signed installer or published source code, and my own stopwatch test with my PNG/PSD exports showing it really is faster than Photos.",
+  "A signed installer, public source code or a clean independent scan, and a clearly pure-viewer mode with the same full-screen behaviour as FastStone.",
+  "Proof that it reads XMP ratings and labels without writing to my files, and that its colour output matches Photoshop on my own ICC files. A few months of stable releases would help too.",
+  "A code-signed installer, source on GitHub, and several independent reviews or photographer friends I trust using it. It would also need a real RAW+JPG culling feature, such as pick/reject marks or side-by-side compare, and not just speed.",
+  "A few months of stable releases and visible bug fixes, plus proof that my XMP/sidecar ratings and colour setup survive a cull untouched. Being able to rate or tag and reject in the viewer, with the RAW+JPG pair handled sanely, would make me look seriously.",
+  "If it opened my own DDS/TGA/EXR/GLB files correctly on the first try, and a cbz opened as a page-by-page reader with arrow keys. Then I'd set it as default for those formats.",
+  "Published source code or a code-signed installer, plus a few independent reviews from other artists showing it handles RAW+JPG culling and PSD alpha correctly over a few months.",
+  "A signed installer, or open source I can check, plus a clean test on my own RAW+JPG shoots where it stays as fast as the benchmark says and doesn't misread colour.",
+  "If it were noticeably faster than ImageGlass on my own 500 RAW+JPG card and had an option to treat each RAW+JPG pair as one shot so culling doesn't double, and had been stable for a year or two with other people using it.",
+  "If the TGA/DDS/EXR handling turned out right in my own files (channels, alpha, mip/cubemap sanity, correct HDR exposure) and it stayed fast and stable for a few weeks, with a way to turn off the gallery/editor parts so it's just a viewer.",
+  "Independent reviews from people I trust, or published source code, plus a signed installer that Windows doesn't warn about. I would also want to see that it opens cbz comics with page turning as well as Honeyview does and that printing a photo is simple, because the page doesn't say either.",
+  "A clear statement that it never modifies originals or metadata unless I save, and that colour handling matches what I have now. A few months of regular releases would also help, or someone I trust saying they use it daily.",
+  "Proof that it opens files from my own folders that XnView MP fails on (odd RAWs, HEIC from relatives' phones), plus metadata viewing/editing and easy printing.",
+  "I'd switch if my phone HEIC photos and RAW files open correctly with no extra setup, and I could do my daily FastStone edits (resize, crop, annotate) in it. A few months of steady updates would also help.",
+  "A code-signed installer or published source code, plus a clear way to print from it and proof that the PSD/alpha/ICC display matches Photoshop.",
+  "A proper comic mode (right-to-left, two-page spread, resume position, correct natural sort inside cbz) shown working on a big archive, plus a few months of the developer still shipping fixes and no broken-file reports from other RAW users.",
+  "Seeing it open my own screenshot folders visibly faster than my current default, plus a sign the developer keeps shipping updates (a public changelog or repo). A Mac/Linux build would nearly settle it.",
+  "Proof that the culling flow (ratings/tags/reject and moving or deleting files) and metadata editing are as fast and complete as XnView's, plus an option to import XnView-style shortcuts.",
+  "Proof that I can cull a 500-shot RAW+JPG card in it, with ratings or flags that Bridge/Lightroom pick up afterwards, plus a few months of seeing the app stay maintained.",
+  "Proof it's code-signed or open source with a reputable review, plus a file I actually need that Windows can't open and that it opens with one click.",
+  "Side-by-side proof, on my own calibrated screen, that its colours match Photoshop for sRGB and AdobeRGB PSDs, and a few months of updates showing the developer is sticking with it.",
+  "A code-signed exe or open-source code I can inspect, plus proof that it opens my own DDS/EXR/FBX files correctly. That would move it from being a tool I keep in a folder to being my default viewer.",
+  "A few months of steady updates with a visible track record, a way to switch off the gallery and editor so it's viewing only, and it opening my own huge cbz folders and HDR/DDS textures faster than ImageGlass.",
+  "Seeing it show my own RAW files with colours matching my catalogue software side by side, plus a track record of several stable releases, would make me use it for culling-style browsing.",
+  "Proof on my own RAW folders (thousands of files, next/back stays under 100 ms with full RAW preview) plus metadata and rating support that matches XnView MP, so I could drop it.",
+  "A signed installer, open source I can read, or independent reviews from people I trust, plus a clear statement that it leaves my files and colours untouched.",
+  "A plain, stripped-down mode that only views, with the usual keys (arrows, Esc, zoom) working the way Photos does, and a one-click way to make it default and keep that after reinstall. Or Photos getting annoying enough that I go looking for something.",
+  "Proof that it can rate and label pictures and have Lightroom and Bridge see those ratings (XMP), tested on my camera's RAW, plus a few months of steady updates from the developer.",
+  "A year or more of regular updates and a visible history of fixes, plus a proper way to read a cbz volume page by page that I can try on my biggest archives without it stalling.",
+  "Proof that my own DDS (compressed types, mip levels), TGA with alpha and multi-layer EXR open correctly, plus either the source being open or a clear track record of updates over several months.",
+  "A viewer-only mode that leaves out the gallery, editor and importer, with no background agent. Beyond that, proof that it handles a 200k-image drive without lag and has the metadata and batch features I use now.",
+  "Independent reviews or open source, a signed installer that is clean on VirusTotal, and my own EXR/DDS/FBX/RAW test files opening correctly in the portable zip, plus metadata viewing as good as XnView's.",
+  "A real cbz reading mode (page-by-page, RTL, remembers my place) that I check works with my own archives, plus a visible release history showing the dev keeps shipping updates.",
+  "A year or more of regular updates, a public roadmap, and a documented, open sidecar format so my edits are not locked in. Seeing it hold up on a few hundred of my RAW+JPG shoots would help too.",
+  "Published source code or a code-signed installer, plus a few independent reviews from other artists and a release history showing steady updates over a year or more.",
+  "Seeing it open my own DDS/EXR/TGA and a few of my RAW files correctly, with the colours matching what Blender and darktable show, plus a few weeks of the developer fixing reported bugs.",
+  "Fast full-size RAW flipping that I can measure on my own 500-shot card, with star/colour ratings or a reject mark that writes XMP sidecars my other software reads, and a file type it opens that XnView fails on.",
+  "If my own PSD, AI and alpha PNG files open with correct colour and transparency on the first try, and the editor and batch tools match what FastStone gives me, I'd make it the default. A few months of regular updates would help too.",
+  "I'd switch if it read my large cbz and zip collections quickly without choking and kept IrfanView-style batch conversion and shortcuts. It would also need some sign of lasting community or a public bug tracker with active replies.",
+  "If it opened my own PSD and AI files with correct alpha and colour, and the zip/cbz reading felt better than anything else I've tried, I'd go from alongside to default.",
+  "Seeing a year or more of regular releases and a public changelog, plus proof that it reads and edits EXIF/metadata like XnView does.",
+  "If it showed my TGA/DDS/EXR files correctly (alpha, mip levels, HDR exposure) and I could still use it for those without making it the default for everything, I'd use it more. To make it the default I'd need to see it stay stable for months, with no crashes on odd files.",
+  "Seeing it stay maintained for a year or two, with the source open like ImageGlass, and a plain mode that hides the editor, gallery and everything else so it feels like a simple fast viewer for screenshots.",
+  "If cbz/zip reading felt clearly better than my current way of reading manga (page order, fast next/back, remembering my place) and the keys matched what I already know, I would make it my default.",
+  "A visible track record of regular updates over a year or so, or a few months of it staying alive and fixing bugs, plus IrfanView-style shortcuts so I don't have to relearn anything.",
+  "Proof that it reads and writes star ratings and colour labels in XMP sidecars that Bridge and Lightroom see, and that my camera's RAW looks the same as in Camera Raw.",
+  "If I started getting AVIF, WebP, PSD or RAW files from work that Photos can't open, I'd make it the default straight away.",
+  "A proven manga/cbz reading mode (RTL, double page, resume position) plus metadata editing at XnView level, a few months of steady releases, and a visible user community or forum.",
+  "A year or more of steady updates, plus a plain viewer-only mode that hides the gallery and editor, and clearly working TGA/DDS/EXR/GLB previews that I can verify on my own files.",
+  "A year or more of steady releases (or a public roadmap and open source), plus a way to turn off the gallery/editor/importer so it is only a viewer, plus proof it stays smooth browsing a 200k-file folder tree.",
+  "A signed installer or public source, plus a few independent reviews from photographers, and proof it does culling (ratings/colour labels, side-by-side compare) at least as well as XnView MP. Then I'd try the portable zip on a copy of a shoot.",
+  "Seeing it open and flip through 500 RAW+JPG pairs or big PNGs visibly faster than my current viewer on my own machine, with no tray agent running unless I turn it on.",
+  "A manga reading mode in cbz that is clearly better than XnView (page spread, right-to-left, remembering where I stopped), a way to import XnView's shortcuts so I don't relearn anything, and a few months of releases showing the developer isn't going to vanish.",
+  "A viewer-only mode with the gallery, editor, importer and preview agent switched off by default, plus clear one-click printing and phone-photo (HEIC) support that works out of the box.",
+  "Reading and writing star ratings and colour labels in standard XMP sidecars that Bridge and Lightroom see, plus a RAW render I can check side by side with Camera Raw that is close enough for culling.",
+  "A print command that works, plus my own RAW files looking the same as in Lightroom. If both held up in a week of use, I'd make it the default for phone photos.",
+  "A signed installer, public source or a few independent reviews from VFX/game artists. It would also have to open a TGA/DDS/EXR from a texture folder correctly (alpha, mips, linear colour) where Windows Photos can't, and print a phone photo as easily as Photos does.",
+  "If IrfanView stopped working on Windows or I started getting file types it can't open, or if NuViewer had the same shortcuts as IrfanView out of the box.",
+  "Independent reviews or a source repo I can look at, a code-signed installer, and a clean way to run it with the Explorer preview and importer turned off, so it's only a viewer. Then I'd try it as my default for a month.",
+  "A code-signed installer or published source, plus proof that PSD with alpha and AI files open correctly and quickly in a folder of tens of thousands of images.",
+  "If it clearly had an easy Print option for a phone photo (size, paper, fit to page) and I tried it on my own photos and it felt smoother than FastStone with no crashes.",
+  "Independent reviews from photographers I know, a signed installer or published source, and a clear note that it only reads my files and never changes or deletes originals.",
+  "Reviews from a trusted site or magazine, a signed installer that Windows does not warn about, and proof that printing and colours come out the same as in IrfanView.",
+  "A print dialog that works as well as FastStone's, a basic crop/resize editor, and a few months of regular updates from the developer.",
+  "If it showed DDS/EXR/TGA correctly (separate channels, alpha, mips, linear vs sRGB), with the same keyboard shortcuts I use now, and stayed solid on my own game assets over a couple of weeks, I'd make it the default.",
+  "Clear proof that it never writes or alters sidecars or XMP unless I ask, that it reads existing XMP ratings, and that colours match my calibrated display and catalogue, plus a month of using it alongside without a single crash.",
+  "Published source code or a signed installer, a way to run it as viewer-only with the gallery, importer and Explorer preview off, and a few months of track record or independent reviews.",
+  "If it read my cbz comics noticeably better than IrfanView (smooth page-turning, remembers where I stopped) and showed my layered PSDs with alpha correctly, and the developer showed a track record of a year or more of updates.",
+  "A signed installer that doesn't trigger SmartScreen, or source code I (or someone I trust) can check, plus a few weeks of seeing it handle my DDS/EXR/TGA files without problems. Then I'd make it the default for texture folders at least.",
+  "If it opened a photo type from my relatives that currently fails or shows a blank in Explorer or my default app, and printing was one obvious click, I'd keep it.",
+  "A month of using it on a real shoot with no crashes, plus clear culling features (ratings, marks, move/delete rejects) and a visible update history showing it is being kept up.",
+  "Seeing that it reads and writes standard XMP sidecars and keeps my ratings and colour profile untouched on a real 500-photo RAW+JPG cull, plus a few months of updates showing the developer sticks with it.",
+  "Proof that it opens my own DDS/EXR/TGA texture files with correct alpha and colour and shows channels, plus a few months of steady updates, would make it my default for those formats.",
+  "Proof that it opens and pages through big cbz/zip archives and huge folders clearly faster and more smoothly than XnView MP, with a plain viewing mode and nothing else in the way.",
+  "If culling a 500-shot RAW+JPG card felt clearly faster and smoother than IrfanView on my own machine, with rating or marking and delete that I can do with the keyboard alone, I'd make it my default for photos.",
+  "Open source code or a code-signed installer, plus a few independent reviews or a recommendation from a site or person I trust, and a clear statement that it won't change my photos' colours when printing.",
+  "Showing that it prints a picture from the viewer with proper sizing, and that my own RAW+JPG culling folder runs through full-screen with no crashes for a week.",
+  "Published source code or a code-signed installer, plus independent reviews or a year or more of regular releases. Also IrfanView-compatible shortcuts, so I don't have to relearn them.",
+  "If I compared it on my own TGA/DDS/EXR files (alpha, sRGB vs linear) and saw it show them correctly and consistently, and it proved stable for a few weeks, I would think about making it default.",
+  "A one-click way to import my FastStone shortcuts and full-screen behaviour, plus a sign it's still being maintained a year from now. Or if FastStone stopped working on my PC.",
+  "Opening HEIC out of the box and printing straight from the viewer. Or a file type from a client that XnView can't open but NuViewer can.",
+  "Seeing that it opens a format that Photos fails on in my own folder, plus proof it still gets updates and has some user community or help page.",
+  "A proper comic-reading mode (right-to-left, double-page, resume where I stopped) that works on big cbz files without hiccups, plus a few months of stable releases.",
+  "A few weeks of it running alongside XnView MP with no crashes or format misses, plus a clear metadata view/edit story and the ability to import XnView-style shortcuts, so I don't pay the relearning cost.",
+  "If it clearly handled cbz as a comic reader (fit-to-width, page memory, instant page turns on a 200-page archive) and I could confirm the speed gap myself on my own PSD and cbz files, I'd make it default.",
+  "Independent reviews from a source I trust, a code-signed installer, or open source I could check, or a recommendation from someone on my game team who has used it for a while."
+ ],
+ "purchases_first_month_per_buyer": 18.90909090909091,
+ "price_answers": 100,
+ "try_rate": 0.9,
+ "tries": 90,
+ "by_current_app": [
+  [
+   "Adobe Bridge / Lightroom / Photoshop used as the viewer",
+   8,
+   1.0,
+   0.25
+  ],
+  [
+   "Windows Photos (built in)",
+   20,
+   0.9,
+   0.25
+  ],
+  [
+   "FastStone Image Viewer",
+   12,
+   1.0,
+   0.16666666666666666
+  ],
+  [
+   "Explorer thumbnails + whatever app opens (no viewer chosen)",
+   7,
+   0.8571428571428571,
+   0.14285714285714285
+  ],
+  [
+   "ImageGlass",
+   8,
+   1.0,
+   0.125
+  ],
+  [
+   "XnView MP / XnView",
+   15,
+   0.9333333333333333,
+   0.0
+  ],
+  [
+   "Honeyview / Bandiview / qView / nomacs / PicView (other fast viewer)",
+   8,
+   0.75,
+   0.0
+  ],
+  [
+   "IrfanView",
+   17,
+   0.8235294117647058,
+   0.0
+  ],
+  [
+   "Specialist tools (Blender, Honeyview for comics, MPC-HC/VLC for video, RawTherapee/darktable)",
+   5,
+   0.8,
+   0.0
+  ]
+ ],
+ "by_segment2": [
+  [
+   "3D / game / VFX artist (TGA, DDS, EXR, HDR, GLB, OBJ, FBX)",
+   12,
+   0.9166666666666666,
+   0.25
+  ],
+  [
+   "Power user / IT / developer (keyboard-driven, lightweight, tinkerer)",
+   13,
+   0.9230769230769231,
+   0.15384615384615385
+  ],
+  [
+   "Digital artist / designer / illustrator (PSD, AI, PNG, alpha)",
+   17,
+   1.0,
+   0.11764705882352941
+  ],
+  [
+   "Photographer (RAW+JPG, culling)",
+   20,
+   0.85,
+   0.1
+  ],
+  [
+   "Office / general home user (phone photos, screenshots, PDF)",
+   28,
+   0.8571428571428571,
+   0.07142857142857142
+  ],
+  [
+   "Collector / archivist / manga-comic reader (huge folders, zips, cbz)",
+   10,
+   0.9,
+   0.0
+  ]
+ ],
+ "by_behaviour2": [
+  [
+   "Speed-obsessed",
+   15,
+   1.0,
+   0.4666666666666667
+  ],
+  [
+   "Feature maximalist",
+   10,
+   1.0,
+   0.2
+  ],
+  [
+   "Format-hunter",
+   12,
+   1.0,
+   0.16666666666666666
+  ],
+  [
+   "Minimalist",
+   10,
+   1.0,
+   0.0
+  ],
+  [
+   "Early adopter / tries every new tool",
+   10,
+   1.0,
+   0.0
+  ],
+  [
+   "Workflow-locked pro",
+   8,
+   1.0,
+   0.0
+  ],
+  [
+   "Trust / security cautious",
+   15,
+   0.3333333333333333,
+   0.0
+  ],
+  [
+   "Set-and-forget loyalist",
+   20,
+   1.0,
+   0.0
+  ]
+ ],
+ "switch_decisions": {
+  "try_then_drop": 24,
+  "use_alongside": 58,
+  "ignore": 10,
+  "replace": 8
+ },
+ "days_open_if_adopt": 18.90909090909091,
+ "would_pay_any": 84,
+ "median_pay": 15.0
+}

@@ -1,0 +1,18 @@
+{
+  "id": "P091",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 8,
+  "reason_code": "trust",
+  "reason": "The speed numbers are exactly what I care about, so I'd install it and run my own RAW+JPG folder through it. But I'd keep FastStone as default because it's a 0.4.1 from one guy and nothing says it handles culling and printing as well as what I already use.",
+  "why_switch_or_not": "Rapid next x5 at 85 ms against 600-900 ms for FastStone is something I would feel on a big shoot, and RAW and JPG always showing as separate pictures is how I want to cull. But the page never mentions printing, ratings/tags or side-by-side compare, and my relatives' phone photos are often HEIC, which needs a Microsoft extension. I'd only move my default after weeks of it not crashing or choking on my files.",
+  "current_app_pros": "FastStone's full-screen mode, the thumbnail browser and the simple editor are all things I use daily, and my muscle memory is set. It opens everything I throw at it and I know where the print and resize options are.",
+  "current_app_pains": "Rapid next through a pile of RAWs lags noticeably, 600-900 ms for five steps is the kind of delay I notice. Otherwise it is fine, nothing else really bugs me.",
+  "objection": "One developer, version 0.4.1: I don't know if it will be maintained, or if it will do the boring things I need (print a photo my relative sent) as reliably as FastStone does.",
+  "would_change_my_mind": "Showing that it prints a picture from the viewer with proper sizing, and that my own RAW+JPG culling folder runs through full-screen with no crashes for a week.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

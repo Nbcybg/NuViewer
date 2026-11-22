@@ -1,0 +1,18 @@
+{
+  "id": "P051",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 8,
+  "reason_code": "habit",
+  "reason": "I'd install it for the file types, since opening AI, PSD and zip/cbz in one place is exactly what I hunt for. But IrfanView is wired into my hands and my plug-ins, so I won't make a one-man 0.4.1 my default after one month.",
+  "why_switch_or_not": "26 of 32 formats against IrfanView's 13 is the only claim that matters to me, and I'd test it on my own PSD files with alpha, AI files and my cbz stack. If it reads comics straight from zip/cbz and shows transparency properly, I'd keep it for reading manga and checking odd files. I wouldn't make it default yet: it's version 0.4.1 from one developer, it has no plug-in system, and the 'tied with IrfanView on some PSD/TGA files' line tells me my main formats aren't a big win.",
+  "current_app_pros": "IrfanView is tiny and starts instantly. I know every shortcut, and the plug-ins are already set up for the formats I use. Batch convert and rename are there, and it has behaved the same for years.",
+  "current_app_pains": "It fails on a lot of newer or odd formats, so I end up opening Photoshop or something else just to look at a file. Reading cbz/zip comics is clumsy. Next/back is slow on big files, but that's a minor irritation, not a reason to leave.",
+  "objection": "Another image viewer? Mine already works fine. A single developer's 0.4.1 might get abandoned, and its PSD handling is only tied with IrfanView, so I can't tell whether it would make my layered or alpha files look right.",
+  "would_change_my_mind": "If it opened my own PSD and AI files with correct alpha and colour, and the zip/cbz reading felt better than anything else I've tried, I'd go from alongside to default.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 20,
+  "price_too_expensive": 40
+}

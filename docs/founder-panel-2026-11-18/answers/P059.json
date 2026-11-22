@@ -1,0 +1,18 @@
+{
+  "id": "P059",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 3,
+  "reason_code": "habit",
+  "reason": "I'd install it once because it's free and handles more file types, but my screenshots and PNGs open fine in Photos. I wouldn't go through the Windows Settings steps to make it default for that.",
+  "why_switch_or_not": "The 26-of-32 formats claim is what gets me to try it. But my work is PNG screenshots and phone photos, and Photos already opens those. Speed is nice, but I haven't noticed Photos being slow enough to care. A one-developer 0.4.1 with an English-only UI, and having to tick formats and press Set default myself, makes me expect to forget about it after a few days.",
+  "current_app_pros": "It's already there and opens when I double-click. It handles PNG, JPG, screenshots and phone photos without any setup. I don't have to think about it.",
+  "current_app_pains": "It's a bit slow to start sometimes and flipping through hundreds of screenshots can lag. It's not a big deal though, and it can't open a few odd formats like AVIF or PSD, but I rarely get those.",
+  "objection": "Another image viewer? Mine already works fine for screenshots and PNGs, and I'd have to set the default myself to make it stick.",
+  "would_change_my_mind": "If I started getting AVIF, WebP, PSD or RAW files from work that Photos can't open, I'd make it the default straight away.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 5,
+  "price_too_expensive": 10
+}

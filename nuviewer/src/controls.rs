@@ -26,6 +26,8 @@ pub enum MediaKind {
     Sequence,
     Video,
     Audio,
+    /// A 3D model turning by itself (see `turntable.rs`).
+    Turntable,
 }
 
 /// What the bar shows right now.
@@ -84,6 +86,9 @@ impl App {
         let pingpong = Some(self.settings.more.play_pingpong);
         if let Some(c) = self.media_controller(id) {
             return Some(c);
+        }
+        if self.is_model() {
+            return Some(Controller { kind: MediaKind::Turntable, playing: self.turntable, progress: self.turntable_progress(), seekable: true, time: self.turntable_text(), speed, looping: true, pingpong: None, volume: None });
         }
         if let Some(run) = self.run_of(i) {
             let n = run.len();
@@ -309,6 +314,10 @@ impl App {
                     });
                 }
             }
+            // The turntable's preview is the angle under the pointer (no picture).
+            MediaKind::Turntable => {
+                label = format!("{:.0}\u{00B0}", frac * 360.0);
+            }
             MediaKind::Sequence | MediaKind::Slideshow => {
                 let (first, count) = match (c.kind, self.run_of(self.folder.index)) {
                     (MediaKind::Sequence, Some(run)) => (run.start, run.len()),
@@ -406,6 +415,7 @@ impl App {
         let frac = self.seek_fraction(x);
         match self.controller().map(|c| c.kind) {
             Some(MediaKind::Video | MediaKind::Audio) => self.media_seek_fraction(frac),
+            Some(MediaKind::Turntable) => self.turntable_seek(frac),
             Some(MediaKind::Sequence) => {
                 if let Some(run) = self.run_of(self.folder.index) {
                     let to = run.start + (frac * (run.len() - 1) as f32).round() as usize;
@@ -453,6 +463,7 @@ impl App {
     pub fn step_frame(&mut self, d: isize) {
         match self.controller().map(|c| c.kind) {
             Some(MediaKind::Video | MediaKind::Audio) => self.media_jump(d as i64 * JUMP_MS as i64),
+            Some(MediaKind::Turntable) => self.turntable_step(d),
             Some(MediaKind::Sequence) => {
                 if let Some(run) = self.run_of(self.folder.index) {
                     let to = (self.folder.index as isize + d).clamp(run.start as isize, run.end as isize) as usize;
@@ -476,6 +487,7 @@ impl App {
     pub fn toggle_play(&mut self) {
         match self.controller().map(|c| c.kind) {
             Some(MediaKind::Video | MediaKind::Audio) => self.media_toggle_play(),
+            Some(MediaKind::Turntable) => self.turntable_toggle(),
             Some(MediaKind::Sequence) => {
                 self.seq_playing = !self.seq_playing;
                 if self.seq_playing {
@@ -573,7 +585,7 @@ impl App {
                 }
                 self.toast(format!("{} frames per second", self.fps));
             }
-            Some(MediaKind::Animation | MediaKind::Video | MediaKind::Audio) => {
+            Some(MediaKind::Animation | MediaKind::Video | MediaKind::Audio | MediaKind::Turntable) => {
                 let cur = SPEED_STEPS.iter().position(|&s| (s - self.anim_speed).abs() < 0.01).unwrap_or(3) as i32;
                 self.anim_speed = SPEED_STEPS[(cur + step).clamp(0, SPEED_STEPS.len() as i32 - 1) as usize];
                 self.apply_speed();

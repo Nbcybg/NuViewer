@@ -250,6 +250,29 @@ impl App {
         let top = area[1] + if mode == ViewMode::Details { 28.0 * d } else { 0.0 };
         r.set_clip(Some([area[0], top, area[2], area[3]]));
         let name_px = px(13.0, d);
+        // Group view: a header strip above every group (name, how many, a line).
+        if g.has_groups() {
+            let head_px = px(14.0, d);
+            for b in g.visible_bands(scroll) {
+                let hr = g.header_rect(b, scroll);
+                if hr[3] < top || hr[1] > area[3] {
+                    continue;
+                }
+                let Some(span) = self.listing.groups.get(b) else { continue };
+                let hovered = hover.is_none() && {
+                    let (mx, my) = self.last_mouse;
+                    contains(hr, mx as f32, my as f32)
+                };
+                if hovered {
+                    let _ = r.fill_rect(hr, rgb(pal::TILE_HOVER, 0.6));
+                }
+                let ty = hr[1] + (hr[3] - hr[1] - line_h(head_px)) / 2.0 - 1.0 * d;
+                self.text.draw(r, &span.label, head_px, hr[0] + 6.0 * d, ty, rgb(pal::TEXT, 1.0));
+                let lw = self.text.width(&span.label, head_px) as f32;
+                self.text.draw(r, &span.count.to_string(), name_px, hr[0] + 6.0 * d + lw + 10.0 * d, ty + 1.0 * d, rgb(pal::DIM, 1.0));
+                let _ = r.fill_rect([hr[0], hr[3] - 2.0 * d, hr[2], hr[3] - 1.0 * d], rgb(pal::ACCENT, 0.55));
+            }
+        }
         for i in g.visible(scroll) {
             let e = &self.listing.all[self.listing.view[i]];
             let rc = g.rect(i, scroll);
@@ -278,6 +301,9 @@ impl App {
                 ViewMode::Thumbs => {
                     let b = [rc[0], rc[1], rc[2], rc[1] + cell];
                     draw_visual(r, &mut self.text, e, b, 8.0 * d, failed, d);
+                    if let Some(m) = self.listing.ratings.get(&e.id).filter(|m| !m.is_empty()) {
+                        crate::rating::draw_badge(r, &mut self.text, b, *m, d);
+                    }
                     if let Some(n) = self.listing.sequence_len(e.id) {
                         let badge = format!("▶ {n}");
                         let bw = self.text.width(&badge, px(12.0, d)) as f32 + 12.0 * d;
@@ -382,6 +408,12 @@ impl App {
         }
         if self.listing.show != crate::model::Show::Media {
             s += &format!("  ·  {}", self.listing.show.label());
+        }
+        if self.listing.rating_filter != nv_core::xmp::Filter::All {
+            s += &format!("  ·  {}", self.listing.rating_filter.label());
+        }
+        if let Some(m) = self.sel.cursor.and_then(|c| self.listing.get(c)).and_then(|e| self.listing.ratings.get(&e.id)).filter(|m| !m.is_empty()) {
+            s += &format!("  ·  {}", m.describe());
         }
         let font = px(12.0, d);
         let area = g.area;
@@ -584,9 +616,10 @@ fn help_lines() -> Vec<String> {
         "        top = toolbar, bottom = Windows taskbar (pin a panel with its Pin button, or Ctrl+B / Ctrl+I / Ctrl+T)",
         "Keys    arrows / PgUp / PgDn / Home / End: move  ·  Shift+arrows: extend  ·  Ctrl+A: select all  ·  Esc: clear",
         "        Space: view in NuViewer  ·  Enter: next file  ·  F8: slideshow  ·  a letter: jump to the name  ·  Backspace / Alt+↑: up  ·  Alt+← / →: back / forward",
-        "        1 2 3 4 5: thumbnail size  ·  `: reset size  ·  Ctrl+1 / 2 / 3: thumbnails / details / list  ·  Ctrl+J: sort  ·  Ctrl+R: shuffle",
+        "        Shift+1..5: stars (Shift+0 none)  ·  Shift+6 7 8 9 and Shift+`: red, yellow, green, blue, purple label  ·  Ctrl+Shift+X: reject  (saved in the .xmp sidecar; View > Rating shows only some)",
+        "        1 2 3 4 5: thumbnail size  ·  `: reset size  ·  Ctrl+1 / 2 / 3: thumbnails / details / list  ·  Ctrl+J: sort  ·  Ctrl+Shift+J: group  ·  Ctrl+R: shuffle",
         "        F2 rename  ·  Del Recycle Bin (asks first)  ·  Shift+Del delete for good  ·  Ctrl+Z undo a delete / move / rename / copy  ·  Ctrl+N new folder  ·  F5 refresh",
-        "        Alt or F10 (or the pointer on the top edge): menu bar  ·  Alt+F, Alt+E, Alt+V, Alt+T, Alt+H open a menu  ·  Ctrl+G group image sequences",
+        "        Alt or F10 (or the pointer on the top edge): menu bar  ·  Alt+F, Alt+E, Alt+V, Alt+T, Alt+H open a menu  ·  Ctrl+G group image sequences  ·  Ctrl+Shift+G group RAW + JPG pairs",
         "        Ctrl+C copy file  ·  Ctrl+X cut  ·  Ctrl+V paste  ·  Ctrl+Shift+C copy path  ·  F6 move to  ·  F7 copy to  ·  Ctrl+P print  ·  Ctrl+Shift+P make a PDF  ·  Ctrl+Shift+E unpack an archive",
         "        Ctrl+F search  ·  Ctrl+L address bar  ·  F11 fullscreen  ·  F1 this help  ·  Alt+F4 exit",
         "Many files selected: right click > Batch (rename, convert, change time stamp, remove metadata) and Compress",

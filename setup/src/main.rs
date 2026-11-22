@@ -8,7 +8,10 @@
 //!   /formats=<list>       all | none | default | comma-separated extensions, e.g. jpg,png,cr2   (default: `default`)
 //!   /nostartmenu          no Start menu shortcuts          /desktop   add a Desktop shortcut
 //!   /launch               start NuViewer afterwards
-//!   /uninstall [/S]       remove NuViewer (what Settings > Apps > Uninstall runs)
+//!   /portable [/D=<dir>]  portable copy: only unpack the programs into the folder (nothing is registered, settings stay in
+//!                         its Data folder); `portable.txt` in it is what makes the programs portable
+//!   /uninstall [/S]       remove NuViewer (what Settings > Apps > Uninstall runs); silent keeps settings and the backups of edited
+//!                         pictures, `/purge` removes those too, `/keepcache` keeps the thumbnail cache
 //!   /log=<file>           write the outcome as text (handy with /S, which shows nothing)
 //!   /regprefix=<subkey>, /startmenudir=<dir>, /desktopdir=<dir>   redirect everything to scratch locations (tests)
 
@@ -24,10 +27,14 @@ const ID_BROWSE: u16 = 101;
 const ID_START_MENU: u16 = 110;
 const ID_DESKTOP: u16 = 111;
 const ID_LAUNCH: u16 = 112;
+const ID_PORTABLE: u16 = 113;
 
 struct Args {
     silent: bool,
     uninstall: bool,
+    portable: bool,
+    purge: bool,
+    keep_cache: bool,
     launch: bool,
     desktop: bool,
     start_menu: bool,
@@ -43,6 +50,9 @@ fn parse_args() -> Args {
     let mut a = Args {
         silent: false,
         uninstall: false,
+        portable: false,
+        purge: false,
+        keep_cache: false,
         launch: false,
         desktop: false,
         start_menu: true,
@@ -62,6 +72,9 @@ fn parse_args() -> Args {
         match (name.as_str(), value) {
             ("s" | "silent" | "quiet", _) => a.silent = true,
             ("uninstall", _) => a.uninstall = true,
+            ("portable", _) => a.portable = true,
+            ("purge", _) => a.purge = true,
+            ("keepcache", _) => a.keep_cache = true,
             ("launch", _) => a.launch = true,
             ("desktop", _) => a.desktop = true,
             ("nostartmenu", _) => a.start_menu = false,
@@ -101,6 +114,7 @@ fn make_env(args: &Args) -> Env {
     if let Some(p) = &args.reg_prefix {
         env.reg_prefix = Some(p.clone());
         env.data_dir = None; // a test run never touches the real thumbnail cache
+        env.config_dir = None; // nor the real settings
         env.start_menu = args.start_menu_dir.clone().unwrap_or_else(|| std::env::temp_dir().join("NuViewerSetupTest").join("start"));
         env.desktop = args.desktop_dir.clone().unwrap_or_else(|| std::env::temp_dir().join("NuViewerSetupTest").join("desktop"));
     }
@@ -119,7 +133,13 @@ fn main() {
     }
     let args = parse_args();
     let env = make_env(&args);
-    let code = if args.uninstall { run_uninstall(&args, &env) } else { run_install(&args, &env) };
+    let code = if args.uninstall {
+        run_uninstall(&args, &env)
+    } else if args.portable {
+        run_portable(&args)
+    } else {
+        run_install(&args, &env)
+    };
     std::process::exit(code);
 }
 
@@ -135,7 +155,8 @@ fn run_install(args: &Args, env: &Env) -> i32 {
         (Options { dir, exts: formats_from(&args.formats), start_menu: args.start_menu, desktop: args.desktop }, args.launch)
     } else {
         match wizard(args, env, dir) {
-            Some(x) => x,
+            Some(Wizard::Install(opts, launch)) => (opts, launch),
+            Some(Wizard::Portable(dir, launch)) => return finish_portable(args, &payload, &dir, launch),
             None => return 0, // cancelled
         }
     };
@@ -164,13 +185,69 @@ fn run_install(args: &Args, env: &Env) -> i32 {
     0
 }
 
+fn run_portable(args: &Args) -> i32 {
+    let payload = match install::payload() {
+        Ok(p) => p,
+        Err(e) => return fail(args, &e),
+    };
+    let dir = args.dir.clone().unwrap_or_else(|| install::default_dir().with_file_name("NuViewer-portable"));
+    finish_portable(args, &payload, &dir, args.launch)
+}
+
+fn finish_portable(args: &Args, payload: &[(String, Vec<u8>)], dir: &std::path::Path, launch: bool) -> i32 {
+    match install::portable(dir, payload) {
+        Ok(exe) => {
+            say(args, &format!("portable copy in {}", dir.display()));
+            if !args.silent {
+                nv_win::shell::message(&format!("The portable copy of NuViewer {} is in\n{}\n\nIt keeps its settings in the Data folder there and changes nothing else on this PC. Copy or move the folder anywhere; delete it to remove everything.", install::VERSION, dir.display()));
+            }
+            if launch {
+                let _ = std::process::Command::new(&exe).spawn();
+            }
+            0
+        }
+        Err(e) => fail(args, &e),
+    }
+}
+
+const ID_PURGE_CACHE: u16 = 120;
+const ID_PURGE_BACKUPS: u16 = 121;
+const ID_PURGE_SETTINGS: u16 = 122;
+
+/// The question of an interactive uninstall: what else goes besides the programs. None = cancelled.
+fn uninstall_dialog() -> Option<install::Purge> {
+    let form = Form::new("Uninstall NuViewer", 520, 262).ok()?;
+    form.label(14, 12, 492, 40, "NuViewer, its shortcuts and its file-type registration will be removed. Choose what else should go:");
+    form.check(ID_PURGE_CACHE, 28, 60, 470, 22, "The thumbnail cache and logs (they are made again when needed)", true);
+    form.check(ID_PURGE_BACKUPS, 28, 88, 470, 22, "The saved originals of pictures NuEditor burned in (cannot be made again)", false);
+    form.check(ID_PURGE_SETTINGS, 28, 116, 470, 22, "My settings, presets and language files", false);
+    form.label(14, 152, 492, 36, "Your pictures, and the .nuedit pair files next to them, are never touched.");
+    form.button(ID_OK, 322, 204, 92, 28, "Uninstall", true);
+    form.button(ID_CANCEL, 422, 204, 84, 28, "Cancel", false);
+    let mut result = None;
+    form.run(&mut |form, id| match id {
+        ID_OK => {
+            result = Some(install::Purge { cache: form.is_checked(ID_PURGE_CACHE), backups: form.is_checked(ID_PURGE_BACKUPS), settings: form.is_checked(ID_PURGE_SETTINGS) });
+            true
+        }
+        ID_CANCEL => true,
+        _ => false,
+    });
+    result
+}
+
 fn run_uninstall(args: &Args, env: &Env) -> i32 {
     let own = std::env::current_exe().unwrap_or_default();
     let dir = args.dir.clone().or_else(|| own.parent().map(|p| p.to_path_buf())).unwrap_or_default();
-    if !args.silent && !nv_win::shell::confirm(windows::Win32::Foundation::HWND::default(), "Remove NuViewer and its file-type registration?") {
-        return 0;
-    }
-    match install::uninstall(env, &dir) {
+    let purge = if args.silent {
+        if args.purge { install::Purge::ALL } else { install::Purge { cache: !args.keep_cache, ..install::Purge::DEFAULT } }
+    } else {
+        match uninstall_dialog() {
+            Some(p) => p,
+            None => return 0,
+        }
+    };
+    match install::uninstall(env, &dir, purge, &install::packed_names()) {
         Ok(()) => {
             say(args, &format!("uninstalled {}", dir.display()));
             if !args.silent {
@@ -190,13 +267,21 @@ fn fail(args: &Args, msg: &str) -> i32 {
     1
 }
 
-/// The installer window. Returns the chosen options and whether to launch NuViewer, or None if cancelled.
-fn wizard(_args: &Args, env: &Env, dir: PathBuf) -> Option<(Options, bool)> {
+/// What the wizard decided.
+enum Wizard {
+    /// Install for this user, and whether to start NuViewer afterwards.
+    Install(Options, bool),
+    /// Only unpack into this folder (a portable copy), and whether to start NuViewer afterwards.
+    Portable(PathBuf, bool),
+}
+
+/// The installer window. Returns the choice, or None if cancelled.
+fn wizard(_args: &Args, env: &Env, dir: PathBuf) -> Option<Wizard> {
     let upgrading = install::existing_install(env).is_some();
     let current = nv_win::registry::registered_exts(&env.layout());
     let picked = if current.is_empty() { assoc::default_picks() } else { assoc::picked_for(&current) };
 
-    let form = Form::new(&format!("NuViewer {} — Setup", install::VERSION), 560, 108 + assoc::checklist_height() + 136).ok()?;
+    let form = Form::new(&format!("NuViewer {} — Setup", install::VERSION), 560, 108 + assoc::checklist_height() + 162).ok()?;
     let intro = if upgrading {
         "NuViewer is already installed here; Setup will update it. It installs for your account only (no administrator rights)."
     } else {
@@ -213,8 +298,9 @@ fn wizard(_args: &Args, env: &Env, dir: PathBuf) -> Option<(Options, bool)> {
     form.check(ID_START_MENU, 14, bottom + 38, 250, 22, "Create a Start menu shortcut", true);
     form.check(ID_DESKTOP, 280, bottom + 38, 250, 22, "Create a desktop shortcut", false);
     form.check(ID_LAUNCH, 14, bottom + 62, 400, 22, "Start NuViewer when Setup finishes", false);
-    form.button(ID_OK, 372, bottom + 94, 84, 28, if upgrading { "Update" } else { "Install" }, true);
-    form.button(ID_CANCEL, 464, bottom + 94, 84, 28, "Cancel", false);
+    form.check(ID_PORTABLE, 14, bottom + 88, 534, 22, "Portable copy: only unpack into this folder (nothing is registered, settings stay beside the programs)", false);
+    form.button(ID_OK, 372, bottom + 120, 84, 28, if upgrading { "Update" } else { "Install" }, true);
+    form.button(ID_CANCEL, 464, bottom + 120, 84, 28, "Cancel", false);
 
     let mut result = None;
     form.run(&mut |form, id| {
@@ -236,9 +322,24 @@ fn wizard(_args: &Args, env: &Env, dir: PathBuf) -> Option<(Options, bool)> {
                     nv_win::shell::message("Please enter a full folder path, such as C:\\Users\\you\\AppData\\Local\\Programs\\NuViewer.");
                     return false;
                 }
+                if form.is_checked(ID_PORTABLE) {
+                    result = Some(Wizard::Portable(dir, form.is_checked(ID_LAUNCH)));
+                    return true;
+                }
                 let opts = Options { dir, exts: assoc::exts_of(&assoc::read_picks(form)), start_menu: form.is_checked(ID_START_MENU), desktop: form.is_checked(ID_DESKTOP) };
-                result = Some((opts, form.is_checked(ID_LAUNCH)));
+                result = Some(Wizard::Install(opts, form.is_checked(ID_LAUNCH)));
                 true
+            }
+            ID_PORTABLE => {
+                // A portable copy goes to its own folder by default, not over the installed program.
+                let (inst, port) = (install::default_dir(), install::default_dir().with_file_name("NuViewer-portable"));
+                let cur = PathBuf::from(form.text(ID_DIR).trim());
+                if form.is_checked(ID_PORTABLE) && cur == inst {
+                    form.set_text(ID_DIR, &port.display().to_string());
+                } else if !form.is_checked(ID_PORTABLE) && cur == port {
+                    form.set_text(ID_DIR, &inst.display().to_string());
+                }
+                false
             }
             ID_CANCEL => true,
             _ => false,

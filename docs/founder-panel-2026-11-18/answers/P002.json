@@ -1,0 +1,18 @@
+{
+  "id": "P002",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 8,
+  "reason_code": "need",
+  "reason": "The speed and the format list (TGA, DDS, EXR, HDR, GLB, OBJ, FBX in one viewer) are worth an install, but nothing I read says it handles XMP/metadata or catalogue work, and that is what I use XnView MP for every week. I'm not making a 0.4.1 one-dev app my default until I know my colour and metadata workflow survives.",
+  "why_switch_or_not": "I'd install it for flipping through hundreds of screenshots and PNG exports, because 40-50 ms next/back and the 3D model preview would be nice. But it only lists batch rename/convert and ICC support, not metadata or XMP editing, so XnView MP stays for browsing, batch jobs and metadata. I'd leave it as default for a month only if my TGA/DDS/EXR files look identical to XnView and my sidecar/XMP data is untouched.",
+  "current_app_pros": "XnView MP opens nearly everything I throw at it, including TGA, DDS, EXR and HDR. Its browser, batch convert and metadata tools (XMP/IPTC, ratings, categories) are all in one app, and I've set it up exactly how I like it over years.",
+  "current_app_pains": "It's not the fastest when I flip through big folders of PNG exports, and the thumbnail cache can lag on huge folders. The UI is cluttered. Otherwise nothing that makes me look for a replacement.",
+  "objection": "My colour management and XMP/metadata workflow must not change, and the page says nothing about metadata editing. I also don't trust a 0.4.1 from one developer, with its own sidecar edit file and no plug-ins, to be around or to handle my files correctly in a year.",
+  "would_change_my_mind": "Proof that it reads and writes XMP/metadata without breaking existing sidecars, plus a side-by-side showing my TGA/DDS/EXR files render the same as in XnView MP, and a few months of updates that show the developer is sticking with it.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 25,
+  "price_too_expensive": 50
+}

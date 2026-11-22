@@ -107,6 +107,8 @@ pub struct Saved {
 pub struct Full<'a> {
     pub path: &'a Path,
     pub pixels: &'a Pixels,
+    /// An animated GIF: all its frames (the first is `pixels`) and how long each stays. Saving it writes every frame with the recipe.
+    pub anim: Option<&'a [(Pixels, u32)]>,
 }
 
 /// The choices (Settings > NuEditor) that decide what a rewritten or copied picture is like.
@@ -176,6 +178,18 @@ fn render_full(full: &Full, r: &Recipe) -> Result<Pixels, String> {
     Ok(engine::render(full.pixels, r))
 }
 
+/// An animated GIF with the recipe applied to every frame, and how many frames that is; None when `full` is not an animation.
+pub fn gif_bytes(full: &Full, r: &Recipe) -> Result<Option<(Vec<u8>, usize)>, String> {
+    let Some(frames) = full.anim.filter(|a| a.len() > 1) else { return Ok(None) };
+    let mut done: Vec<nv_editor::gifenc::Frame> = Vec::with_capacity(frames.len());
+    for (px, delay) in frames {
+        let one = Full { path: full.path, pixels: px, anim: None };
+        done.push(nv_editor::gifenc::Frame { pixels: render_full(&one, r)?, delay_ms: *delay });
+    }
+    let n = done.len();
+    Ok(Some((nv_editor::gifenc::encode(&done, true)?, n)))
+}
+
 /// Render the recipe at full size and encode it the way `format` says (a JPEG keeps its EXIF block).
 fn render_and_encode(full: &Full, r: &Recipe, format: Out, exif: bool) -> Result<Vec<u8>, String> {
     let out = render_full(full, r)?;
@@ -187,6 +201,18 @@ fn render_and_encode(full: &Full, r: &Recipe, format: Out, exif: bool) -> Result
 
 /// Replace the picture. The original goes to the backup folder first; a failed write puts nothing half-written in its place.
 pub fn burn_in(full: &Full, r: &Recipe, o: &CopyOptions) -> Result<Saved, String> {
+    // An animated GIF: every frame gets the edits, the file stays a GIF (the original goes to the backup folder first).
+    if let Some((bytes, n)) = gif_bytes(full, r)? {
+        let path = full.path.to_path_buf();
+        let backup = save::backup_copy(&path, &backup_dir()).map_err(|e| format!("no backup possible ({e})"))?;
+        if let Err(e) = save::write_atomic(&path, &bytes) {
+            let _ = std::fs::remove_file(&backup);
+            return Err(format!("{}: {e}", path.display()));
+        }
+        let _ = nv_editor::journal::add(&backup_dir(), &path, &backup);
+        let _ = sidecar::save(&path, &Recipe::default(), &Source::default());
+        return Ok(Saved { show: path, message: format!("Burned in: all {n} frames of the GIF are edited - the original is kept in the backup folder for 7 days") });
+    }
     let target = save::target_for(full.path, |p| p.exists());
     match target {
         save::Target::Overwrite { path, format } => {
@@ -220,6 +246,12 @@ pub fn burn_in(full: &Full, r: &Recipe, o: &CopyOptions) -> Result<Saved, String
 
 /// A new file next to the picture: the format, quality, name suffix and EXIF choice of Settings > NuEditor.
 pub fn new_file(full: &Full, r: &Recipe, o: &CopyOptions) -> Result<Saved, String> {
+    if let Some((bytes, n)) = gif_bytes(full, r)? {
+        let path = unique_copy_name(full.path, &o.suffix, "gif");
+        save::write_atomic(&path, &bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        return Ok(Saved { show: path, message: format!("Saved a new GIF with all {n} frames edited: {name}") });
+    }
     let out = o.out_for(full.path);
     let path = unique_copy_name(full.path, &o.suffix, out.ext());
     let bytes = render_and_encode(full, r, out, o.exif)?;
@@ -299,15 +331,32 @@ pub struct Decoded {
     pub ms: f64,
     /// A RAW file: what the camera recorded (as-shot white balance, ISO ...), read from the file.
     pub camera: Option<String>,
+    /// The same, as numbers the Temperature and Tint sliders are based on.
+    pub base: Option<nv_editor::rawbase::RawBase>,
+    /// An animated GIF: every frame and its delay (ms). The editor shows the first and applies the edits to all of them when saving.
+    pub anim: Option<Vec<(Pixels, u32)>>,
 }
 
 pub fn decode(path: &Path) -> Result<Decoded, String> {
     let t = std::time::Instant::now();
-    let img = nv_codecs::decode_file_first_frame(path)?;
+    let is_gif = path.extension().map(|e| e.eq_ignore_ascii_case("gif")).unwrap_or(false);
+    let mut img = if is_gif { nv_codecs::decode_file(path)? } else { nv_codecs::decode_file_first_frame(path)? };
+    // A GIF is edited as a whole: keep its frames (unless that is more than the editor should hold in memory).
+    let anim = if is_gif && !img.extra_frames.is_empty() && (img.extra_frames.len() as u64 + 1) * img.width as u64 * img.height as u64 * 4 <= 600 << 20 {
+        let (w, h, d0) = (img.width, img.height, img.delay_ms);
+        let mut frames = vec![(Pixels::new(w, h, img.rgba.clone()), d0)];
+        frames.extend(std::mem::take(&mut img.extra_frames).into_iter().map(|f| (Pixels::new(w, h, f.rgba), f.delay_ms)));
+        Some(frames)
+    } else {
+        img.extra_frames.clear();
+        None
+    };
     let reduced_from = img.reduced_from;
     let image = img.finish_for_cpu();
-    let camera = nv_codecs::is_raw_ext(&path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default()).then(|| nv_codecs::camera_data(path)).flatten().map(|c| c.summary());
-    Ok(Decoded { image, reduced_from, ms: t.elapsed().as_secs_f64() * 1000.0, camera })
+    let data = nv_codecs::is_raw_ext(&path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default()).then(|| nv_codecs::camera_data(path)).flatten();
+    let base = data.as_ref().and_then(|c| nv_editor::rawbase::RawBase::from_values(c.kelvin, c.tint, c.iso, c.exposure_bias));
+    let camera = data.map(|c| c.summary());
+    Ok(Decoded { image, reduced_from, ms: t.elapsed().as_secs_f64() * 1000.0, camera, base, anim })
 }
 
 /// Name for dialogs and the title.
@@ -354,7 +403,7 @@ mod tests {
         std::fs::write(&pic, save::encode(&p, save::Format::Png, None).unwrap()).unwrap();
         let mut r = Recipe::default();
         r.invert = true;
-        let full = Full { path: &pic, pixels: &p };
+        let full = Full { path: &pic, pixels: &p, anim: None };
 
         // XML pair: the picture stays byte for byte, a pair file appears and reads back.
         let before = std::fs::read(&pic).unwrap();
@@ -388,7 +437,7 @@ mod tests {
         std::fs::write(&pic, save::encode(&p, save::Format::Png, None).unwrap()).unwrap();
         let mut r = Recipe::default();
         r.set(nv_editor::P::Exposure, 0.5);
-        let full = Full { path: &pic, pixels: &p };
+        let full = Full { path: &pic, pixels: &p, anim: None };
 
         // Another format, another name suffix.
         let mut o = CopyOptions::default();
@@ -421,12 +470,54 @@ mod tests {
         let pic = dir.join("a.bmp");
         std::fs::write(&pic, b"not really a bmp").unwrap();
         let p = picture();
-        let full = Full { path: &pic, pixels: &p };
+        let full = Full { path: &pic, pixels: &p, anim: None };
         let mut r = Recipe::default();
         r.invert = true;
         let saved = burn_in(&full, &r, &CopyOptions::default()).unwrap();
         assert_eq!(saved.show.file_name().unwrap(), "a_edited.png");
         assert_eq!(std::fs::read(&pic).unwrap(), b"not really a bmp");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A 3-frame GIF (red, green, blue, 6 x 4, 100 ms each) written with the editor's own GIF writer.
+    fn make_gif(path: &Path) {
+        let frames: Vec<nv_editor::gifenc::Frame> = [[220u8, 30, 30, 255], [30, 200, 30, 255], [30, 30, 220, 255]].iter().map(|c| nv_editor::gifenc::Frame { pixels: Pixels::new(6, 4, (0..24).flat_map(|_| *c).collect()), delay_ms: 100 }).collect();
+        std::fs::write(path, nv_editor::gifenc::encode(&frames, false).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a_gif_is_edited_as_a_whole_every_frame_gets_the_recipe() {
+        let dir = tmp("gif");
+        let pic = dir.join("a.gif");
+        make_gif(&pic);
+        let d = decode(&pic).unwrap();
+        let anim = d.anim.expect("an animated GIF keeps its frames");
+        assert_eq!(anim.len(), 3);
+        assert_eq!(anim[1].1, 100);
+        let first = Pixels::new(d.image.width, d.image.height, d.image.rgba.clone());
+        let full = Full { path: &pic, pixels: &first, anim: Some(&anim) };
+        let mut r = Recipe::default();
+        r.invert = true;
+        // A new file: three frames, each inverted (red -> cyan, green -> magenta, blue -> yellow).
+        let saved = new_file(&full, &r, &CopyOptions::default()).unwrap();
+        assert_eq!(saved.show.extension().unwrap(), "gif");
+        assert!(saved.message.contains("all 3 frames"), "{}", saved.message);
+        let back = nv_codecs::decode_file(&saved.show).unwrap();
+        assert_eq!(back.extra_frames.len(), 2);
+        let near = |p: &[u8], want: [u8; 3]| (0..3).all(|c| (p[c] as i32 - want[c] as i32).abs() <= 10);
+        assert!(near(&back.rgba[..4], [35, 225, 225]));
+        assert!(near(&back.extra_frames[0].rgba[..4], [225, 55, 225]));
+        assert!(near(&back.extra_frames[1].rgba[..4], [225, 225, 35]));
+        assert_eq!(back.delay_ms, 100);
+        // Burn in: the GIF itself is replaced (still 3 frames), the original is in the backup folder.
+        let saved = burn_in(&full, &r, &CopyOptions::default()).unwrap();
+        assert_eq!(saved.show, pic);
+        assert!(saved.message.contains("all 3 frames"));
+        assert_eq!(nv_codecs::decode_file(&pic).unwrap().extra_frames.len(), 2);
+        // A GIF with one frame is not an animation: no frames kept.
+        let one = dir.join("one.gif");
+        std::fs::write(&one, nv_editor::gifenc::encode(&[nv_editor::gifenc::Frame { pixels: Pixels::new(4, 4, vec![200; 64]), delay_ms: 100 }], false).unwrap()).unwrap();
+        assert!(decode(&one).unwrap().anim.is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

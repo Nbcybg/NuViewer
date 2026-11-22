@@ -1,0 +1,18 @@
+{
+  "id": "P079",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 3,
+  "reason_code": "trust",
+  "reason": "It sounds fast, but it's one dev's 0.4.1 that does way more than I want from a viewer, and I won't make an unsigned solo-dev exe my default without source or signing info. I'd try the portable zip, poke at it with a few RAW+JPG folders, and go back to XnView MP.",
+  "why_switch_or_not": "The speed numbers and RAW+JPG shown as separate pictures are the two things that actually interest me for culling 500 frames, and a portable zip means I can test it without installing. But it ships a gallery, editor, importer and Explorer preview on top, which is exactly the bloat I'm wary of, and XnView MP already does my browsing, batch convert and metadata work in one place. No plug-in system and no word on source or code signing means I wouldn't hand it the file associations.",
+  "current_app_pros": "XnView MP is a good browser plus batch converter. It handles RAW+JPG folders, has solid metadata and EXIF/IPTC tools, runs batch jobs, and supports a huge range of formats. I know all the shortcuts and it does everything in one program.",
+  "current_app_pains": "It is not the snappiest when stepping through hundreds of RAW files, and the thumbnail cache can lag on a fresh card. The interface is cluttered. Otherwise nothing that makes me want to leave.",
+  "objection": "It does too much (gallery, editor, importer, Explorer preview agent) for something I only want as a viewer, and it's a single developer's unsigned-looking 0.4.1 with no source I can check.",
+  "would_change_my_mind": "Published source code or a signed installer, a way to run it as viewer-only with the gallery, importer and Explorer preview off, and a few months of track record or independent reviews.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

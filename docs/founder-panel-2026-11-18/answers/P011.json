@@ -1,0 +1,18 @@
+{
+  "id": "P011",
+  "would_try": true,
+  "buys": true,
+  "switch_decision": "replace",
+  "purchases_first_month": 18,
+  "reason_code": "need",
+  "reason": "It claims TGA, DDS, EXR, HDR, GLB, OBJ and FBX in one viewer, and ImageGlass makes me juggle other tools for half of those. If it holds up on my real files, I switch.",
+  "why_switch_or_not": "26 of 32 types vs ImageGlass's 17 is exactly the kind of gap that makes me switch, especially the 3D models (GLB/OBJ/FBX) and EXR/DDS/HDR. The fast next/back matters on a 200,000-picture drive too. I'd still keep ImageGlass installed for the first couple of weeks in case NuViewer chokes on a real production file.",
+  "current_app_pros": "ImageGlass looks clean and modern, is open source and free, and handles the common formats and basic TGA/HDR fine without fuss.",
+  "current_app_pains": "It fails on a lot of my work formats: no 3D models, weak DDS/EXR handling, and I end up opening other tools just to peek at an asset. Browsing huge folders is also slow.",
+  "objection": "It's v0.4.1 from one developer, so I don't know if EXR/DDS (mip levels, channels, alpha, normal maps) actually render correctly, or if it will be abandoned in a year. The speed numbers come from the developer's own benchmark on one PC.",
+  "would_change_my_mind": "If it rendered my own EXR/DDS/GLB files wrongly, or crashed on a big folder, I'd drop it right away. Proof that it displays those correctly would lock in the switch.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 35
+}

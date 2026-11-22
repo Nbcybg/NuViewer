@@ -1,0 +1,18 @@
+{
+  "id": "P055",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 4,
+  "reason_code": "habit",
+  "reason": "ImageGlass already does everything I need day to day and I hate relearning shortcuts. I would install NuViewer only to see whether it reads my cbz files nicely, but I would not make it my default.",
+  "why_switch_or_not": "Speed is the headline, but a few tens of milliseconds is not something I would feel, so that gives me no reason to switch. The one thing that interests me is that it opens zip/cbz directly for manga, so I would try it on a couple of volumes. A single-developer 0.4.1 with no plug-ins and a default-app setup I have to do by hand is a lot of effort for something I do not feel is broken.",
+  "current_app_pros": "ImageGlass looks modern, is open source and free, and I know its keys and layout by heart. It opens my phone photos, screenshots and the odd PDF-export image without fuss.",
+  "current_app_pains": "Nothing serious. Reading a cbz or zip means extracting it first or using something else, which is slightly annoying, but I live with it.",
+  "objection": "The speed gain is a few tens of milliseconds that I would not feel, and relearning a new viewer from a one-person 0.4.1 project is not worth it for me.",
+  "would_change_my_mind": "If cbz/zip reading felt clearly better than my current way of reading manga (page order, fast next/back, remembering my place) and the keys matched what I already know, I would make it my default.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 8,
+  "price_too_expensive": 20
+}

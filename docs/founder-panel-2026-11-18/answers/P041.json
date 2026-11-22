@@ -1,0 +1,18 @@
+{
+  "id": "P041",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 3,
+  "reason_code": "need",
+  "reason": "Speed numbers are interesting enough that I would install the portable zip and throw a few thousand of my own files at it, but XnView MP already covers browsing, batch convert and metadata for me and nothing really hurts. I have no reason to move 15 years of habits to a one-person 0.4.x project.",
+  "why_switch_or_not": "I would not switch because it ships a gallery, editor, importer and Explorer preview on top of the viewer, which is exactly the pile I do not want, and the listing says nothing about metadata tools, which I use XnView for. Faster next/back and wider format support are nice, but 40 ms versus whatever XnView does is not a pain I feel today. If I try it, it is to check the speed claim on a huge folder, and then I would probably go back.",
+  "current_app_pros": "XnView MP handles my huge folders, browses fast enough, does batch convert and has metadata and EXIF tools I rely on. It opens nearly everything I own, and I have the shortcuts and settings tuned the way I like.",
+  "current_app_pains": "Nothing that makes me look elsewhere. It is a bit heavy and cluttered, and the first open of a big folder is slow, but I live with it.",
+  "objection": "It does too much (gallery, editor, importer, tray agent) and I only want a viewer. I also worry that a single-developer 0.4.1 will stall or break on a 200,000-picture library, and I do not know if it has the metadata tools I use.",
+  "would_change_my_mind": "A viewer-only mode that leaves out the gallery, editor and importer, with no background agent. Beyond that, proof that it handles a 200k-image drive without lag and has the metadata and batch features I use now.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 10,
+  "price_too_expensive": 25
+}

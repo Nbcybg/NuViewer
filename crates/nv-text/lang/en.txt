@@ -8,7 +8,8 @@ lang.name = English
 # ---- credits (F1 help) ----
 about.made_by = Made by {0}
 about.website = Website
-about.support = Support the work
+about.support = Support
+about.feedback = User feedback
 about.built_on = Built on Rust, Direct3D 11 and the Windows imaging components, and on these open-source libraries:
 about.thanks = Thank you to everyone who wrote them.
 about.icons = Icons: Keyline Icons (MIT)
@@ -151,7 +152,8 @@ general.explorer_remove = Remove
 general.explorer_on = In place.
 general.explorer_off = Not in the menu.
 general.group_about = About
-general.support = Support the work (Buy Me a Coffee)
+general.support = Support (Discord)
+general.feedback = User feedback (Discord)
 
 # ---- Settings window ----
 settings.title = Settings

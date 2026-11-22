@@ -22,7 +22,7 @@ impl Step {
     pub fn label(&self) -> String {
         let (what, n) = match self {
             Step::Deleted(v) => ("delete", v.len()),
-            Step::Moved(v) if v.len() == 1 && v[0].0.parent() == v[0].1.parent() => ("rename", 1),
+            Step::Moved(v) if !v.is_empty() && v.iter().all(|(a, b)| a.parent() == b.parent()) => ("rename", v.len()),
             Step::Moved(v) => ("move", v.len()),
             Step::Copied(v) => ("copy", v.len()),
         };

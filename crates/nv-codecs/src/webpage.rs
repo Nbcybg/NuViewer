@@ -115,7 +115,8 @@ fn browser() -> Option<PathBuf> {
             return Some(p);
         }
     }
-    let env = |k: &str| std::env::var_os(k).map(PathBuf::from);
+    // The real local folder, also in portable mode (where LOCALAPPDATA points into the portable Data folder).
+    let env = |k: &str| if k == "LOCALAPPDATA" { std::env::var_os("NUVIEWER_REAL_LOCALAPPDATA").or_else(|| std::env::var_os(k)).map(PathBuf::from) } else { std::env::var_os(k).map(PathBuf::from) };
     let mut c: Vec<PathBuf> = Vec::new();
     for root in [env("ProgramFiles(x86)"), env("ProgramFiles")].into_iter().flatten() {
         c.push(root.join("Microsoft").join("Edge").join("Application").join("msedge.exe"));

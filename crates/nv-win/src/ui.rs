@@ -47,6 +47,61 @@ pub struct SideTab {
     hwnd: HWND,
 }
 
+/// What a slider remembers for its double / triple click.
+struct SliderMemo {
+    initial: i32,
+    lo: i32,
+    hi: i32,
+    last: u32,
+    clicks: u32,
+}
+
+/// The value a triple click gives: zero, or the nearest end when zero is outside the range.
+pub fn slider_zero(lo: i32, hi: i32) -> i32 {
+    0.clamp(lo.min(hi), hi.max(lo))
+}
+
+/// Which value a run of quick presses (`clicks` so far, counting this one) sends a slider to.
+pub fn slider_click_target(clicks: u32, initial: i32, lo: i32, hi: i32) -> Option<i32> {
+    match clicks {
+        0 | 1 => None,
+        2 => Some(initial),
+        _ => Some(slider_zero(lo, hi)),
+    }
+}
+
+unsafe extern "system" fn slider_subclass(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM, _id: usize, data: usize) -> LRESULT {
+    use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass};
+    match msg {
+        WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
+            let m = &mut *(data as *mut SliderMemo);
+            let now = GetMessageTime() as u32;
+            let quick = now.wrapping_sub(m.last) <= windows::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime();
+            m.clicks = if quick && m.clicks > 0 { m.clicks + 1 } else { 1 };
+            m.last = now;
+            let target = slider_click_target(m.clicks, m.initial, m.lo, m.hi);
+            if m.clicks >= 3 {
+                m.clicks = 0;
+            }
+            let r = DefSubclassProc(hwnd, msg, wp, lp);
+            if let Some(v) = target {
+                SendMessageW(hwnd, 0x0405 /* TBM_SETPOS */, Some(WPARAM(1)), Some(LPARAM(v as isize)));
+                // Tell the form it moved, the way the track bar itself does at the end of a drag (TB_ENDTRACK).
+                if let Ok(parent) = GetParent(hwnd) {
+                    SendMessageW(parent, WM_HSCROLL, Some(WPARAM(8)), Some(LPARAM(hwnd.0 as isize)));
+                }
+            }
+            r
+        }
+        WM_NCDESTROY => {
+            drop(Box::from_raw(data as *mut SliderMemo));
+            let _ = RemoveWindowSubclass(hwnd, Some(slider_subclass), 1);
+            DefSubclassProc(hwnd, msg, wp, lp)
+        }
+        _ => DefSubclassProc(hwnd, msg, wp, lp),
+    }
+}
+
 /// A list box or combo box reports a changed selection to the handler as `id | SELECTION_CHANGED`.
 pub const SELECTION_CHANGED: u16 = 0x4000;
 /// A slider that was moved is reported as `id | SLIDER_MOVED` (control ids stay below 0x2000).
@@ -83,7 +138,12 @@ impl Form {
             };
             RegisterClassExW(&wc); // 0 when the class already exists (a second form in one process): fine
 
-            let dpi = GetDpiForSystem().max(96);
+            // The scale of the screen the form opens on (its owner's), not the main screen's: on a second monitor with another scale the
+            // system value gave a form of the wrong size, and so a wrong centre.
+            let dpi = match crate::dialog_parent() {
+                Some(o) => windows::Win32::UI::HiDpi::GetDpiForWindow(o).max(96),
+                None => GetDpiForSystem().max(96),
+            };
             // With the viewer's window around, the form is *owned* by it: it stays above it, shares its Alt+Tab entry
             // (switching back lands on the form) and cannot be minimised separately.
             let owner = crate::dialog_parent();
@@ -91,10 +151,10 @@ impl Form {
             let mut rc = RECT { left: 0, top: 0, right: w * dpi as i32 / 96, bottom: h * dpi as i32 / 96 };
             let _ = AdjustWindowRectExForDpi(&mut rc, style, false, WINDOW_EX_STYLE(0), dpi);
             let (ww, wh) = (rc.right - rc.left, rc.bottom - rc.top);
-            // Centred on the monitor the viewer is on (the primary one when there is no viewer window).
+            // Centred on the work area (what the taskbar leaves) of the monitor the owner is on; the main screen's when there is no owner.
             let (ml, mt, mr, mb) = match owner {
-                Some(o) => crate::monitor_rect(o),
-                None => (0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)),
+                Some(o) => crate::monitor_work_rect(o),
+                None => crate::primary_work_rect(),
             };
             let t = wide(title);
             let hwnd = CreateWindowExW(
@@ -337,6 +397,31 @@ impl Form {
             SendMessageW(c, 0x0407 /* TBM_SETRANGEMIN */, Some(WPARAM(0)), Some(LPARAM(lo as isize)));
             SendMessageW(c, 0x0408 /* TBM_SETRANGEMAX */, Some(WPARAM(1)), Some(LPARAM(hi as isize)));
             SendMessageW(c, 0x0405 /* TBM_SETPOS */, Some(WPARAM(1)), Some(LPARAM(value as isize)));
+            // Double click on the knob: back to the value it had when the form opened; triple click: to zero.
+            let memo = Box::into_raw(Box::new(SliderMemo { initial: value, lo, hi, last: 0, clicks: 0 }));
+            let _ = windows::Win32::UI::Shell::SetWindowSubclass(c, Some(slider_subclass), 1, memo as usize);
+        }
+    }
+
+    /// A progress bar (0..=100 steps, see `progress_set`).
+    pub fn progress(&self, id: u16, x: i32, y: i32, w: i32, h: i32) {
+        unsafe {
+            let icc = windows::Win32::UI::Controls::INITCOMMONCONTROLSEX { dwSize: std::mem::size_of::<windows::Win32::UI::Controls::INITCOMMONCONTROLSEX>() as u32, dwICC: windows::Win32::UI::Controls::ICC_PROGRESS_CLASS };
+            let _ = windows::Win32::UI::Controls::InitCommonControlsEx(&icc);
+        }
+        let c = self.child(w!("msctls_progress32"), "", WINDOW_STYLE(0), WINDOW_EX_STYLE(0), id, x, y, w, h);
+        unsafe {
+            SendMessageW(c, 0x0406 /* PBM_SETRANGE32 */, Some(WPARAM(0)), Some(LPARAM(1000)));
+        }
+    }
+
+    /// The bar at `done` of `total`; `total` 0 (unknown) shows it empty.
+    pub fn progress_set(&self, id: u16, done: usize, total: usize) {
+        if let Some(c) = self.item(id) {
+            let pos = if total == 0 { 0 } else { (done.min(total) * 1000 / total) as isize };
+            unsafe {
+                SendMessageW(c, 0x0402 /* PBM_SETPOS */, Some(WPARAM(pos as usize)), Some(LPARAM(0)));
+            }
         }
     }
 
@@ -562,5 +647,19 @@ unsafe extern "system" fn form_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
             LRESULT(0)
         }
         _ => DefWindowProcW(hwnd, msg, wp, lp),
+    }
+}
+
+#[cfg(test)]
+mod slider_tests {
+    use super::*;
+
+    #[test]
+    fn quick_presses_pick_the_value() {
+        assert_eq!(slider_click_target(1, 40, 0, 100), None);
+        assert_eq!(slider_click_target(2, 40, 0, 100), Some(40), "double click = as it was");
+        assert_eq!(slider_click_target(3, 40, 0, 100), Some(0), "triple click = zero");
+        assert_eq!(slider_zero(5, 95), 5, "zero is out of range: the nearest end");
+        assert_eq!(slider_zero(-50, 50), 0);
     }
 }

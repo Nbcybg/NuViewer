@@ -1,0 +1,18 @@
+{
+  "id": "P074",
+  "would_try": false,
+  "buys": false,
+  "switch_decision": "ignore",
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "I'm not putting an unsigned-looking .exe from one unknown developer on the machine that holds my client shoots. No reviews, no source, no mention of code signing, and it's version 0.4.1.",
+  "why_switch_or_not": "The speed numbers and RAW+JPG showing as separate pictures sound nice for culling 500 frames, but they come from the developer's own benchmark on one PC, so I can't check them. There is no mention of rating, flagging or deleting picks, which is what I actually need when culling. And with one developer and no plugins or community, if it breaks on my camera's RAW files I have nobody to ask.",
+  "current_app_pros": "Windows Photos is already there, opens on double-click, never asks me anything, and it's made by Microsoft so I trust it with my files. It is fine for a quick look at a JPG.",
+  "current_app_pains": "It is slow to open RAW files and sometimes lags when I step through a big folder. It does not really help with culling either: no fast side-by-side check and no clear way to tell RAW from JPG. I live with it because it is safe and built in.",
+  "objection": "A solo dev's brand-new exe with no reviews, no source and no signing is not something I install on my work PC. Support is the second worry: no community, hard to find help.",
+  "would_change_my_mind": "Independent reviews from photographers I know, a signed installer or published source, and a clear note that it only reads my files and never changes or deletes originals.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 35
+}

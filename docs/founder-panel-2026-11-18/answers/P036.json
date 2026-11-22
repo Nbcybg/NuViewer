@@ -1,0 +1,18 @@
+{
+  "id": "P036",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 2,
+  "reason_code": "habit",
+  "reason": "Photos already opens when I double-click a picture and I never think about it. Making something else the default means redoing file associations by hand, and I redo that on every Windows reinstall.",
+  "why_switch_or_not": "The portable zip is the one part I like, because I could try it with no install and no admin rights. But it is packed with things I will never use (editor, 3D models, video, batch rename, screenshot importer), and I want a viewer that only views. Speed numbers on someone else's 1440p screen don't mean much for my phone photos and screenshots, and Photos is fast enough for me.",
+  "current_app_pros": "It's already there and I never set it up. Double-click opens the picture, it handles phone JPGs, screenshots and HEIC-ish stuff without fuss, and it survives Windows reinstalls without me doing anything.",
+  "current_app_pains": "Nothing much. It is sometimes slow to open the first picture after a restart, and it wants to push OneDrive and its editing stuff on me, but I live with that.",
+  "objection": "I would have to tick the formats and press Set default myself, then relearn the shortcuts, for a 0.4.1 app from one person that I would have to set up again after every reinstall. The app doing a hundred things I don't need is the opposite of what I want.",
+  "would_change_my_mind": "A plain, stripped-down mode that only views, with the usual keys (arrows, Esc, zoom) working the way Photos does, and a one-click way to make it default and keep that after reinstall. Or Photos getting annoying enough that I go looking for something.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 0,
+  "price_too_expensive": 0
+}

@@ -1,0 +1,18 @@
+{
+  "id": "P094",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 2,
+  "reason_code": "habit",
+  "reason": "FastStone already does what I need and I double-click pictures from Explorer dozens of times a day, so I'm not going to redo my file associations and shortcuts for a viewer from one person. Free and portable means I might poke at it once, but I'd go back.",
+  "why_switch_or_not": "The speed numbers are for rapid next/back on a big benchmark, and I just flip through phone photos and screenshots, so 85 ms vs 600 ms doesn't change my day. The list of 26 formats, RAW, 3D and video is mostly stuff I never open. And it says I have to tick formats and press Set default myself, and I'd have to relearn the keys, which is exactly what I don't want to do.",
+  "current_app_pros": "FastStone's full-screen mode, the browser and the simple editor are all in one place and I know where everything is. Red-eye, crop, resize and quick fixes for my phone photos and screenshots work without thinking, and it's free for home use.",
+  "current_app_pains": "Nothing really. It's a bit slow if I hold down next through a big folder, but that's not enough to make me change anything.",
+  "objection": "One developer, version 0.4.1. If it gets abandoned or breaks my associations, I've wasted the time I spent switching, and I get nothing I can't already do in FastStone.",
+  "would_change_my_mind": "A one-click way to import my FastStone shortcuts and full-screen behaviour, plus a sign it's still being maintained a year from now. Or if FastStone stopped working on my PC.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 0,
+  "price_too_expensive": 0
+}

@@ -34,6 +34,7 @@ const AGENT_CLASS: PCWSTR = nv_win::quick::AGENT_CLASS;
 pub const WM_SPACE: u32 = WM_APP + 1; // posted by the keyboard hook: Space was taken
 pub const WM_CLOSE_REQ: u32 = WM_APP + 2;
 pub const WM_OPEN_REQ: u32 = WM_APP + 3;
+pub const WM_SHARE_REQ: u32 = WM_APP + 12;
 const WM_SEL: u32 = WM_APP + 4; // posted by the selection WinEvent hook
 pub const WM_LOOKED: u32 = WM_APP + 6; // posted by the lookup thread
 const WM_TRAY: u32 = WM_APP + 7;
@@ -345,6 +346,15 @@ fn on_decoded() {
     }
 }
 
+/// Ctrl+Shift+H with the preview open: the previewed file goes to the Windows share sheet.
+fn share_shown(hwnd: HWND) {
+    let Some(path) = with(|a| a.shown.clone().or(a.current.clone())).flatten() else { return };
+    hide_preview();
+    if let Err(e) = nv_win::share::share_files(hwnd, &[path]) {
+        log(&format!("share: {e}"));
+    }
+}
+
 fn open_in_viewer() {
     let Some(path) = with(|a| a.shown.clone().or(a.current.clone())).flatten() else { return };
     let exe = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("nuviewer.exe")));
@@ -479,6 +489,10 @@ unsafe extern "system" fn agent_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARA
         }
         WM_OPEN_REQ => {
             open_in_viewer();
+            LRESULT(0)
+        }
+        WM_SHARE_REQ => {
+            share_shown(hwnd);
             LRESULT(0)
         }
         WM_SEL => {
@@ -636,6 +650,7 @@ fn quit_running() -> i32 {
 }
 
 fn main() {
+    nv_win::portable::init();
     nv_core::posters::register(); // a video's frame / a sound's waveform; Media Foundation loads only when one is previewed
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match args.first().map(|s| s.as_str()) {

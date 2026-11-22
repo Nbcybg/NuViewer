@@ -14,7 +14,7 @@ struct Item {
 }
 
 /// In the order the bar shows them, top to bottom.
-const ITEMS: [Item; 15] = [
+const ITEMS: [Item; 16] = [
     Item { action: Action::Next, glyph: "\u{276F}", label: "Next picture" },
     Item { action: Action::Prev, glyph: "\u{276E}", label: "Previous picture" },
     // One button for both views: it shows (and does) the one that is not on now; `fit_toggle` gives the glyph and the words.
@@ -25,6 +25,7 @@ const ITEMS: [Item; 15] = [
     Item { action: Action::RotateMinus45, glyph: "\u{2212}45\u{00B0}", label: "Rotate \u{2212}45\u{00B0}" },
     Item { action: Action::Slideshow, glyph: "\u{25B6}", label: "Slideshow" },
     Item { action: Action::ToggleSequences, glyph: "\u{25A4}", label: "Image sequences" },
+    Item { action: Action::TogglePairs, glyph: "R+J", label: "Group RAW + JPG pairs" },
     Item { action: Action::Gallery, glyph: "\u{25A6}", label: "Gallery" },
     Item { action: Action::FilmStrip, glyph: "\u{25A5}", label: "Film strip (also: pointer at the right edge)" },
     Item { action: Action::ReadMode, glyph: "\u{25EB}", label: "Read mode: two pages, no gap" },
@@ -150,6 +151,7 @@ impl App {
             Action::Fullscreen => nv_win::is_fullscreen(),
             Action::Slideshow => self.slide.on,
             Action::ToggleSequences => self.settings.sequences,
+            Action::TogglePairs => self.settings.pair_group,
             Action::Edit => self.editor.open,
             Action::FilmStrip => self.strip.pinned,
             Action::ReadMode => self.read.on,

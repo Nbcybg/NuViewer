@@ -1,0 +1,18 @@
+{
+  "id": "P099",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 8,
+  "reason_code": "trust",
+  "reason": "The rapid-next number (85 ms vs 600-900 ms) is big enough that I'd actually feel it, so I'd install the portable zip and throw some of my cbz and PSD files at it. But the benchmark is the dev's own, on one PC, and I won't make a 0.4.1 from one guy my default until I've seen it hold up on my files.",
+  "why_switch_or_not": "The thing that pulls me in is the speed on fast paging and that it lists cbz/zip, PSD and AI in one viewer, since I read manga from cbz and look at art files all week. What holds me back is that the open time and next/back (40-50 ms) gap is tens of ms and I wouldn't notice it, nothing says it has a proper manga reading mode (fit to width, two-page, remembering the page), and a single-dev 0.4.1 with no plug-ins is a risk for my default. I'd keep IrfanView as default and open NuViewer for archives and big folders to see if it holds up.",
+  "current_app_pros": "IrfanView starts instantly, I know every shortcut, the plug-ins are already set up for PSD and the archive stuff, it's tiny and has never crashed on me. Batch convert and resize with the right-click menu just work.",
+  "current_app_pains": "Fast flipping through a big folder or a long cbz lags, 600-900 ms for a quick burst of next presses is noticeable. The interface looks 1999 and the plug-in setup for cbz is a bit janky.",
+  "objection": "The benchmark is the developer's own, on one PC, and most of the gap on single open/next is a few tens of ms I won't feel. It's also version 0.4.1 from one person, so I don't know if it will be maintained or stable on my own files.",
+  "would_change_my_mind": "If it clearly handled cbz as a comic reader (fit-to-width, page memory, instant page turns on a 200-page archive) and I could confirm the speed gap myself on my own PSD and cbz files, I'd make it default.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 8,
+  "price_too_expensive": 15
+}

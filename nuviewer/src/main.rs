@@ -6,6 +6,7 @@ mod controls;
 mod display;
 mod editor_ui;
 mod extras;
+mod frames_ui;
 mod gallery;
 mod hud;
 mod loading;
@@ -23,6 +24,7 @@ mod settings_more;
 mod settings_ui;
 mod sidebar;
 mod strip;
+mod turntable;
 
 use gallery::{Gallery, GALLERY_CELL, GALLERY_CELL_MAX, GALLERY_CELL_MIN, GALLERY_GAP};
 use hud::Hud;
@@ -383,6 +385,9 @@ struct App {
     runs: Vec<Run>,
     /// Playback of a numbered image sequence / an animation (see `controls.rs`).
     seq_playing: bool,
+    /// The 3D turntable is turning (see `turntable.rs`), and when it last moved.
+    turntable: bool,
+    turntable_last: Instant,
     anim_paused: bool,
     /// Ping-pong play: the animation / sequence is currently running backward.
     pp_back: bool,
@@ -1112,6 +1117,7 @@ impl App {
             Event::Timer(TIMER_TOAST) => self.on_toast_timer(),
             Event::Timer(TIMER_SLIDE) => self.slideshow_tick(),
             Event::Timer(TIMER_MEDIA) => self.media_timer(),
+            Event::Timer(turntable::TIMER_TURNTABLE) => self.turntable_tick(),
             Event::Timer(TIMER_CURSOR) => {
                 if nv_win::is_fullscreen() {
                     nv_win::set_cursor_hidden(true);
@@ -1143,6 +1149,8 @@ impl App {
             // Middle click closes the viewer (not the gallery, and not while the rename box is open).
             Event::MiddleClick if self.mode == Mode::Viewer && self.rename.is_none() => self.request_quit(),
             Event::MiddleClick => {}
+            // A third quick click: its first press already counted as an ordinary click.
+            Event::TripleClick { .. } => {}
             // The rename box is a text box: click / drag / double click select, right click is the Cut / Copy / Paste menu.
             Event::MouseDown { x, y, .. } if self.rename.is_some() => self.rename_press(x, y),
             Event::DoubleClick { x, y, .. } if self.rename.is_some() => self.rename_double(x, y),
@@ -1333,6 +1341,8 @@ impl App {
             items: Vec::new(),
             runs: Vec::new(),
             seq_playing: false,
+            turntable: false,
+            turntable_last: Instant::now(),
             anim_paused: false,
             pp_back: false,
             anim_speed: 1.0,
@@ -1747,6 +1757,8 @@ fn main() {
     colour::apply_at_startup(&startup_settings);
     nv_codecs::set_model_textures(startup_settings.model_textures);
     nv_core::folder::set_include_documents(startup_settings.documents);
+    nv_core::rawpair::set_group(startup_settings.pair_group);
+    nv_core::plugins::load(startup_settings.plugins);
     // Window or fullscreen: as the last window was (shared with NuGallery), else the setting.
     let start_fullscreen = !flag("--windowed") && nv_win::winstate::load().map(|s| s.fullscreen).unwrap_or(startup_settings.start_fullscreen);
     let actual_size = flag("--actual-size");

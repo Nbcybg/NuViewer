@@ -1,0 +1,18 @@
+{
+  "id": "P004",
+  "would_try": true,
+  "buys": true,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 20,
+  "reason_code": "quality",
+  "reason": "Speed is the only thing I care about, and 85 ms for five quick nexts against 600-900 ms in FastStone is a gap I would feel every day. If it holds up on my own folders, it becomes what double-click opens.",
+  "why_switch_or_not": "I would switch the default for the next/back speed alone, since FastStone stutters when I hold the arrow key through big folders. I would keep FastStone around for its browser and editor until I trust the new one, because NuViewer is 0.4.1 from one person and I only have the developer's own benchmark on one PC. The gallery, editor, importer and Space-bar preview make me nervous: I only want a viewer, and I will check what stays running in the background.",
+  "current_app_pros": "FastStone's full-screen mode is quick to use, and the built-in browser and simple editor (crop, resize, red-eye) cover my daily phone photos, screenshots and PDFs. It is stable and I know where everything is.",
+  "current_app_pains": "Holding next through a few hundred photos from the 200,000-picture drive lags and stutters, and big folders take a moment to list. It is not terrible, but I notice it every day.",
+  "objection": "It does too much (gallery, editor, importer, Space-bar preview) and I only want a viewer. A one-person 0.4.1 with a self-run benchmark might be fast on his PC and slow on mine, with something running in the background.",
+  "would_change_my_mind": "If it were slow or laggy on my own big folders, or left something resident in the background eating memory, I would uninstall it. If I could switch off the gallery, editor, importer and Space-bar preview, I would be fully sold.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

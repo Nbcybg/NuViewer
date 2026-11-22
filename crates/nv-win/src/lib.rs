@@ -10,13 +10,17 @@ pub mod instance;
 pub mod menu;
 pub mod menubar;
 pub mod openwith;
+pub mod portable;
+pub mod progress;
 pub mod props;
 pub mod regionpick;
 pub mod quick;
 pub mod registry;
+pub mod share;
 pub mod shell;
 pub mod text;
 pub mod ui;
+pub mod winpos;
 pub mod winstate;
 
 use std::ffi::c_void;
@@ -44,6 +48,9 @@ pub enum Event {
     MouseMove { x: i32, y: i32, left_down: bool },
     MouseUp,
     DoubleClick { x: i32, y: i32, ctrl: bool },
+    /// A third quick press in a row at (about) the same place. It follows the `MouseDown` of that press, so a program that
+    /// ignores it sees an ordinary click.
+    TripleClick { x: i32, y: i32, ctrl: bool },
     /// Right mouse button released over the client area (x, y in client pixels): the app shows its context menu.
     RightClick { x: i32, y: i32 },
     /// Middle mouse button released (sent on release so the matching "up" can't land on a window behind ours).
@@ -515,6 +522,11 @@ pub fn com_init() -> bool {
     unsafe { windows::Win32::System::Com::CoInitializeEx(None, windows::Win32::System::Com::COINIT_APARTMENTTHREADED).is_ok() }
 }
 
+/// A program with its own window (not made by `run`) names it, so the dialogs (`ui::Form`) it opens belong to it.
+pub fn set_main_window(hwnd: HWND) {
+    MAIN_WINDOW.store(hwnd.0 as isize, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub fn quit() {
     if let Some(h) = main_window() {
         remember_window(h);
@@ -522,11 +534,22 @@ pub fn quit() {
     unsafe { PostQuitMessage(0) }
 }
 
-/// Is a rectangle at least partly on some monitor (a window remembered on a screen that is gone must not open off-screen)?
-fn on_a_screen(x: i32, y: i32, w: i32, h: i32) -> bool {
-    use windows::Win32::Graphics::Gdi::{MonitorFromRect, MONITOR_DEFAULTTONULL};
-    let r = windows::Win32::Foundation::RECT { left: x + 40, top: y + 10, right: x + w.max(80) - 40, bottom: y + h.max(60) };
-    unsafe { !MonitorFromRect(&r, MONITOR_DEFAULTTONULL).is_invalid() }
+/// The work area (the screen minus the taskbar) of the monitor window `hwnd` is on: left, top, right, bottom.
+pub(crate) fn monitor_work_rect(hwnd: HWND) -> (i32, i32, i32, i32) {
+    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+    unsafe {
+        let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+        if GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mut mi).as_bool() {
+            return (mi.rcWork.left, mi.rcWork.top, mi.rcWork.right, mi.rcWork.bottom);
+        }
+    }
+    primary_work_rect()
+}
+
+/// The work area of the main screen.
+pub(crate) fn primary_work_rect() -> (i32, i32, i32, i32) {
+    let (works, primary) = winpos::work_areas();
+    works.get(primary).copied().unwrap_or((0, 0, 1280, 720))
 }
 
 /// Write down whether this program is fullscreen and where its window is (`winstate`), so the other program can follow.
@@ -553,7 +576,9 @@ pub fn remember_window(hwnd: HWND) {
         };
         let prior = winstate::load();
         let rect = if have { Some((rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top)) } else { prior.and_then(|p| p.rect) };
-        winstate::save(&winstate::WinState { fullscreen, rect });
+        // Maximised: asked of the window itself; in fullscreen (or minimised) the answer from before stays.
+        let maximized = if fullscreen || IsIconic(hwnd).as_bool() { prior.map(|p| p.maximized).unwrap_or(false) } else { IsZoomed(hwnd).as_bool() };
+        winstate::save(&winstate::WinState { fullscreen, rect, maximized });
     }
 }
 
@@ -635,11 +660,14 @@ where
         let have_work = SystemParametersInfoW(SPI_GETWORKAREA, 0, Some(&mut work as *mut _ as *mut c_void), SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0)).is_ok();
         let (width, height) = if have_work { (width.min(work.right - work.left), height.min(work.bottom - work.top)) } else { (width, height) };
         let (x, y) = if have_work { (work.left + (work.right - work.left - width) / 2, work.top + (work.bottom - work.top - height) / 2) } else { (CW_USEDEFAULT, CW_USEDEFAULT) };
-        // Where the window was last time (shared with the other program), if that is still on a screen.
-        let (x, y, width, height) = match winstate::load().and_then(|s| s.rect) {
-            Some((rx, ry, rw, rh)) if on_a_screen(rx, ry, rw, rh) => (rx, ry, rw, rh),
-            _ => (x, y, width, height),
-        };
+        // Where the window was last time (shared with the other programs): never half off a screen, never on one that is gone, never
+        // bigger than the work area; maximised if it was; centred when nothing usable was remembered (see `winpos`).
+        let saved = winstate::load();
+        let (works, primary) = winpos::work_areas();
+        let placement = winpos::fit(saved.and_then(|s| s.rect), saved.map(|s| s.maximized).unwrap_or(false), &works, primary, (width, height));
+        let _ = (x, y);
+        let (x, y, width, height) = placement.rect;
+        let start_maximized = placement.maximized && !fullscreen;
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE(0),
             class,
@@ -662,7 +690,7 @@ where
             toggle_fullscreen(hwnd);
         }
         // Show the (dark) window first so slow GPU init doesn't look like a hang.
-        let _ = ShowWindow(hwnd, SW_SHOW);
+        let _ = ShowWindow(hwnd, if start_maximized { SW_SHOWMAXIMIZED } else { SW_SHOW });
         let _ = UpdateWindow(hwnd);
         if fullscreen {
             set_taskbar_hidden(hwnd, true); // once more now that the window is visible: the shell ignores it before that
@@ -687,6 +715,27 @@ where
         drop(Box::from_raw(state));
     }
     Ok(())
+}
+
+/// When and where the last double click happened (message time in ms, client x, y): a press right after it is the third.
+static LAST_DOUBLE: std::sync::Mutex<Option<(u32, i32, i32)>> = std::sync::Mutex::new(None);
+
+fn note_double_click(time: u32, x: i32, y: i32) {
+    *LAST_DOUBLE.lock().unwrap() = Some((time, x, y));
+}
+
+/// Is a press at (x, y) at message time `time` the third quick click of a row? (Consumes the double click it follows.)
+fn is_third_click(time: u32, x: i32, y: i32) -> bool {
+    let Some((t0, x0, y0)) = LAST_DOUBLE.lock().unwrap().take() else { return false };
+    let limit = unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime() };
+    let slop = unsafe { GetSystemMetrics(SM_CXDOUBLECLK) }.max(4);
+    triple_within(t0, x0, y0, time, x, y, limit, slop)
+}
+
+/// The arithmetic of `is_third_click`: inside the double-click time (the clock may wrap) and the double-click rectangle.
+#[allow(clippy::too_many_arguments)]
+fn triple_within(t0: u32, x0: i32, y0: i32, t1: u32, x1: i32, y1: i32, limit_ms: u32, slop: i32) -> bool {
+    t1.wrapping_sub(t0) <= limit_ms && (x1 - x0).abs() <= slop / 2 && (y1 - y0).abs() <= slop / 2
 }
 
 /// The modifier keys a mouse message reports in its wParam (MK_CONTROL, MK_SHIFT); Alt is not part of it. Handlers read
@@ -866,7 +915,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_LBUTTONDOWN => {
             SetCapture(hwnd);
-            call_with_mods(mouse_mods(wp), || dispatch(Event::MouseDown { x: lo_i16(lp.0), y: hi_i16(lp.0), ctrl: (wp.0 & 0x0008) != 0 }));
+            let (x, y, ctrl) = (lo_i16(lp.0), hi_i16(lp.0), (wp.0 & 0x0008) != 0);
+            call_with_mods(mouse_mods(wp), || dispatch(Event::MouseDown { x, y, ctrl }));
+            if is_third_click(GetMessageTime() as u32, x, y) {
+                call_with_mods(mouse_mods(wp), || dispatch(Event::TripleClick { x, y, ctrl }));
+            }
             LRESULT(0)
         }
         WM_LBUTTONUP => {
@@ -886,6 +939,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             // The second press of a quick double click arrives as this instead of WM_LBUTTONDOWN: capture the mouse
             // like a normal press so a held-button gesture (zoom, drag) works on it too, and its release is seen.
             SetCapture(hwnd);
+            note_double_click(GetMessageTime() as u32, lo_i16(lp.0), hi_i16(lp.0));
             call_with_mods(mouse_mods(wp), || dispatch(Event::DoubleClick { x: lo_i16(lp.0), y: hi_i16(lp.0), ctrl: (wp.0 & 0x0008) != 0 }));
             LRESULT(0)
         }
@@ -899,6 +953,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             let left_down = (wp.0 & 0x0001) != 0; // MK_LBUTTON
             call_with_mods(mouse_mods(wp), || dispatch(Event::MouseMove { x: lo_i16(lp.0), y: hi_i16(lp.0), left_down }));
             LRESULT(0)
+        }
+        WM_EXITSIZEMOVE => {
+            // The user let go of the title bar or an edge: this is where the window is now (written at once, not only on exit).
+            remember_window(hwnd);
+            DefWindowProcW(hwnd, msg, wp, lp)
         }
         WM_CLOSE => {
             CLOSE_VETO.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -950,6 +1009,20 @@ pub fn display_profile_path(hwnd: Option<HWND>) -> Option<std::path::PathBuf> {
         }
         let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
         (len > 0).then(|| std::path::PathBuf::from(String::from_utf16_lossy(&buf[..len])))
+    }
+}
+
+#[cfg(test)]
+mod click_tests {
+    use super::triple_within;
+
+    #[test]
+    fn a_third_click_must_be_quick_and_close() {
+        assert!(triple_within(1000, 50, 50, 1300, 51, 50, 500, 4));
+        assert!(!triple_within(1000, 50, 50, 1600, 50, 50, 500, 4), "too slow");
+        assert!(!triple_within(1000, 50, 50, 1200, 80, 50, 500, 4), "too far");
+        // The message clock wraps after 49 days: a click 100 ms later is still quick.
+        assert!(triple_within(u32::MAX - 20, 5, 5, 80, 5, 5, 500, 4));
     }
 }
 

@@ -1,0 +1,18 @@
+{
+  "id": "P100",
+  "would_try": false,
+  "buys": false,
+  "switch_decision": "ignore",
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "It's an .exe from one unknown developer, version 0.4.1, and I see no reviews, no source and no mention of code signing. I don't install that on the PC that has my work files and game project.",
+  "why_switch_or_not": "The speed numbers don't interest me, because 40 ms versus 600 ms between pictures is not something I'd notice when I open a few files. The HDR/EXR/TGA/DDS and 3D model support is the one thing that would be useful for my texture checking, but it's not enough to get me to run an unsigned installer from a solo dev. IrfanView already opens what I need, and I already have its shortcuts and plug-ins set up.",
+  "current_app_pros": "IrfanView is small, fast enough, free, and I know all its shortcuts. The plug-ins are installed, it has been stable for years, and I trust it because it has been around forever.",
+  "current_app_pains": "Nothing much. It doesn't open some game formats like DDS or 3D models without extra plug-ins, but I get by with that.",
+  "objection": "I don't know who this person is and I can't verify the file is safe. One developer, version 0.4.1, no plug-in system, and nothing to show other people use it.",
+  "would_change_my_mind": "Independent reviews from a source I trust, a code-signed installer, or open source I could check, or a recommendation from someone on my game team who has used it for a while.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 0,
+  "price_too_expensive": 0
+}

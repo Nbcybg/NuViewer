@@ -3,6 +3,7 @@
 
 use super::*;
 use nv_core::keys::{Action, ACTIONS};
+use nv_core::xmp::Label;
 use nv_win::menu::{self, Entry};
 
 /// Menu ids: `ACTION_BASE + index in ACTIONS` runs that action, `EXTERNAL_BASE + n` sends the picture to the n-th
@@ -18,6 +19,11 @@ const MENU_PROPERTIES: u32 = 0x1000_0007;
 const OPEN_WITH_BASE: u32 = 0x4000_0000;
 /// "Sort by" submenu: `MENU_SORT + index in SortKey::ALL`, then ascending / descending.
 const MENU_SORT: u32 = 0x1000_0010;
+/// Plug-ins submenu: `MENU_PLUGIN + plug-in * 64 + command` runs a command; the folder and the reload items; one that is only a note.
+const MENU_PLUGIN_FOLDER: u32 = 0x1000_0030;
+const MENU_PLUGIN_RELOAD: u32 = 0x1000_0031;
+const MENU_PLUGIN_NOTE: u32 = 0x1000_0032;
+const MENU_PLUGIN: u32 = 0x1000_1000;
 const MENU_SORT_ASC: u32 = 0x1000_0020;
 const MENU_SORT_DESC: u32 = 0x1000_0021;
 
@@ -266,6 +272,11 @@ impl App {
             Some(UndoOp::Moved { .. }) => "Undo move / rename",
             Some(UndoOp::Copied { .. }) => "Undo copy",
             Some(UndoOp::Rewritten { .. }) => "Undo save",
+            Some(UndoOp::Group(v)) => match v.first() {
+                Some(UndoOp::Deleted { .. }) => "Undo delete (RAW + JPG)",
+                Some(UndoOp::Copied { .. }) => "Undo copy (RAW + JPG)",
+                _ => "Undo move / rename (RAW + JPG)",
+            },
             None => "Undo",
         }
         .to_string()
@@ -299,6 +310,22 @@ impl App {
         Entry::Submenu { text: "Edit with…".into(), items, enabled }
     }
 
+    /// "Plug-ins": the commands that apply to this picture, then the folder to put plug-ins in and a reload.
+    fn plugins_entry(&self, enabled: bool) -> Entry {
+        let loaded = nv_core::plugins::current();
+        let mut items: Vec<Entry> = match self.target().and_then(|t| self.folder.files.get(t)) {
+            Some(f) => loaded.commands_for(f).into_iter().filter(|(pi, ci, _)| *pi < 64 && *ci < 64).map(|(pi, ci, name)| Entry::item(MENU_PLUGIN + (pi * 64 + ci) as u32, name)).collect(),
+            None => Vec::new(),
+        };
+        if items.is_empty() {
+            items.push(Entry::item(MENU_PLUGIN_NOTE, if loaded.plugins.is_empty() { "No plug-ins installed" } else { "No plug-in command for this file" }).enabled(false));
+        }
+        items.push(Entry::Separator);
+        items.push(Entry::item(MENU_PLUGIN_FOLDER, "Open the plug-ins folder…"));
+        items.push(Entry::item(MENU_PLUGIN_RELOAD, format!("Reload plug-ins ({} loaded{})", loaded.plugins.len(), if loaded.skipped.is_empty() { String::new() } else { format!(", {} skipped", loaded.skipped.len()) })));
+        Entry::Submenu { text: "Plug-ins".into(), items, enabled }
+    }
+
     /// The entries under menu bar label `i` (labels: File, Edit, View, Go, Tools, Help).
     pub fn menu_entries(&self, i: usize) -> Vec<Entry> {
         let has = self.target().is_some();
@@ -315,6 +342,8 @@ impl App {
                 self.action_entry(Action::CopyTo, "Copy to…").enabled(has),
                 self.action_entry(Action::MoveTo, "Move to…").enabled(has),
                 self.action_entry(Action::Reveal, "Show in Explorer").enabled(has),
+                self.action_entry(Action::Share, "Share to\u{2026}").enabled(has),
+                self.action_entry(Action::ExtractFrames, "Extract frames\u{2026}").enabled(has),
                 Entry::item(MENU_PROPERTIES, "Properties").enabled(has),
                 Entry::Separator,
                 self.action_entry(Action::ConvertPng, nv_core::i18n::t("menu.convert_png")).enabled(has && viewer),
@@ -361,6 +390,7 @@ impl App {
                 checked(self.action_entry(Action::RawLook, "RAW: camera look (not sensor data)"), self.settings.raw_mode.is_camera_look()),
                 checked(self.action_entry(Action::ToggleSidebar, "Viewer controls").enabled(viewer), self.sidebar.pinned),
                 checked(self.action_entry(Action::ToggleSequences, "Fold image sequences"), self.settings.sequences),
+                checked(self.action_entry(Action::TogglePairs, "Group RAW + JPG pairs"), self.settings.pair_group),
                 Entry::Separator,
                 checked(self.action_entry(Action::Slideshow, "Slideshow").enabled(many), self.slide.on),
                 checked(self.action_entry(Action::Shuffle, "Shuffle").enabled(many), self.folder.order.shuffle.is_some()),
@@ -419,6 +449,7 @@ impl App {
             other => other,
         };
         let edit_with = self.edit_with_entry(has_file);
+        let plugins = self.plugins_entry(has_file);
         let open_with = self.open_with_entry(has_file);
         let order = self.folder.order;
         let sort_menu = {
@@ -427,6 +458,23 @@ impl App {
             items.push(Entry::checked(MENU_SORT_ASC, "Ascending", !order.descending));
             items.push(Entry::checked(MENU_SORT_DESC, "Descending", order.descending));
             Entry::Submenu { text: "Sort by".into(), items, enabled: has_file && many }
+        };
+        let rating_menu = {
+            let now = self.target().map(|i| nv_core::xmp::read(&self.folder.files[i])).unwrap_or_default();
+            let mut items: Vec<Entry> = (0..=5u8)
+                .map(|n| {
+                    let a = [Action::Rate0, Action::Rate1, Action::Rate2, Action::Rate3, Action::Rate4, Action::Rate5][n as usize];
+                    let text = if n == 0 { "No stars".to_string() } else { "\u{2605}".repeat(n as usize) };
+                    checked(self.action_entry(a, &text), !now.rejected && now.stars == n)
+                })
+                .collect();
+            items.push(checked(self.action_entry(Action::Reject, "Rejected"), now.rejected));
+            items.push(Entry::Separator);
+            for (a, l) in [(Action::LabelRed, Label::Red), (Action::LabelYellow, Label::Yellow), (Action::LabelGreen, Label::Green), (Action::LabelBlue, Label::Blue), (Action::LabelPurple, Label::Purple)] {
+                items.push(checked(self.action_entry(a, l.name()), now.label == Some(l)));
+            }
+            items.push(self.action_entry(Action::LabelNone, "No label"));
+            Entry::Submenu { text: "Rating".into(), items, enabled: has_file }
         };
         let entries = vec![
             self.action_entry(Action::Prev, "Previous picture").enabled(viewer && many),
@@ -441,6 +489,8 @@ impl App {
             checked(self.action_entry(Action::Slideshow, "Slideshow").enabled(many), self.slide.on),
             self.action_entry(Action::PlayPause, "Play / pause").enabled(playable),
             checked(self.action_entry(Action::ToggleSequences, "Fold image sequences"), self.settings.sequences),
+            checked(self.action_entry(Action::TogglePairs, "Group RAW + JPG pairs"), self.settings.pair_group),
+            rating_menu,
             checked(self.action_entry(Action::FilmStrip, "Film strip").enabled(viewer && many), self.strip.pinned),
             checked(self.action_entry(Action::ReadMode, "Read mode (two pages)").enabled(viewer && many), self.read.on),
             checked(self.action_entry(Action::ReadDirection, "Japanese reading (right to left)").enabled(viewer), self.settings.read_rtl),
@@ -457,6 +507,8 @@ impl App {
             self.action_entry(Action::CopyImage, "Copy picture").enabled(has_file),
             self.action_entry(Action::CopyPath, "Copy file path").enabled(has_file),
             self.action_entry(Action::Reveal, "Show in Explorer").enabled(has_file),
+            self.action_entry(Action::Share, "Share to\u{2026}").enabled(has_file),
+            self.action_entry(Action::ExtractFrames, "Extract frames\u{2026}").enabled(has_file),
             Entry::item(MENU_PROPERTIES, "Properties").enabled(has_file),
             self.action_entry(Action::ConvertPng, nv_core::i18n::t("menu.convert_png")).enabled(has_file && viewer),
             self.action_entry(Action::ConvertJpeg, nv_core::i18n::t("menu.convert_jpeg")).enabled(has_file && viewer),
@@ -467,6 +519,7 @@ impl App {
             self.action_entry(Action::Edit, "Edit in NuEditor").enabled(has_file && viewer),
             open_with,
             edit_with,
+            plugins,
             Entry::Separator,
             self.action_entry(Action::Settings, "Settings…"),
             Entry::item(MENU_FILE_TYPES, "File types…"),
@@ -488,6 +541,24 @@ impl App {
                 }
             }
             MENU_SET_UP_PROGRAMS => self.open_settings(),
+            MENU_PLUGIN_FOLDER => {
+                let dir = nv_core::plugins::plugins_dir();
+                let _ = std::fs::create_dir_all(&dir);
+                nv_win::shell::open_url(&dir.display().to_string());
+            }
+            MENU_PLUGIN_RELOAD => self.reload_plugins(),
+            i if (MENU_PLUGIN..MENU_PLUGIN + 4096).contains(&i) => {
+                let n = (i - MENU_PLUGIN) as usize;
+                let loaded = nv_core::plugins::current();
+                if let (Some(p), Some(f)) = (loaded.plugins.get(n / 64), self.target().and_then(|t| self.folder.files.get(t)).cloned()) {
+                    if let Some(c) = p.commands.get(n % 64) {
+                        match nv_core::plugins::run_command(p, c, &[f]) {
+                            Ok(_) => self.toast(format!("{}: {}", p.name, c.name)),
+                            Err(e) => self.toast(e),
+                        }
+                    }
+                }
+            }
             MENU_OPEN_AS => {
                 if let Some(f) = self.target().and_then(|t| self.folder.files.get(t)).cloned() {
                     if let Err(e) = nv_win::openwith::choose(self.hwnd, &f) {

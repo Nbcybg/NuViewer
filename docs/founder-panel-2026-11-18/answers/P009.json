@@ -1,0 +1,18 @@
+{
+  "id": "P009",
+  "would_try": false,
+  "buys": false,
+  "switch_decision": "ignore",
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "I don't run unknown .exe files from a one-person project with no reviews and no word on signing or source. Even if I did, a few tens of milliseconds wouldn't change how I cull.",
+  "why_switch_or_not": "The speed numbers are about next/back in milliseconds, and I wouldn't notice that. I browse in Explorer and open whatever app comes up. Nothing here fixes a problem I have. The long format list (3D, audio, fonts) means nothing to me because I only handle RAW+JPG. Version 0.4.1 from one developer also looks like a project that could be dropped, and I reinstall Windows every year or two, so I don't want to keep re-setting a default viewer.",
+  "current_app_pros": "Explorer thumbnails are already there on every install, so I have nothing to set up or reinstall. Whatever opens the file is good enough for a quick look, and I do the real RAW work in my RAW converter.",
+  "current_app_pains": "Nothing that makes me look for a viewer. Culling RAW+JPG in Explorer is a bit clumsy, but I've lived with it for years.",
+  "objection": "A solo developer's unsigned-looking .exe with no reviews, and the speed gain is a few tens of milliseconds I wouldn't feel.",
+  "would_change_my_mind": "A code-signed installer, source on GitHub, and several independent reviews or photographer friends I trust using it. It would also need a real RAW+JPG culling feature, such as pick/reject marks or side-by-side compare, and not just speed.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 0,
+  "price_too_expensive": 0
+}

@@ -1,0 +1,18 @@
+{
+  "id": "P084",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 5,
+  "reason_code": "trust",
+  "reason": "I'd install it and throw one of my RAW+JPG cards at it, because it's free and the speed numbers are interesting. But I'm not making a v0.4.1 one-person app my default when IrfanView already works and I know every key.",
+  "why_switch_or_not": "The pull is that it seems to do view, gallery, batch convert and a bit of editing in one app, opens more formats than IrfanView, and shows RAW and JPG as separate pictures like I want when I cull. What stops me is that I don't know how it treats my colour profiles and my XMP/sidecar workflow, it has its own sidecar edit file, and there's no plug-in system when I've spent years setting up IrfanView's plug-ins and shortcuts. I'd keep IrfanView as default and open NuViewer on the side for culling a card to see if it's really faster.",
+  "current_app_pros": "IrfanView starts instantly, I know all the shortcuts, my plug-ins are set up, batch convert/rename works the way I expect, and it has never messed with my files or colours.",
+  "current_app_pains": "Next/back on big RAW+JPG batches feels slow when I cull 500 shots, and the interface looks old. Otherwise nothing that makes me want to leave.",
+  "objection": "My colour management and XMP/sidecar workflow must not change, and I can't tell if a single-developer 0.4.1 app will respect it or stay maintained.",
+  "would_change_my_mind": "Seeing that it reads and writes standard XMP sidecars and keeps my ratings and colour profile untouched on a real 500-photo RAW+JPG cull, plus a few months of updates showing the developer sticks with it.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

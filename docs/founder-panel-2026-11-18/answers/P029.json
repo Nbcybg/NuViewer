@@ -1,0 +1,18 @@
+{
+  "id": "P029",
+  "would_try": true,
+  "buys": true,
+  "switch_decision": "replace",
+  "purchases_first_month": 20,
+  "reason_code": "quality",
+  "reason": "Rapid next x5 in 85 ms against 600-900 ms is a gap I would feel when I run through hundreds of RAW+JPG frames, and Windows Photos is the slowest thing I own at that. It is free and portable, so I lose nothing by trying it on a real shoot folder.",
+  "why_switch_or_not": "A few tens of ms on a single open means nothing to me, but next/back at 40-50 ms and a fast burst of next presses is exactly what culling is. RAW and JPG showing as separate pictures is what I want, and it can read RAW from sensor data or the embedded preview. I would switch if my own RAW files flip as fast as the benchmark claims; the list says nothing about ratings, flags or delete-to-reject keys, so I would still check how I mark keepers before I trust it as the only viewer.",
+  "current_app_pros": "It is already there and opens when I double-click. It handles ordinary JPGs fine and I never had to set anything up.",
+  "current_app_pains": "It is slow to open and slow between pictures, and it lags noticeably when I hold the arrow key through a folder of RAW files. With 200,000 pictures spread over 15 years, anything that stalls on a big folder wastes my time every day.",
+  "objection": "The benchmark is one PC, and it uses typical JPG/PNG, not my big RAW files from a big folder on a slow drive. It is also 0.4.1 from one man, and I do not see culling features like ratings or flags listed. If he stops working on it, I am back to Photos.",
+  "would_change_my_mind": "Seeing it flip through a 2,000-file RAW+JPG folder on my own machine with no stall, and finding that I can reject or keep frames without leaving the viewer.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 30,
+  "price_too_expensive": 60
+}

@@ -1,0 +1,18 @@
+{
+  "id": "P071",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 4,
+  "reason_code": "trust",
+  "reason": "I'd grab the portable zip and throw some of my EXR/DDS/GLB files at it, because FastStone chokes on those. But one developer, version 0.4.1, no reviews and no signing mentioned, so it doesn't become my default.",
+  "why_switch_or_not": "The format list is the only thing that interests me: HDR/EXR/TGA/DDS and GLB/FBX for my game textures and models, plus PSD and AI in one window. I'd still keep FastStone as default because my full-screen browsing and quick edits work, and a solo-dev 0.4.1 that is also a gallery, editor, importer and Explorer preview agent is exactly the 'does too much' pile I don't want running on my machine. The speed numbers are from the dev's own PC and I can't tell if they hold on mine.",
+  "current_app_pros": "FastStone's full-screen mode with the hover toolbars, the file browser, and the simple editor (crop, resize, color tweaks) are all in one place and I know them by heart. It opens my PNG/PSD/JPG fine and has been stable for years.",
+  "current_app_pains": "It doesn't open a lot of what I use for game work: EXR/HDR, DDS and some TGA look wrong or fail, and 3D models don't open at all. Rapid flipping through big PNGs lags a bit, and alpha display is mediocre.",
+  "objection": "It's a one-person project that does way too much (gallery, editor, importer, tray/Explorer helper), and I'd have to trust an unsigned-looking .exe from a stranger with my project files. I only want a viewer.",
+  "would_change_my_mind": "Independent reviews or a source repo I can look at, a code-signed installer, and a clean way to run it with the Explorer preview and importer turned off, so it's only a viewer. Then I'd try it as my default for a month.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 35
+}

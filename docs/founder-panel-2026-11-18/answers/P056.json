@@ -1,0 +1,18 @@
+{
+  "id": "P056",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 4,
+  "reason_code": "trust",
+  "reason": "I'd install it on a whim and poke at it, but IrfanView is wired into my double-click and my shortcuts, and one developer at 0.4 makes me not want to hand over my default. Free is fine, it just isn't enough to make me change something that works.",
+  "why_switch_or_not": "The speed numbers and the Space-bar preview from Explorer are interesting, and I'd like to see it open my phone photos and screenshots quicker than IrfanView. But I mostly open JPG/PNG/PDF, which IrfanView already handles fine, and 26 vs 13 file types matters to me very little. Setting the default by hand format by format in Windows Settings, plus no plug-in system and a single developer, means I'd keep IrfanView as default and try NuViewer on the side.",
+  "current_app_pros": "IrfanView opens everything I throw at it instantly enough, I know the shortcuts by heart, the plug-ins are already set up, and it handles quick resize, crop and save-as for screenshots without thinking.",
+  "current_app_pains": "Nothing much. The interface looks dated and rapid next/back is a bit slow on big photos, but it never gets in my way.",
+  "objection": "One developer at version 0.4: if it gets abandoned next year I'd have re-set all my file associations and relearned shortcuts for nothing.",
+  "would_change_my_mind": "A visible track record of regular updates over a year or so, or a few months of it staying alive and fixing bugs, plus IrfanView-style shortcuts so I don't have to relearn anything.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

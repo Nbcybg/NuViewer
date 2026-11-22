@@ -173,12 +173,48 @@ pub fn strip_one(path: &Path, keep_orientation: bool) -> Result<bool, String> {
 impl App {
     /// The selected entries' paths (or the focused item's).
     /// A folded image sequence stands for all its frames: deleting, copying or moving its tile does that to every frame.
+    /// Ctrl+Shift+H / "Share to...": the selected files (folders are left out; a RAW + JPG pair goes as both) to the Windows share sheet.
+    pub fn share_selected(&mut self) {
+        let files = nv_win::share::shareable(&self.picked_paths());
+        match nv_win::share::share_files(self.hwnd, &files) {
+            Ok(()) => {}
+            Err(e) => self.toast(e),
+        }
+    }
+
+    /// Ctrl+Shift+F / "Extract frames...": every selected video, animation, PDF and 3D model becomes a folder of pictures next to it (or in
+    /// the snapshot folder). Settings > Video snapshot decide the format; the answer says what came out and whether transparency was kept.
+    pub fn extract_frames_selected(&mut self) {
+        let files: Vec<PathBuf> = self.sel.entries(&self.listing).into_iter().filter(|e| !e.is_dir()).map(|e| e.path.clone()).collect();
+        if files.is_empty() {
+            return;
+        }
+        let opts = nv_core::frames::Options::from_prefs(&self.settings.more);
+        let first = files[0].file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let results = nv_win::progress::run("Extract frames", &first, move |cancel, report| {
+            nv_core::frames::extract_many(&files, &opts, cancel, &mut |i, n, name, done, total| {
+                report.set(done, total);
+                report.line(&if n > 1 { format!("{name}   ({} of {n})", i + 1) } else { name.to_string() });
+            })
+        });
+        if let Some(results) = results {
+            nv_win::shell::message(&nv_core::frames::summary_many(&results));
+            if let Some(first) = nv_core::frames::first_output(&results) {
+                nv_win::shell::reveal_in_explorer(&first);
+            }
+        }
+    }
+
     pub fn picked_paths(&self) -> Vec<PathBuf> {
         let mut out = Vec::new();
         for e in self.sel.entries(&self.listing) {
             match self.listing.sequence_files(e.id) {
                 Some(frames) => out.extend(frames),
-                None => out.push(e.path.clone()),
+                None => {
+                    out.push(e.path.clone());
+                    // a grouped RAW + JPG pair: the tile is both files
+                    out.extend(self.listing.pair_files(e.id));
+                }
             }
         }
         out
@@ -219,7 +255,40 @@ impl App {
     /// F4 / "Edit in NuEditor": open the selected picture in the editor. The gallery stays behind; when the editor closes it
     /// comes back to this window on that picture (`--from gallery`).
     pub fn launch_editor(&mut self) {
-        let Some(path) = self.sel.entries(&self.listing).first().filter(|e| !e.is_dir() && e.viewable()).map(|e| e.path.clone()) else { return };
+        // A text, Markdown, JSON ... file goes to NuNote.
+        if let Some(t) = self.sel.entries(&self.listing).first().filter(|e| !e.is_dir() && nv_core::textfiles::is_text_path(&e.path)).map(|e| e.path.clone()) {
+            if let Err(e) = nv_core::textfiles::open_in_notepad(&t) {
+                self.toast(e);
+            }
+            return;
+        }
+        let Some(entry) = self.sel.entries(&self.listing).first().filter(|e| !e.is_dir() && e.viewable()).map(|e| (*e).clone()) else { return };
+        // RAW + JPG shown as one tile (grouped): the edit is made on the RAW (its sensor data and the camera's own values). With the
+        // two as separate tiles each file is edited as itself, so the JPG can be edited on its own.
+        let path = self.listing.pair_files(entry.id).into_iter().find(|p| p.is_file()).unwrap_or_else(|| entry.path.clone());
+        // A video, a PDF, a 3D model or an animation that is not a GIF: NuEditor gets its first frame / page / default view as a picture, saved the
+        // way Settings > Video snapshot say (a GIF is edited as a whole). Open it in NuViewer first to pick another frame.
+        let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+        let path = {
+            use nv_core::frames::{self, Pick, Source};
+            let pick = match frames::source_of(&path) {
+                Source::Video => Some(Pick::Video { ms: 0, first_ms: 0, shown: None }),
+                Source::Pdf => Some(Pick::Page(1)),
+                Source::Model => Some(Pick::Model { orbit: Default::default(), style: self.settings.model, size: (1600, 1200) }),
+                Source::Animation if ext != "gif" => Some(Pick::Animation(0)),
+                _ => None,
+            };
+            match pick {
+                None => path,
+                Some(pick) => match frames::frame_for_editing(&path, pick, &self.settings.more) {
+                    Ok((p, _)) => p,
+                    Err(e) => {
+                        self.toast(format!("Couldn't take a frame to edit: {e}"));
+                        return;
+                    }
+                },
+            }
+        };
         let Some(exe) = std::env::current_exe().ok().map(|e| e.with_file_name("nueditor.exe")).filter(|p| p.is_file()) else {
             self.toast("NuEditor isn't installed next to NuGallery");
             return;
@@ -232,6 +301,17 @@ impl App {
             }
             Err(e) => self.toast(format!("Couldn't start NuEditor: {e}")),
         }
+    }
+
+    /// RAW + JPG of one shot: one tile for the pair (the JPG; delete, move, copy and drag act on both files) or two separate tiles
+    /// (Ctrl+Shift+G, View menu). The viewer uses the same setting.
+    pub fn toggle_pairs(&mut self) {
+        self.settings.pair_group = !self.settings.pair_group;
+        nv_core::rawpair::set_group(self.settings.pair_group);
+        let _ = self.settings.save();
+        self.listing.pairs = self.settings.pair_group;
+        self.rearrange_keeping_focus();
+        self.toast(if self.settings.pair_group { "RAW + JPG grouped: one tile for each pair (delete, move and copy act on both)" } else { "RAW and JPG listed separately" });
     }
 
     /// Group numbered pictures into image sequences (one tile each) or show every picture (Ctrl+G, View menu). The viewer
@@ -354,7 +434,17 @@ impl App {
         match fileops::rename_file(&path, name) {
             Ok(new) => {
                 if new != path {
-                    self.push_undo(crate::undo::Step::Moved(vec![(path.clone(), new.clone())]));
+                    let mut moved = vec![(path.clone(), new.clone())];
+                    // The RAW of a grouped pair takes the new name too, so the pair stays a pair (never over an existing file).
+                    if self.listing.pairs {
+                        for c in nv_core::rawpair::companions_of(&path) {
+                            let to = nv_core::rawpair::renamed_companion(&c, &new);
+                            if !to.exists() && std::fs::rename(&c, &to).is_ok() {
+                                moved.push((c, to));
+                            }
+                        }
+                    }
+                    self.push_undo(crate::undo::Step::Moved(moved));
                 }
                 self.toast(format!("Renamed to {name} — Ctrl+Z to undo"));
                 if let Some(parent) = path.parent() {

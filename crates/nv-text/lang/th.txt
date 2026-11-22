@@ -80,7 +80,8 @@ general.explorer_remove = เอาออก
 general.explorer_on = ติดตั้งแล้ว
 general.explorer_off = ยังไม่อยู่ในเมนู
 general.group_about = เกี่ยวกับ
-general.support = สนับสนุนผู้พัฒนา (Buy Me a Coffee)
+general.support = ขอความช่วยเหลือ (Discord)
+general.feedback = ส่งความเห็นผู้ใช้ (Discord)
 snapshot.group_file = ภาพที่บันทึก  (Ctrl+Shift+S, คลิกขวา > บันทึกเฟรมนี้)
 snapshot.format = รูปแบบ:
 snapshot.folder = โฟลเดอร์:
@@ -91,7 +92,8 @@ snapshot.hdr_keep = เก็บเป็น HDR: PNG 16 บิต พร้อ�
 # ---- credits ----
 about.made_by = สร้างโดย {0}
 about.website = เว็บไซต์
-about.support = สนับสนุนผลงาน
+about.support = ขอความช่วยเหลือ
+about.feedback = ส่งความเห็นผู้ใช้
 about.thanks = ขอบคุณทุกคนที่เขียนไลบรารีเหล่านี้
 
 # ---- NuImporter ----

@@ -1,0 +1,18 @@
+{
+  "id": "P042",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 4,
+  "reason_code": "trust",
+  "reason": "I'd run the portable zip to see if it opens my game textures and 3D files, but I won't make an .exe from one unknown developer my default. XnView MP already does everything I need and I know what it is.",
+  "why_switch_or_not": "The format list (EXR/HDR/TGA/DDS, GLB/OBJ/FBX, RAW) is the first thing that makes me curious, since I look at game textures and models every week. But FBX/DDS/EXR handling has to be right: channels, alpha, and mipmaps shown correctly, not just 'opens'. XnView also does my batch convert and metadata work, and NuViewer's metadata features aren't mentioned, so it can't replace XnView. Speed on JPG is not a pain for me, so that isn't a reason to switch.",
+  "current_app_pros": "XnView MP is a browser, batch converter and metadata tool in one, and it handles a huge number of formats, including my RAW and texture files. It has been stable for years and I know where everything is.",
+  "current_app_pains": "It's a bit heavy and slow to start, and its 3D and HDR support is limited. Some DDS/EXR files show wrong or without proper alpha. Otherwise nothing big.",
+  "objection": "It's one developer, version 0.4.1, with no reviews, no source and no signing mentioned. I don't want to install an unknown .exe and make it my default for all pictures. 'Opens' 26 of 32 types is also the developer's own benchmark, not an independent test.",
+  "would_change_my_mind": "Independent reviews or open source, a signed installer that is clean on VirusTotal, and my own EXR/DDS/FBX/RAW test files opening correctly in the portable zip, plus metadata viewing as good as XnView's.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

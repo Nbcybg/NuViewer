@@ -1,0 +1,18 @@
+{
+  "id": "P038",
+  "would_try": true,
+  "buys": true,
+  "switch_decision": "replace",
+  "purchases_first_month": 18,
+  "reason_code": "quality",
+  "reason": "I notice lag, and next/back at 40-50 ms plus opening zips directly is exactly what I do with my cbz manga. It's free and has a portable zip, so trying it costs me nothing.",
+  "why_switch_or_not": "Flipping through cbz pages fast is my main use, and the 85 ms for five quick nexts vs 600-900 ms on the others is the kind of gap I would actually feel. It opens zip/cbz and screenshots/PDF too, so one app could cover my phone photos, screenshots and manga. What holds me back is that nothing says it has a proper manga or comic reading mode (page fit, right-to-left), so I would only stay if paging through a zip feels as snappy as the numbers say.",
+  "current_app_pros": "Explorer thumbnails are instant to browse and I never have to set anything up. Whatever app opens the file is fine for a single photo or screenshot.",
+  "current_app_pains": "Opening a cbz means picking some app, and paging through pages is slow and laggy. The Windows default for pictures also feels sluggish when I go next, next, next.",
+  "objection": "One developer, version 0.4.1, and no mention of a comic mode. If paging through a big cbz stutters, or I have to redo 'Set default' for every format by hand, I will drop it.",
+  "would_change_my_mind": "Seeing it page through one of my own 200-page cbz files with no lag, and having cbz as a file type I can set as default.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 8,
+  "price_too_expensive": 15
+}

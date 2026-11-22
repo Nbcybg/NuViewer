@@ -551,6 +551,30 @@ impl App {
         }
     }
 
+    /// Double click on an item: a number goes back to the value it started with (the setting); anything else is just a press.
+    pub(super) fn item_double(&mut self, i: usize) {
+        let l = self.layout();
+        let Some(it) = l.items.get(i).copied() else { return };
+        match it.what {
+            What::Num(n) => self.num_set(n, self.num_default(n)),
+            _ => {
+                let _ = self.item_press(i, (it.rect[0] + it.rect[2]) / 2.0, (it.rect[1] + it.rect[3]) / 2.0);
+            }
+        }
+        invalidate(self.hwnd);
+    }
+
+    /// Triple click on an item: a number goes to zero (the nearest end of its range when zero is outside it).
+    pub(super) fn item_triple(&mut self, i: usize) {
+        let l = self.layout();
+        let Some(it) = l.items.get(i).copied() else { return };
+        if let What::Num(n) = it.what {
+            let (lo, hi) = self.num_range(n);
+            self.num_set(n, 0.0f32.clamp(lo, hi));
+            invalidate(self.hwnd);
+        }
+    }
+
     /// Right click: a slider goes back to its default, a preset is deleted, a choice cycles backwards.
     pub(super) fn item_right(&mut self, i: usize) {
         let l = self.layout();
@@ -666,17 +690,60 @@ impl App {
         let mut export = Export::new(out);
         export.keep_exif = true;
         let dest = nv_core::quick::output_for(&self.path, target);
-        let f = Full { path: &self.path, pixels: full };
+        let f = Full { path: &self.path, pixels: full, anim: None };
         match flow::save_copy(&f, &self.recipe, &export, &dest) {
             Ok(s) => self.say(&s.message),
             Err(e) => flow::tell(self.hwnd, &format!("Couldn't save the copy: {e}")),
         }
     }
 
+    /// Ctrl+Shift+H / "Share to...": the picture as it looks now goes to the Windows share sheet. A picture without edits is shared
+    /// as the file it is (a camera RAW file never: it goes as a rendered JPEG); with edits, a rendered copy in the temp folder.
+    pub(super) fn share_picture(&mut self) {
+        let Some(full) = &self.full else { return };
+        let ext = self.path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+        let plain = self.recipe.is_identity() && self.path.is_file() && !nv_codecs::is_raw_ext(&ext);
+        let path = if plain {
+            self.path.clone()
+        } else {
+            let dir = std::env::temp_dir().join("NuViewer-share");
+            let _ = std::fs::create_dir_all(&dir);
+            let stem = self.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "picture".into());
+            let png = ext == "png";
+            let dest = dir.join(format!("{stem}_edit.{}", if png { "png" } else { "jpg" }));
+            let mut export = Export::new(if png { Out::Png } else { Out::Jpeg(95) });
+            export.keep_exif = true;
+            let f = Full { path: &self.path, pixels: full, anim: None };
+            if let Err(e) = flow::save_copy(&f, &self.recipe, &export, &dest) {
+                flow::tell(self.hwnd, &format!("Couldn't make the copy to share: {e}"));
+                return;
+            }
+            dest
+        };
+        if let Err(e) = nv_win::share::share_files(self.hwnd, &[path]) {
+            self.say(&e);
+        }
+    }
+
+    /// Ctrl+Shift+F / "Extract frames...": the file being edited (when it is a video, an animation, a PDF or a 3D model) as a folder of
+    /// pictures, saved the way Settings > Video snapshot say. The edits are not applied to them (they are the source's own frames).
+    pub(super) fn extract_frames(&mut self) {
+        let opts = nv_core::frames::Options::from_prefs(&self.settings.more);
+        let path = self.path.clone();
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let results = nv_win::progress::run("Extract frames", &name, move |cancel, report| nv_core::frames::extract_many(&[path], &opts, cancel, &mut |_, _, _, done, total| report.set(done, total)));
+        if let Some(results) = results {
+            self.say(&nv_core::frames::summary_many(&results).replace('\n', "  "));
+            if let Some(first) = nv_core::frames::first_output(&results) {
+                nv_win::shell::reveal_in_explorer(&first);
+            }
+        }
+    }
+
     /// Ctrl+C: the picture with the edits so far on the clipboard.
     pub(super) fn copy_picture(&mut self) {
         let Some(full) = &self.full else { return };
-        let f = Full { path: &self.path, pixels: full };
+        let f = Full { path: &self.path, pixels: full, anim: None };
         match flow::render_pixels(&f, &self.recipe) {
             Ok(p) => {
                 let shot = nv_win::capture::Shot { width: p.w, height: p.h, rgba: p.rgba };
@@ -706,7 +773,7 @@ impl App {
                     let unix = nv_core::batch::unix_of(std::time::SystemTime::now());
                     let name = nv_core::importer::file_name(&prefs.import_name, source, unix, nv_win::utc_offset_minutes(), 1, out.ext());
                     let dest = nv_core::fileops::unique_path(&dir, std::ffi::OsStr::new(&name));
-                    let f = Full { path: &self.path, pixels: self.full.as_ref().unwrap() };
+                    let f = Full { path: &self.path, pixels: self.full.as_ref().unwrap(), anim: None };
                     let mut export = Export::new(out);
                     export.keep_exif = false;
                     if let Err(e) = flow::save_copy(&f, &self.recipe, &export, &dest) {
@@ -745,7 +812,7 @@ impl App {
                 export = e;
             }
         }
-        let f = Full { path: &self.path, pixels: full };
+        let f = Full { path: &self.path, pixels: full, anim: None };
         match flow::save_copy(&f, &self.recipe, &export, &dest) {
             Ok(s) => self.say(&s.message),
             Err(e) => flow::tell(self.hwnd, &format!("Couldn't save the copy: {e}")),

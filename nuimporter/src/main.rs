@@ -45,6 +45,8 @@ const ID_STATUS: u16 = 121;
 const ID_SHOW_FOLDER: u16 = 130;
 const ID_EDIT_SELECTED: u16 = 131;
 const ID_RAW_LOOK: u16 = 132;
+const ID_SHARE: u16 = 133;
+const ID_FRAMES: u16 = 134;
 const ID_TICK: u16 = 999;
 
 const AFTER_IDS: [&str; 3] = ["save", "confirm", "clipboard"];
@@ -90,7 +92,7 @@ fn run(from_gallery: bool, start_dir: PathBuf, shot_mode: Option<String>) -> Res
     let prefs = Settings::load().more;
     nv_codecs::set_raw_mode(Settings::load().raw_mode);
 
-    let form = Form::new(t("importer.title"), 780, 640)?;
+    let form = Form::new(t("importer.title"), 780, 682)?;
     form.button(ID_BACK, 14, 10, 110, 28, t("importer.back"), false);
     form.label(136, 14, 520, 22, t("importer.heading"));
     form.button(ID_CANCEL, 656, 10, 110, 28, t("importer.close"), false);
@@ -129,6 +131,8 @@ fn run(from_gallery: bool, start_dir: PathBuf, shot_mode: Option<String>) -> Res
     form.check(ID_RAW_LOOK, 14, 600, 456, 22, t("importer.raw_look"), Settings::load().raw_mode.is_camera_look());
     form.button(ID_SHOW_FOLDER, 480, 596, 140, 30, t("importer.show_folder"), false);
     form.button(ID_EDIT_SELECTED, 626, 596, 140, 30, t("importer.edit_selected"), false);
+    form.button(ID_SHARE, 480, 634, 140, 30, "Share to\u{2026}", false);
+    form.button(ID_FRAMES, 626, 634, 140, 30, "Extract frames\u{2026}", false);
 
     // A hot key of NuQuick (or --shot) asked for a screenshot at once.
     let mut first = shot_mode;
@@ -179,6 +183,34 @@ fn run(from_gallery: bool, start_dir: PathBuf, shot_mode: Option<String>) -> Res
                     if let Some((_, Some(p))) = st.log.get(i) {
                         open_in_editor(p, None);
                     }
+                }
+            }
+            ID_FRAMES => {
+                // The selected import (a video, an animation, a PDF, a 3D model ...); else every file that was saved.
+                let files: Vec<PathBuf> = match f.list_index(ID_LIST).and_then(|i| st.log.get(i)) {
+                    Some((_, Some(p))) => vec![p.clone()],
+                    _ => st.log.iter().filter_map(|(_, p)| p.clone()).collect(),
+                };
+                let opts = nv_core::frames::Options::from_prefs(&Settings::load().more);
+                if files.is_empty() {
+                    nv_win::shell::message("Nothing was imported yet.");
+                } else if let Some(results) = nv_win::progress::run("Extract frames", "", move |cancel, report| {
+                    nv_core::frames::extract_many(&files, &opts, cancel, &mut |i, n, name, done, total| {
+                        report.set(done, total);
+                        report.line(&if n > 1 { format!("{name}   ({} of {n})", i + 1) } else { name.to_string() });
+                    })
+                }) {
+                    nv_win::shell::message(&nv_core::frames::summary_many(&results));
+                }
+            }
+            ID_SHARE => {
+                // The selected import, else every file that was saved.
+                let files: Vec<PathBuf> = match f.list_index(ID_LIST).and_then(|i| st.log.get(i)) {
+                    Some((_, Some(p))) => vec![p.clone()],
+                    _ => st.log.iter().filter_map(|(_, p)| p.clone()).collect(),
+                };
+                if let Err(e) = nv_win::share::share_files(f.hwnd, &files) {
+                    nv_win::shell::message(&e);
                 }
             }
             x if x == (ID_AFTER | SELECTION_CHANGED) || x == (ID_FORMAT | SELECTION_CHANGED) => persist(f),

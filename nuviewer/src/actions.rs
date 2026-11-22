@@ -3,6 +3,7 @@
 
 use super::*;
 use nv_core::keys::Action;
+use nv_core::xmp::{Label, RateChange};
 use nv_win::shell;
 
 impl App {
@@ -118,6 +119,7 @@ impl App {
             }
             Action::Edit if !gallery => self.toggle_editor(),
             Action::ToggleTexture | Action::ToggleNormalMap | Action::ToggleWireframe | Action::ToggleShadow | Action::CycleShading | Action::ToggleProjection | Action::ModelRotX | Action::ModelRotY | Action::ModelRotZ
+            | Action::ToggleOutline | Action::ToggleSilhouette | Action::ToggleSupport | Action::ToggleBones | Action::ToggleBoneNames | Action::ToggleTurntable
                 if self.is_model() =>
             {
                 self.model_key(a);
@@ -164,6 +166,20 @@ impl App {
                 let _ = self.settings.save();
                 invalidate(self.hwnd);
             }
+            Action::TogglePairs => self.toggle_pairs(),
+            Action::Rate0 => self.rate(RateChange::Stars(0)),
+            Action::Rate1 => self.rate(RateChange::Stars(1)),
+            Action::Rate2 => self.rate(RateChange::Stars(2)),
+            Action::Rate3 => self.rate(RateChange::Stars(3)),
+            Action::Rate4 => self.rate(RateChange::Stars(4)),
+            Action::Rate5 => self.rate(RateChange::Stars(5)),
+            Action::Reject => self.rate(RateChange::ToggleReject),
+            Action::LabelRed => self.rate(RateChange::Label(Some(Label::Red))),
+            Action::LabelYellow => self.rate(RateChange::Label(Some(Label::Yellow))),
+            Action::LabelGreen => self.rate(RateChange::Label(Some(Label::Green))),
+            Action::LabelBlue => self.rate(RateChange::Label(Some(Label::Blue))),
+            Action::LabelPurple => self.rate(RateChange::Label(Some(Label::Purple))),
+            Action::LabelNone => self.rate(RateChange::Label(None)),
             Action::ToggleControls => {
                 self.controls_pinned = !self.controls_pinned;
                 invalidate(self.hwnd);
@@ -196,6 +212,8 @@ impl App {
                     shell::reveal_in_explorer(&self.folder.files[i]);
                 }
             }
+            Action::Share => self.share_current(),
+            Action::ExtractFrames => self.extract_frames_current(),
             Action::Undo => self.undo(),
             Action::Settings => self.open_settings(),
             Action::Back => {

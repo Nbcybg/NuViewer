@@ -2,6 +2,7 @@
 name = "nuimporter"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 # NuImporter: bring pictures in from a scanner, a screenshot, the clipboard, a camera (cable or folder), a file with pictures inside
 # (PowerPoint, Word, zip, ISO) or a folder. It is started from NuGallery's Tools menu, by NuQuick's screenshot hot keys, or alone.

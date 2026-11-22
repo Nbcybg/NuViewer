@@ -2,6 +2,7 @@
 name = "nuquick"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 # NuQuick: Space-bar preview for Explorer and the desktop (what Quick Look is on a Mac). One small program that sits in the
 # background (no window, ~1 MB), listens for Space only while Explorer is in front, and shows the picture in a borderless

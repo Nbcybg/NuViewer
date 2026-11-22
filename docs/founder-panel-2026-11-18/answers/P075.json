@@ -1,0 +1,18 @@
+{
+  "id": "P075",
+  "would_try": false,
+  "buys": false,
+  "switch_decision": "ignore",
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "IrfanView already does everything I need and I do not install .exe files from one unknown developer with no reviews or signing that I can see. Speed is not a problem for me when I open a few relatives' photos to print.",
+  "why_switch_or_not": "I would not switch. IrfanView opens my phone photos fast enough and I know its print dialog and shortcuts. NuViewer is version 0.4.1 from one person, and the post gives me no reviews, no source and no word on signing. The long list of formats, 3D models and the editor is nothing I need, and a bigger program just means more that could go wrong.",
+  "current_app_pros": "IrfanView is small and fast enough, I know the shortcuts, and the plug-ins are already set up. I open a photo, press print, pick the size and I am done. It has worked for years.",
+  "current_app_pains": "Nothing really. The interface looks old, but I do not care. Sometimes a photo from a phone shows sideways and I rotate it.",
+  "objection": "I do not know this developer. I have no reviews, no source code and no sign it is safe, and I would be changing my default viewer on a computer that has all my family photos on it. Also, the colours on my prints must not change.",
+  "would_change_my_mind": "Reviews from a trusted site or magazine, a signed installer that Windows does not warn about, and proof that printing and colours come out the same as in IrfanView.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 0,
+  "price_too_expensive": 0
+}

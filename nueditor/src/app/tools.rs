@@ -479,6 +479,28 @@ impl App {
         }
     }
 
+    /// Double / triple click on one of the three band sliders of the hue wheel: back to what it was before the last save
+    /// (`to_kept`) or to zero. True if the click was on one.
+    pub(super) fn band_slider_reset(&mut self, x: i32, y: i32, to_kept: bool) -> bool {
+        let (fx, fy) = (x as f32, y as f32);
+        let Some(sp) = self.special() else { return false };
+        if self.open_group != SECTION_WHEEL {
+            return false;
+        }
+        let Some(k) = sp.rows.iter().position(|(r, _)| contains(*r, fx, fy)) else { return false };
+        let band = self.tools.band;
+        let target = if to_kept { self.kept.hue_wheel[band].clone() } else { Band { hue: 0.0, sat: 0.0, lum: 0.0 } };
+        self.snapshot();
+        let b = &mut self.recipe.hue_wheel[band];
+        match k {
+            0 => b.hue = target.hue,
+            1 => b.sat = target.sat,
+            _ => b.lum = target.lum,
+        }
+        self.changed();
+        true
+    }
+
     /// Right click: remove a curve point, reset the selected band. True if used.
     pub(super) fn tool_right(&mut self, x: i32, y: i32) -> bool {
         let (fx, fy) = (x as f32, y as f32);

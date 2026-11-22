@@ -1,0 +1,18 @@
+{
+  "id": "P060",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 3,
+  "reason_code": "habit",
+  "reason": "I'd grab the portable zip and throw a few huge cbz folders at it because the speed numbers and archive support sound relevant, but my XnView MP setup (associations, batch convert, metadata) already works and one new solo-dev viewer isn't worth redoing it.",
+  "why_switch_or_not": "The speed claims and cbz/zip/7z support are the only things that would make me look twice, since I live in huge folders and archives. But it ships a gallery, an editor, 3D, audio, video and a scanner importer, which is the opposite of a viewer that stays out of the way, and nothing in the list says it can read manga well (right-to-left, spreads, remembering my page) or edit metadata the way I use XnView. I'd also have to re-tick every format in Windows Settings by hand.",
+  "current_app_pros": "XnView MP opens nearly everything I own, has a fast enough thumbnail browser for giant folders, does batch convert/rename in one place, and has the metadata (EXIF/IPTC/XMP) editing I rely on. It's free, mature, and I know every setting.",
+  "current_app_pains": "Honestly not much. It's a bit heavy and its UI is cluttered, and first open from Explorer can feel slower than a bare viewer, but nothing that makes me want to leave.",
+  "objection": "One developer, version 0.4.1, no plug-in system, no community. If it breaks on one of my odd archives or stops being updated, there's nobody to ask and nowhere to find help.",
+  "would_change_my_mind": "A proven manga/cbz reading mode (RTL, double page, resume position) plus metadata editing at XnView level, a few months of steady releases, and a visible user community or forum.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 0,
+  "price_too_expensive": 0
+}

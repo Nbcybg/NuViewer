@@ -1,0 +1,18 @@
+{
+  "id": "P087",
+  "would_try": true,
+  "buys": true,
+  "switch_decision": "replace",
+  "purchases_first_month": 18,
+  "reason_code": "need",
+  "reason": "Windows Photos can't open most of what I actually work with (TGA, DDS, EXR, HDR, GLB, OBJ, FBX), so a viewer that does is a real upgrade, not a nice-to-have. I'd still run it from the portable zip first and only make it default once it hasn't misbehaved.",
+  "why_switch_or_not": "26 of 32 test formats, with TGA/DDS/EXR/HDR plus GLB/OBJ/FBX in one viewer, is exactly what I hunt for, and the Space-bar preview from Explorer would save me opening Blender or Photoshop just to peek at a texture. I'd switch for the formats and the speed on big folders of textures; I wouldn't switch for the editor or the coffee link. What I can't tell from this page is whether DDS shows mips/alpha/cubemaps properly or whether EXR/HDR tone-mapping is sane, so I'd test those with my own files on day one.",
+  "current_app_pros": "It's already on every Windows install, nothing to maintain, and it's fine for ordinary PNG/JPG. Zero setup after a Windows reinstall.",
+  "current_app_pains": "It opens none of my work formats: no TGA, DDS, EXR, HDR or any 3D model, so I double-click and get 'can't open' or a prompt to search the Store. It's also slow to start and to flip through a folder of hundreds of textures.",
+  "objection": "It's an unknown .exe from one developer at version 0.4.1. The page doesn't say it's code-signed or open source, and I'd be making it the default handler for files I open all day. I'd want to know it's safe before the installer touches my machine.",
+  "would_change_my_mind": "A public source repo or a signed installer with a clean scan would remove my main doubt. Failing that, if it chokes on my real DDS/EXR files in the first hour, I'd drop it.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 20,
+  "price_too_expensive": 50
+}

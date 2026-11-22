@@ -1,0 +1,18 @@
+{
+  "id": "P068",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 6,
+  "reason_code": "habit",
+  "reason": "Waiting on Bridge just to look at a file annoys me, so a portable zip that opens fast is worth ten minutes. But my catalogue and my printing both live in Adobe, and I don't make a 0.4.1 from one developer my default on a promise.",
+  "why_switch_or_not": "I'd unzip the portable build, throw my own RAW files and a few relatives' phone photos at it, and see if the colours match what Lightroom shows. If they match, I'd keep it as a quick-look viewer, because next/back at 40-50 ms beats waiting for Bridge. I would not make it my default. Nothing on the page says anything about printing, which is what I actually do with those photos. Also, iPhone HEIC needs a Microsoft extension, and I've been burned before by viewers that show a RAW's embedded preview, which isn't the same as what Adobe's engine renders.",
+  "current_app_pros": "Bridge/Lightroom/Photoshop render my RAW files the way I expect, the colour management is right, my catalogue and ratings are there, and I can send a photo straight to print from the Adobe apps. It's all muscle memory.",
+  "current_app_pains": "It's slow. I open a heavy Adobe app just to look at one picture a relative sent, and I wait for it to start. It also feels like overkill for a one-off glance.",
+  "objection": "Does it open MY files correctly? That means my camera's RAW with the right colours, not just the embedded preview, and phone HEIC without extra setup. And can I print from it at all? The page never mentions printing.",
+  "would_change_my_mind": "A print command that works, plus my own RAW files looking the same as in Lightroom. If both held up in a week of use, I'd make it the default for phone photos.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

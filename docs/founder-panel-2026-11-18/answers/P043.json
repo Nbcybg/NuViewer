@@ -1,0 +1,18 @@
+{
+  "id": "P043",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 6,
+  "reason_code": "trust",
+  "reason": "The cbz/zip support is the one thing that makes me curious, so I'd install the portable zip and throw a few manga archives at it. But I'm not making a 0.4 one-person app my default, because if it dies in a year I've done the default-setting dance for nothing.",
+  "why_switch_or_not": "I'd try it because it opens zip/cbz directly and is fast on next/back, which matters when I flip through a chapter. The listing doesn't say anything about a manga mode (double-page, right-to-left, fit-width), so I can't assume it reads comics well, and I'd have to tick the formats and set default by hand in Settings. A lot of the feature list (3D, RAW, PSD, editor) is stuff I'd never touch, so it doesn't pull me.",
+  "current_app_pros": "Explorer thumbnails are already there, cost nothing and need no setup. Whatever app opens a file is fine for a single picture, and I don't have to think about it.",
+  "current_app_pains": "Nothing much for single pictures. Reading cbz is the annoying part: I have to extract the archive or use some other tool, and the Explorer thumbnails don't help inside a zip.",
+  "objection": "One developer, version 0.4. Will it still be maintained next year? I hate relearning things, so I won't commit to something that might get abandoned.",
+  "would_change_my_mind": "A real cbz reading mode (page-by-page, RTL, remembers my place) that I check works with my own archives, plus a visible release history showing the dev keeps shipping updates.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 5,
+  "price_too_expensive": 15
+}

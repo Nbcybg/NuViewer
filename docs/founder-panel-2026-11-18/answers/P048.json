@@ -1,0 +1,18 @@
+{
+  "id": "P048",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "use_alongside",
+  "purchases_first_month": 3,
+  "reason_code": "need",
+  "reason": "XnView MP already opens every RAW and file type I throw at it, so NuViewer's extra formats don't fix anything for me. I'd install the portable zip to see if it really is faster on a 500-shot card, but nothing here tells me it helps with culling.",
+  "why_switch_or_not": "I switch the moment an app opens something my current one fails on, and NuViewer's 26 of 32 formats doesn't show me a file XnView chokes on in my work (RAW, PSD, TIFF, the odd AVIF). The listed features mention no ratings, flags, colour labels or reject-and-delete workflow for culling, and I'd have to rebuild my shortcuts and file associations by hand for a 0.4.1 from one person. Speed is the only real pull, and the numbers are for JPG/PNG on his PC, not 45 MP RAW files off my card.",
+  "current_app_pros": "XnView MP is a browser, batch converter and metadata tool in one. It opens nearly everything, handles RAW+JPG folders and IPTC/EXIF/XMP, and I already have my rating and labelling shortcuts and my batch convert presets set up.",
+  "current_app_pains": "It's sluggish when I flick through big RAW files, and the thumbnail cache gets slow on a fresh 500-file card. The interface is cluttered too. None of it is bad enough to make me leave.",
+  "objection": "I'd have to relearn shortcuts and reset file associations for a one-man 0.4.1, and I can't see anything for rating or rejecting shots, which is what I do all day. RAW and JPG always showing separately is fine for viewing but doesn't tell me how pair culling works.",
+  "would_change_my_mind": "Fast full-size RAW flipping that I can measure on my own 500-shot card, with star/colour ratings or a reject mark that writes XMP sidecars my other software reads, and a file type it opens that XnView fails on.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 20,
+  "price_too_expensive": 45
+}

@@ -1,0 +1,18 @@
+{
+  "id": "P070",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 2,
+  "reason_code": "habit",
+  "reason": "IrfanView already opens my phone photos, screenshots and PDFs fine, and I have my shortcuts and plug-ins set up. I'd grab the portable zip out of curiosity, open a few files, and go back.",
+  "why_switch_or_not": "Faster next/back is nice on paper, but my pictures are phone photos and screenshots and IrfanView already opens them fast enough that I never wait. The extra stuff (RAW, 3D, editor, gallery) is stuff I don't use, and I'd have to re-do my shortcuts and the file associations for no gain. It's one developer on version 0.4.1 with no plug-in system, so there's no reason to move over my setup.",
+  "current_app_pros": "It opens instantly from an Explorer double-click, my shortcuts are in my fingers, my plug-ins are set up, and it's free and has never crashed on me.",
+  "current_app_pains": "nothing",
+  "objection": "I don't want to relearn anything or have my colour and file-handling setup change. 'Set default' is a manual job in Windows Settings, and a new one-person app could break or lose support.",
+  "would_change_my_mind": "If IrfanView stopped working on Windows or I started getting file types it can't open, or if NuViewer had the same shortcuts as IrfanView out of the box.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 0,
+  "price_too_expensive": 0
+}

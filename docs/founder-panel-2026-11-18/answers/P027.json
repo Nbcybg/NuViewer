@@ -1,0 +1,18 @@
+{
+  "id": "P027",
+  "would_try": true,
+  "buys": false,
+  "switch_decision": "try_then_drop",
+  "purchases_first_month": 3,
+  "reason_code": "habit",
+  "reason": "Windows Photos opens my PNGs when I double-click and I don't think about it. I'd grab the portable zip out of curiosity because it opens PSD and alpha files, but I wouldn't hand it the default for a month.",
+  "why_switch_or_not": "A fast viewer that opens PSD, AI and alpha PNG is the one part that interests me, and I'd test it on a handful of my own files. But I'd have to retick every format in Windows Settings, and I would need to trust that its ICC handling matches what I see in Photoshop. It's version 0.4.1 from one person, and I've been burned before by small tools that get abandoned.",
+  "current_app_pros": "It's already there, it opens instantly enough for my usual PNG/JPG, it never asks for anything, and my muscle memory is set. It survives my yearly Windows reinstall with zero effort because it's built in.",
+  "current_app_pains": "It can't open PSD or AI at all, and it's a bit slow when I flip through a big folder of exports. Mostly I live with it, because the real work happens in Photoshop and Illustrator anyway.",
+  "objection": "My colour management and file/XMP workflow must not change. If a viewer shows my sRGB or wide-gamut art slightly differently from my editor, I can't use it as my default, and I don't trust a single-developer 0.4.1 app on that until I've checked it myself.",
+  "would_change_my_mind": "Side-by-side proof, on my own calibrated screen, that its colours match Photoshop for sRGB and AdobeRGB PSDs, and a few months of updates showing the developer is sticking with it.",
+  "price_too_cheap": 0,
+  "price_cheap": 0,
+  "price_expensive": 15,
+  "price_too_expensive": 30
+}

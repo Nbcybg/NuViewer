@@ -27,6 +27,16 @@ pub struct Mesh {
     /// Which triangles use which texture / colour. Empty = the whole model in the plain grey surface.
     /// Parts are consecutive, non-overlapping ranges of `indices`.
     pub parts: Vec<Part>,
+    /// The skeleton the model is rigged with (glTF / GLB / VRM skins), in the same space as `positions`. Empty = none.
+    pub bones: Vec<Bone>,
+}
+
+/// One joint of a skeleton: where it is in the rest pose, and the joint it hangs from (the line between them is the bone).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Bone {
+    pub name: String,
+    pub pos: [f32; 3],
+    pub parent: Option<usize>,
 }
 
 /// A picture that colours (part of) a model: 8-bit sRGB RGBA, at most `MAX_TEXTURE_DIM` on a side.
@@ -106,7 +116,7 @@ impl Mesh {
         if min.iter().chain(max.iter()).any(|v| !v.is_finite()) {
             return Err("damaged model: coordinates are not finite".into());
         }
-        Ok(Mesh { positions, normals, indices, min, max, y_up, uvs: Vec::new(), colors: Vec::new(), textures: Vec::new(), parts: Vec::new() })
+        Ok(Mesh { positions, normals, indices, min, max, y_up, uvs: Vec::new(), colors: Vec::new(), textures: Vec::new(), parts: Vec::new(), bones: Vec::new() })
     }
 
     /// Attach texture coordinates, vertex colours, textures and parts. Anything that doesn't fit the geometry
@@ -315,7 +325,21 @@ pub struct ModelStyle {
     pub normal_map: bool,
     pub wireframe: bool,
     pub shadow: bool,
+    /// A line round the model's edge (every program: the silhouette against what is behind it).
+    pub outline: bool,
+    /// The model as one flat shape (no shading, texture or shadow), the way a print or a sprite is judged.
+    pub silhouette: bool,
+    /// Support preview: what a printer would need support under (surfaces that face down more than `SUPPORT_ANGLE` from the vertical) in red.
+    pub support: bool,
+    /// Show the skeleton (when the model has one), and the bones' names beside the joints.
+    pub bones: bool,
+    pub bone_names: bool,
+    /// Degrees per second the turntable turns at normal speed (the playback bar's speed button multiplies it).
+    pub turntable_dps: f32,
 }
+
+/// Surfaces whose normal points down by more than this angle below the horizontal need support when printed (the usual 45 degrees).
+pub const SUPPORT_ANGLE: f32 = 45.0;
 
 impl Default for ModelStyle {
     fn default() -> Self {
@@ -331,6 +355,12 @@ impl Default for ModelStyle {
             normal_map: true,
             wireframe: false,
             shadow: false,
+            outline: false,
+            silhouette: false,
+            support: false,
+            bones: false,
+            bone_names: false,
+            turntable_dps: 30.0,
         }
     }
 }
@@ -372,6 +402,28 @@ pub struct Camera {
     pub light_view: [f32; 3],
     /// Model space -> clip space with the model flattened onto the floor along the light (None = no shadow possible).
     pub shadow_mvp: Option<Mat4>,
+    /// The direction "up" (the model's up axis, as the viewer has it) in view space.
+    pub up_view: [f32; 3],
+}
+
+impl Camera {
+    /// A model-space point on the screen: pixels from the top left of a picture `size` (width, height) big. `None` behind the camera.
+    pub fn project(&self, p: [f32; 3], size: (f32, f32)) -> Option<[f32; 2]> {
+        let m = &self.mvp;
+        let col = |j: usize| p[0] * m[0][j] + p[1] * m[1][j] + p[2] * m[2][j] + m[3][j];
+        let (x, y, w) = (col(0), col(1), col(3));
+        if w <= 1e-6 || !w.is_finite() {
+            return None;
+        }
+        Some([(x / w * 0.5 + 0.5) * size.0, (0.5 - y / w * 0.5) * size.1])
+    }
+}
+
+/// A colour that shows against `bg` (sRGB numbers 0..1, as the clear colour is): near-black on a light background, near-white on a dark one.
+/// What the silhouette, the outline and the bone lines use.
+pub fn contrast_colour(bg: [f32; 4]) -> [f32; 3] {
+    let lum = 0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2];
+    if lum > 0.5 { [0.06, 0.07, 0.10] } else { [0.93, 0.95, 1.0] }
 }
 
 const FOV_Y: f32 = 0.6; // radians, a gentle perspective
@@ -479,7 +531,7 @@ pub fn camera_styled(mesh: &Mesh, orbit: &Orbit, aspect: f32, style: &ModelStyle
         Some(mat_mul(&mat_mul(&model, &flat), &vp))
     });
 
-    Camera { mvp: mat_mul(&model, &vp), view_rot, light_view, shadow_mvp: shadow_mvp.flatten() }
+    Camera { mvp: mat_mul(&model, &vp), view_rot, light_view, shadow_mvp: shadow_mvp.flatten(), up_view: to_view(up) }
 }
 
 /// `v * M` for the 3x3 part of a row-vector matrix, component `j` (the column).
@@ -505,11 +557,19 @@ pub fn shade(normal_view: [f32; 3]) -> f32 {
 
 /// Software rasteriser used for thumbnails and the first frame: z-buffer, Gouraud shading.
 pub fn render_preview(mesh: &Mesh, orbit: &Orbit, w: u32, h: u32) -> Vec<u8> {
-    let cam = camera(mesh, orbit, w as f32 / h as f32);
+    render_with(mesh, orbit, &ModelStyle::default(), w, h, Some(BACKDROP))
+}
+
+/// `render_preview` with the user's style (up axis, turns, projection) and an own backdrop; `None` = transparent where the model is
+/// not (alpha 0), so the pictures can keep the model's shape in a format that carries alpha.
+pub fn render_with(mesh: &Mesh, orbit: &Orbit, style: &ModelStyle, w: u32, h: u32, backdrop: Option<[u8; 3]>) -> Vec<u8> {
+    let cam = camera_styled(mesh, orbit, w as f32 / h as f32, style);
     let (wf, hf) = (w as f32, h as f32);
     let mut rgba = vec![0u8; w as usize * h as usize * 4];
-    for px in rgba.chunks_exact_mut(4) {
-        px.copy_from_slice(&[BACKDROP[0], BACKDROP[1], BACKDROP[2], 255]);
+    if let Some(b) = backdrop {
+        for px in rgba.chunks_exact_mut(4) {
+            px.copy_from_slice(&[b[0], b[1], b[2], 255]);
+        }
     }
     let mut zbuf = vec![f32::INFINITY; w as usize * h as usize];
 
@@ -604,6 +664,7 @@ pub fn render_preview(mesh: &Mesh, orbit: &Orbit, w: u32, h: u32) -> Vec<u8> {
                             }
                         }
                         zbuf[i] = z;
+                        rgba[i * 4 + 3] = 255;
                         let s = (w0 * a[3] + w1 * b[3] + w2 * c[3]).clamp(0.0, 1.0);
                         for ch in 0..3 {
                             // The colours are sRGB numbers here; the GPU path treats the same numbers as linear after conversion.
@@ -766,7 +827,7 @@ pub fn proxy_mesh(mesh: &Mesh, max_tris: usize) -> Option<Mesh> {
             normals.push(normalize([n[0] as f32, n[1] as f32, n[2] as f32]));
             cols.push([(c[0] / k as u32) as u8, (c[1] / k as u32) as u8, (c[2] / k as u32) as u8, 255]);
         }
-        return Some(Mesh { positions, normals, indices, min: mesh.min, max: mesh.max, y_up: mesh.y_up, uvs: Vec::new(), colors: cols, textures: Vec::new(), parts: Vec::new() });
+        return Some(Mesh { positions, normals, indices, min: mesh.min, max: mesh.max, y_up: mesh.y_up, uvs: Vec::new(), colors: cols, textures: Vec::new(), parts: Vec::new(), bones: Vec::new() });
     }
     None
 }
@@ -1699,6 +1760,9 @@ pub fn parse_gltf(bytes: &[u8], dir: Option<&Path>) -> Result<Mesh, String> {
     let mut parts: Vec<Part> = Vec::new();
     let (mut any_uv, mut any_color) = (false, false);
 
+    // Where every node of the scene ended up, and which node it hangs from (the skeleton is read from these).
+    let mut world_of: HashMap<usize, Mat4> = HashMap::new();
+    let mut parent_of: HashMap<usize, usize> = HashMap::new();
     let mut add_mesh = |mi: usize, m: &Mat4| -> Result<(), String> {
         let mesh = meshes.get(mi).ok_or("gltf: bad mesh index")?;
         for prim in mesh.get("primitives").and_then(|p| p.as_array()).cloned().unwrap_or_default() {
@@ -1798,23 +1862,67 @@ pub fn parse_gltf(bytes: &[u8], dir: Option<&Path>) -> Result<Mesh, String> {
             add_mesh(mi, &mat4_identity())?;
         }
     } else {
-        let mut stack: Vec<(usize, Mat4, u32)> = scene_roots.into_iter().map(|n| (n, mat4_identity(), 0)).collect();
-        while let Some((ni, parent, depth)) = stack.pop() {
+        let mut stack: Vec<(usize, Mat4, u32, Option<usize>)> = scene_roots.into_iter().map(|n| (n, mat4_identity(), 0, None)).collect();
+        while let Some((ni, parent, depth, parent_node)) = stack.pop() {
             let Some(node) = nodes.get(ni) else { continue };
             if depth > 64 {
                 continue; // a cycle in a damaged file
             }
             let world = mat_mul(&gltf_node_matrix(node), &parent);
+            world_of.insert(ni, world);
+            if let Some(p) = parent_node {
+                parent_of.insert(ni, p);
+            }
             if let Some(mi) = node.get("mesh").and_then(|v| v.as_u64()) {
                 add_mesh(mi as usize, &world)?;
             }
             for c in node.get("children").and_then(|c| c.as_array()).into_iter().flatten().filter_map(|v| v.as_u64()) {
-                stack.push((c as usize, world, depth + 1));
+                stack.push((c as usize, world, depth + 1, Some(ni)));
             }
         }
     }
-    let mesh = Mesh::build(positions, normals, indices, true)?;
-    Ok(mesh.dressed(if any_uv { uvs } else { Vec::new() }, if any_color { colors } else { Vec::new() }, set.list, parts))
+    let bones = gltf_bones(&arr("skins"), &nodes, &world_of, &parent_of);
+    let mut mesh = Mesh::build(positions, normals, indices, true)?.dressed(if any_uv { uvs } else { Vec::new() }, if any_color { colors } else { Vec::new() }, set.list, parts);
+    mesh.bones = bones;
+    Ok(mesh)
+}
+
+/// The skeleton of a glTF: every joint of every skin once, at its rest-pose position (the translation of its world matrix), with the
+/// nearest ancestor that is also a joint as its parent.
+fn gltf_bones(skins: &[serde_json::Value], nodes: &[serde_json::Value], world_of: &HashMap<usize, Mat4>, parent_of: &HashMap<usize, usize>) -> Vec<Bone> {
+    let mut order: Vec<usize> = Vec::new();
+    for skin in skins {
+        for j in skin.get("joints").and_then(|j| j.as_array()).into_iter().flatten().filter_map(|v| v.as_u64()) {
+            let j = j as usize;
+            if world_of.contains_key(&j) && !order.contains(&j) {
+                order.push(j);
+            }
+        }
+    }
+    order.truncate(2048);
+    let index: HashMap<usize, usize> = order.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+    order
+        .iter()
+        .map(|&n| {
+            let mut parent = None;
+            let mut at = n;
+            for _ in 0..64 {
+                match parent_of.get(&at) {
+                    Some(&p) => {
+                        if let Some(&bi) = index.get(&p) {
+                            parent = Some(bi);
+                            break;
+                        }
+                        at = p;
+                    }
+                    None => break,
+                }
+            }
+            let m = &world_of[&n];
+            let name = nodes.get(n).and_then(|x| x.get("name")).and_then(|x| x.as_str()).map(str::to_string).filter(|s| !s.is_empty()).unwrap_or_else(|| format!("joint {n}"));
+            Bone { name, pos: [m[3][0], m[3][1], m[3][2]], parent }
+        })
+        .collect()
 }
 
 // ---- FBX (binary) --------------------------------------------------------------------------------
@@ -2425,5 +2533,84 @@ bump c_n.png
         assert_eq!((img.width, img.height), (320, 240));
         assert_eq!(img.mesh.as_ref().map(|m| m.triangles()), Some(12));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn b64(bytes: &[u8]) -> String {
+        const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for c in bytes.chunks(3) {
+            let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+            out.push(T[(n >> 18) as usize & 63] as char);
+            out.push(T[(n >> 12) as usize & 63] as char);
+            out.push(if c.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
+            out.push(if c.len() > 2 { T[n as usize & 63] as char } else { '=' });
+        }
+        out
+    }
+
+    /// A glTF with one triangle and a skeleton: hips (at y = 1) > spine (+0.5) > head (+0.5), plus a node that is not a joint between
+    /// spine and head, and a second skin that shares the hips.
+    fn skinned_gltf() -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        for v in [0.0f32, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0] {
+            buf.extend(v.to_le_bytes());
+        }
+        for i in [0u16, 1, 2] {
+            buf.extend(i.to_le_bytes());
+        }
+        buf.extend([0u8, 0]); // pad to 4
+        let json = format!(
+            r#"{{"asset":{{"version":"2.0"}},"scene":0,"scenes":[{{"nodes":[0,5]}}],
+"nodes":[
+ {{"name":"Hips","translation":[0,1,0],"children":[1,4]}},
+ {{"name":"Spine","translation":[0,0.5,0],"children":[2]}},
+ {{"name":"Twist","translation":[0,0,0],"children":[3]}},
+ {{"name":"Head","translation":[0,0.5,0]}},
+ {{"name":"Prop","translation":[5,0,0]}},
+ {{"mesh":0,"skin":0}}],
+"skins":[{{"joints":[0,1,3]}},{{"joints":[0,4]}}],
+"meshes":[{{"primitives":[{{"attributes":{{"POSITION":0}},"indices":1}}]}}],
+"accessors":[{{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]}},{{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}}],
+"bufferViews":[{{"buffer":0,"byteOffset":0,"byteLength":36}},{{"buffer":0,"byteOffset":36,"byteLength":6}}],
+"buffers":[{{"byteLength":{},"uri":"data:application/octet-stream;base64,{}"}}]}}"#,
+            buf.len(),
+            b64(&buf)
+        );
+        json.into_bytes()
+    }
+
+    #[test]
+    fn a_gltf_skeleton_is_read_with_names_positions_and_parents() {
+        let mesh = parse_gltf(&skinned_gltf(), None).unwrap();
+        let names: Vec<&str> = mesh.bones.iter().map(|b| b.name.as_str()).collect();
+        // Skin 0 (hips, spine, head) then the joints skin 1 adds ("Prop"; the hips are already there).
+        assert_eq!(names, ["Hips", "Spine", "Head", "Prop"]);
+        let pos: Vec<[f32; 3]> = mesh.bones.iter().map(|b| b.pos).collect();
+        assert_eq!(pos[0], [0.0, 1.0, 0.0]);
+        assert_eq!(pos[1], [0.0, 1.5, 0.0]);
+        assert_eq!(pos[2], [0.0, 2.0, 0.0], "the Twist node between them is not a joint but its position still adds up");
+        assert_eq!(pos[3], [5.0, 1.0, 0.0]);
+        let parents: Vec<Option<usize>> = mesh.bones.iter().map(|b| b.parent).collect();
+        assert_eq!(parents, [None, Some(0), Some(1), Some(0)], "Head hangs from Spine across the non-joint Twist; Prop from the hips");
+    }
+
+    #[test]
+    fn a_model_without_skins_has_no_bones() {
+        let mut v: serde_json::Value = serde_json::from_slice(&skinned_gltf()).unwrap();
+        v.as_object_mut().unwrap().remove("skins");
+        let mesh = parse_gltf(&serde_json::to_vec(&v).unwrap(), None).unwrap();
+        assert!(mesh.bones.is_empty());
+        assert_eq!(mesh.triangles(), 1);
+    }
+
+    #[test]
+    fn the_new_style_switches_start_off_and_the_camera_knows_which_way_is_up() {
+        let d = ModelStyle::default();
+        assert!(!d.outline && !d.silhouette && !d.support && !d.bones && !d.bone_names);
+        assert_eq!(d.turntable_dps, 30.0);
+        let mesh = parse_gltf(&skinned_gltf(), None).unwrap();
+        // Looking straight at the model, "up" is up on the screen.
+        let cam = camera_styled(&mesh, &Orbit::default(), 1.5, &ModelStyle::default());
+        assert!(cam.up_view[1] > 0.5, "{:?}", cam.up_view);
     }
 }
