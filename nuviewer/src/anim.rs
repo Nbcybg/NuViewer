@@ -63,8 +63,8 @@ impl App {
 
     pub fn anim_note(&self) -> String {
         match self.spine.player.as_ref().map(|p| p.rig.unsupported.clone()) {
-            Some(u) if !u.is_empty() => format!("Not applied: {}. One animation at a time.", u.join(", ")),
-            Some(_) => "One animation at a time, no mixing between animations.".to_string(),
+            Some(u) if !u.is_empty() => format!("Not applied: {}.", u.join(", ")),
+            Some(_) => "Animations ease into each other; physics swings while it plays.".to_string(),
             None => "Parts: the opacity is the model's own part opacity (0 to 1). Physics, pose and eye blink are not applied.".to_string(),
         }
     }

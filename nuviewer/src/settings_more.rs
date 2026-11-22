@@ -111,8 +111,8 @@ pub fn build(form: &Form, s: &Settings) {
     form.button(T_FFMPEG_BROWSE, 602, 447, 94, 26, "Browse…", false);
     form.label_id(T_FFMPEG_STATUS, 28, 480, 660, 20, "");
     form.group(12, 532, 696, 140, "Add-on: Live2D models (.moc3)");
-    form.label(28, 558, 660, 20, "Why you download it: Live2D's Cubism Core is proprietary. Its licence does not let NuViewer ship it,");
-    form.label(28, 576, 660, 20, "and you accept that licence yourself when you download it. Without it .moc3 models are not shown (Spine and the rest do not need it).");
+    form.label(28, 558, 660, 20, "Why you download it: Live2D's Cubism Core is proprietary, so NuViewer may not ship it;");
+    form.label(28, 576, 660, 20, "you accept its licence when you download it. Without it .moc3 models are not shown.");
     form.edit(T_CORE, 28, 604, 566, 24, &m.cubism_core);
     form.button(T_CORE_BROWSE, 602, 603, 94, 26, "Browse…", false);
     form.label_id(T_CORE_STATUS, 28, 636, 330, 20, "");
@@ -121,13 +121,26 @@ pub fn build(form: &Form, s: &Settings) {
     status(form, s);
 }
 
+/// `path` cut in the middle with an ellipsis when it is longer than `max` characters (the end, the file name, is kept).
+fn elide(path: &str, max: usize) -> String {
+    let n = path.chars().count();
+    if n <= max {
+        return path.to_string();
+    }
+    let keep_end = (max * 2 / 3).max(8);
+    let keep_start = max.saturating_sub(keep_end + 1);
+    let start: String = path.chars().take(keep_start).collect();
+    let end: String = path.chars().skip(n - keep_end).collect();
+    format!("{start}\u{2026}{end}")
+}
+
 fn status(form: &Form, s: &Settings) {
     let typed = form.text(T_7Z);
     let found = nv_core::archive_tools::seven_zip(if typed.trim().is_empty() { &s.more.seven_zip } else { typed.trim() });
     form.set_text(
         T_7Z_STATUS,
         &match found {
-            Some(p) => format!("In use: {}", p.display()),
+            Some(p) => format!("In use: {}", elide(&p.display().to_string(), 92)),
             None => "7-Zip not found: Windows' own zip and tar will be used.".to_string(),
         },
     );
@@ -135,7 +148,7 @@ fn status(form: &Form, s: &Settings) {
     form.set_text(
         T_FFMPEG_STATUS,
         &match nv_core::ffmpeg::find() {
-            Some(p) => format!("In use: {}", p.display()),
+            Some(p) => format!("In use: {}", elide(&p.display().to_string(), 92)),
             None => "ffmpeg not found: such video shows a message instead.".to_string(),
         },
     );
@@ -145,7 +158,7 @@ fn status(form: &Form, s: &Settings) {
     form.set_text(
         T_CORE_STATUS,
         &match nv_anim::cubism::Core::find(exe_dir.as_deref()) {
-            Some(p) => format!("Found: {}", p.display()),
+            Some(p) => format!("Found: {}", elide(&p.display().to_string(), 38)),
             None => "Not installed: .moc3 models cannot be shown.".to_string(),
         },
     );

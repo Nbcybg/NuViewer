@@ -270,6 +270,7 @@ pub fn items_from_drawables(d: &[Drawable]) -> Vec<DrawItem> {
                 },
                 pma: false,
                 color: [1.0, 1.0, 1.0, dr.opacity.clamp(0.0, 1.0)],
+                dark: None,
                 verts: dr.verts.clone(),
                 uvs: dr.uvs.iter().map(|u| [u[0], 1.0 - u[1]]).collect(),
                 tris: dr.indices.clone(),

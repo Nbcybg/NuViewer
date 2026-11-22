@@ -268,16 +268,32 @@ fn fill_triangle(px: &mut [f32], w: usize, h: usize, band: (usize, usize), p: [[
             let t = sample(page, u, v);
             // Premultiplied source.
             let (sr, sg, sb, sa);
-            if item.pma {
-                sr = t[0] * cr * ca;
-                sg = t[1] * cg * ca;
-                sb = t[2] * cb * ca;
-                sa = t[3] * ca;
-            } else {
-                sa = t[3] * ca;
-                sr = t[0] * cr * sa;
-                sg = t[1] * cg * sa;
-                sb = t[2] * cb * sa;
+            match (item.pma, item.dark) {
+                // Two-colour tint: what would be black becomes the dark colour, what is white the light one.
+                (true, Some(d)) => {
+                    sr = t[0] * cr * ca + (t[3] - t[0]) * d[0] * ca;
+                    sg = t[1] * cg * ca + (t[3] - t[1]) * d[1] * ca;
+                    sb = t[2] * cb * ca + (t[3] - t[2]) * d[2] * ca;
+                    sa = t[3] * ca;
+                }
+                (false, Some(d)) => {
+                    sa = t[3] * ca;
+                    sr = ((1.0 - t[0]) * d[0] + t[0] * cr) * sa;
+                    sg = ((1.0 - t[1]) * d[1] + t[1] * cg) * sa;
+                    sb = ((1.0 - t[2]) * d[2] + t[2] * cb) * sa;
+                }
+                (true, None) => {
+                    sr = t[0] * cr * ca;
+                    sg = t[1] * cg * ca;
+                    sb = t[2] * cb * ca;
+                    sa = t[3] * ca;
+                }
+                (false, None) => {
+                    sa = t[3] * ca;
+                    sr = t[0] * cr * sa;
+                    sg = t[1] * cg * sa;
+                    sb = t[2] * cb * sa;
+                }
             }
             let (sr, sg, sb, sa) = (sr * cover, sg * cover, sb * cover, sa * cover);
             if sa <= 0.0 && sr <= 0.0 && sg <= 0.0 && sb <= 0.0 {

@@ -61,6 +61,9 @@ pub fn load(path: &Path) -> Result<Arc<Rig>, String> {
             Ok(r) => r,
             Err(e) => {
                 // A binary this reader cannot read (4.2, path constraints, a layout it guessed wrong): the JSON export beside it, if there is one.
+                if std::env::var_os("NV_SKEL_NO_JSON").is_some() {
+                    return Err(e); // (tests of the binary reader itself: no help from the JSON beside it)
+                }
                 let sibling = ["json", "JSON"].iter().map(|x| path.with_extension(x)).find(|p| p.is_file() && looks_like_spine_json(p));
                 match sibling {
                     Some(j) => nv_anim::json::parse(&String::from_utf8_lossy(&crate::progress::read_file(&j)?), atlas)?,

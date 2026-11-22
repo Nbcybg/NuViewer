@@ -1,4 +1,4 @@
-//! Spine's binary skeleton (`.skel`) for 3.8, 4.0 and 4.1.
+//! Spine's binary skeleton (`.skel`) for 3.8, 4.0, 4.1 and 4.2 (4.3 is in `binary43`).
 //!
 //! **Not verified against Esoteric's files.** This follows the documented layout as far as it is public and as the format is understood; no real
 //! `.skel` was available when it was written. Two things keep a wrong guess from showing garbage: every read is bounds-checked and every index
@@ -10,19 +10,19 @@ use crate::atlas::Atlas;
 use crate::model::*;
 use std::collections::HashMap;
 
-struct R<'a> {
-    b: &'a [u8],
-    p: usize,
-    strings: Option<Vec<Option<String>>>,
+pub(crate) struct R<'a> {
+    pub(crate) b: &'a [u8],
+    pub(crate) p: usize,
+    pub(crate) strings: Option<Vec<Option<String>>>,
 }
 
-type Res<T> = Result<T, String>;
+pub(crate) type Res<T> = Result<T, String>;
 
 impl<'a> R<'a> {
-    fn eof<T>(&self) -> Res<T> {
+    pub(crate) fn eof<T>(&self) -> Res<T> {
         Err(format!("skel: the file ends too early (at byte {})", self.p))
     }
-    fn byte(&mut self) -> Res<u8> {
+    pub(crate) fn byte(&mut self) -> Res<u8> {
         match self.b.get(self.p) {
             Some(v) => {
                 self.p += 1;
@@ -31,27 +31,27 @@ impl<'a> R<'a> {
             None => self.eof(),
         }
     }
-    fn sbyte(&mut self) -> Res<i8> {
+    pub(crate) fn sbyte(&mut self) -> Res<i8> {
         Ok(self.byte()? as i8)
     }
-    fn bool(&mut self) -> Res<bool> {
+    pub(crate) fn bool(&mut self) -> Res<bool> {
         Ok(self.byte()? != 0)
     }
-    fn int(&mut self) -> Res<i32> {
+    pub(crate) fn int(&mut self) -> Res<i32> {
         let s = self.b.get(self.p..self.p + 4).ok_or_else(|| format!("skel: the file ends too early (at byte {})", self.p))?;
         self.p += 4;
         Ok(i32::from_be_bytes([s[0], s[1], s[2], s[3]]))
     }
-    fn short(&mut self) -> Res<u16> {
+    pub(crate) fn short(&mut self) -> Res<u16> {
         let s = self.b.get(self.p..self.p + 2).ok_or_else(|| format!("skel: the file ends too early (at byte {})", self.p))?;
         self.p += 2;
         Ok(u16::from_be_bytes([s[0], s[1]]))
     }
-    fn float(&mut self) -> Res<f32> {
+    pub(crate) fn float(&mut self) -> Res<f32> {
         Ok(f32::from_bits(self.int()? as u32))
     }
     /// Unsigned varint (Spine's `readInt(true)`), 7 bits at a time, low bits first.
-    fn var(&mut self) -> Res<usize> {
+    pub(crate) fn var(&mut self) -> Res<usize> {
         let mut v = 0usize;
         for k in 0..5 {
             let b = self.byte()?;
@@ -63,19 +63,19 @@ impl<'a> R<'a> {
         Err("skel: a number is too long".into())
     }
     /// Signed varint (zig-zag, Spine's `readInt(false)`).
-    fn zig(&mut self) -> Res<i32> {
+    pub(crate) fn zig(&mut self) -> Res<i32> {
         let v = self.var()? as u32;
         Ok(((v >> 1) as i32) ^ -((v & 1) as i32))
     }
     /// A count that must be sane for what is left of the file (each item takes at least `each` bytes).
-    fn count(&mut self, each: usize) -> Res<usize> {
+    pub(crate) fn count(&mut self, each: usize) -> Res<usize> {
         let n = self.var()?;
         if n.saturating_mul(each.max(1)) > self.b.len() - self.p.min(self.b.len()) + 16 {
             return Err(format!("skel: an implausible count ({n}) at byte {}", self.p));
         }
         Ok(n)
     }
-    fn string(&mut self) -> Res<Option<String>> {
+    pub(crate) fn string(&mut self) -> Res<Option<String>> {
         let n = self.var()?;
         match n {
             0 => Ok(None),
@@ -87,7 +87,7 @@ impl<'a> R<'a> {
             }
         }
     }
-    fn sref(&mut self) -> Res<Option<String>> {
+    pub(crate) fn sref(&mut self) -> Res<Option<String>> {
         if self.strings.is_none() {
             return self.string();
         }
@@ -97,25 +97,25 @@ impl<'a> R<'a> {
         }
         self.strings.as_ref().and_then(|t| t.get(i - 1).cloned()).ok_or_else(|| format!("skel: string reference {i} is outside the string table"))
     }
-    fn floats(&mut self, n: usize) -> Res<Vec<f32>> {
+    pub(crate) fn floats(&mut self, n: usize) -> Res<Vec<f32>> {
         if n * 4 > self.b.len() - self.p.min(self.b.len()) {
             return self.eof();
         }
         (0..n).map(|_| self.float()).collect()
     }
-    fn shorts(&mut self) -> Res<Vec<u16>> {
+    pub(crate) fn shorts(&mut self) -> Res<Vec<u16>> {
         let n = self.count(2)?;
         (0..n).map(|_| self.short()).collect()
     }
-    fn rgba(&mut self) -> Res<[f32; 4]> {
+    pub(crate) fn rgba(&mut self) -> Res<[f32; 4]> {
         let v = self.int()? as u32;
         Ok([(v >> 24) as f32 / 255.0, ((v >> 16) & 0xFF) as f32 / 255.0, ((v >> 8) & 0xFF) as f32 / 255.0, (v & 0xFF) as f32 / 255.0])
     }
-    fn rgb_int(&mut self) -> Res<[f32; 3]> {
+    pub(crate) fn rgb_int(&mut self) -> Res<[f32; 3]> {
         let v = self.int()? as u32;
         Ok([((v >> 16) & 0xFF) as f32 / 255.0, ((v >> 8) & 0xFF) as f32 / 255.0, (v & 0xFF) as f32 / 255.0])
     }
-    fn index(&mut self, n: usize, what: &str) -> Res<usize> {
+    pub(crate) fn index(&mut self, n: usize, what: &str) -> Res<usize> {
         let i = self.var()?;
         if i < n {
             Ok(i)
@@ -126,34 +126,34 @@ impl<'a> R<'a> {
 }
 
 #[derive(Clone, Copy)]
-enum Raw {
+pub(crate) enum Raw {
     Linear,
     Stepped,
     Bez([f32; 4]),
 }
 
 /// Keys being collected: values per key, and the curve leaving each key per channel.
-struct Keys {
-    stride: usize,
-    times: Vec<f32>,
-    vals: Vec<f32>,
-    raws: Vec<Raw>,
+pub(crate) struct Keys {
+    pub(crate) stride: usize,
+    pub(crate) times: Vec<f32>,
+    pub(crate) vals: Vec<f32>,
+    pub(crate) raws: Vec<Raw>,
 }
 
 impl Keys {
-    fn new(stride: usize) -> Keys {
+    pub(crate) fn new(stride: usize) -> Keys {
         Keys { stride, times: Vec::new(), vals: Vec::new(), raws: Vec::new() }
     }
-    fn push(&mut self, t: f32, v: &[f32]) {
+    pub(crate) fn push(&mut self, t: f32, v: &[f32]) {
         self.times.push(t);
         self.vals.extend_from_slice(v);
         self.raws.extend(std::iter::repeat(Raw::Linear).take(self.stride));
     }
-    fn set_raw(&mut self, frame: usize, ch: usize, r: Raw) {
+    pub(crate) fn set_raw(&mut self, frame: usize, ch: usize, r: Raw) {
         let s = self.stride;
         self.raws[frame * s + ch] = r;
     }
-    fn track(&self, absolute: bool) -> Track {
+    pub(crate) fn track(&self, absolute: bool) -> Track {
         let s = self.stride;
         let mut t = Track::new(s);
         for i in 0..self.times.len() {
@@ -209,8 +209,11 @@ pub fn parse(bytes: &[u8], atlas: Atlas) -> Result<Rig, String> {
     };
     let mut parts = version.split('.');
     let (major, minor): (u32, u32) = (parts.next().and_then(|m| m.parse().ok()).unwrap_or(0), parts.next().and_then(|m| m.parse().ok()).unwrap_or(0));
+    if major == 4 && minor >= 3 {
+        return crate::binary43::parse(bytes, body_at, &version, atlas);
+    }
     if !(major == 3 && minor >= 8 || major == 4 && minor <= 2) {
-        return Err(format!("skel: Spine {version} is not supported (3.8 - 4.2 binary; this file is newer: use the JSON export)"));
+        return Err(format!("skel: Spine {version} is not supported (3.8 - 4.3 binary; this file is newer: use the JSON export)"));
     }
     let ver = Ver { legacy: major == 3, minor41: major == 4 && minor >= 1, v42: major == 4 && minor >= 2 };
     // 3.8 has been seen with and without a string table: try the likelier layout first.
@@ -230,8 +233,9 @@ pub fn parse(bytes: &[u8], atlas: Atlas) -> Result<Rig, String> {
 fn body(bytes: &[u8], at: usize, version: &str, ver: &Ver, table: bool, atlas: Atlas) -> Res<Rig> {
     let mut r = R { b: bytes, p: at, strings: None };
     let (x, y, width, height) = (r.float()?, r.float()?, r.float()?, r.float()?);
+    let mut reference_scale = 100.0;
     if ver.v42 {
-        r.float()?; // the reference scale
+        reference_scale = r.float()?;
     }
     let nonessential = r.bool()?;
     let mut fps = 30.0;
@@ -345,7 +349,7 @@ fn body(bytes: &[u8], at: usize, version: &str, ver: &Ver, table: bool, atlas: A
             let f2 = r.byte()?;
             let shy = opt(&mut r, f2 & 1 != 0)?;
             let (mr, mx, my, msx, msy, msh) = (opt(&mut r, f2 & 2 != 0)?, opt(&mut r, f2 & 4 != 0)?, opt(&mut r, f2 & 8 != 0)?, opt(&mut r, f2 & 16 != 0)?, opt(&mut r, f2 & 32 != 0)?, opt(&mut r, f2 & 64 != 0)?);
-            transform.push(TransformData { name, order, bones: bs, target, rotation, x: tx, y: ty, scale_x: sx, scale_y: sy, shear_y: shy, mix_rotate: mr, mix_x: mx, mix_y: my, mix_scale_x: msx, mix_scale_y: msy, mix_shear_y: msh, local: f1 & 2 != 0, relative: f1 & 4 != 0, skin_required: f1 & 1 != 0 });
+            transform.push(TransformData { name, order, bones: bs, target, rotation, x: tx, y: ty, scale_x: sx, scale_y: sy, shear_y: shy, mix_rotate: mr, mix_x: mx, mix_y: my, mix_scale_x: msx, mix_scale_y: msy, mix_shear_y: msh, local: f1 & 2 != 0, relative: f1 & 4 != 0, skin_required: f1 & 1 != 0, v43: None });
             continue;
         }
         let skin_required = r.bool()?;
@@ -364,50 +368,71 @@ fn body(bytes: &[u8], at: usize, version: &str, ver: &Ver, table: bool, atlas: A
             let (rm, tm, sm, hm) = (r.float()?, r.float()?, r.float()?, r.float()?);
             (mr, mx, my, msx, msy, msh) = (rm, tm, tm, sm, sm, hm);
         }
-        transform.push(TransformData { name, order, bones: bs, target, rotation, x: tx, y: ty, scale_x: sx, scale_y: sy, shear_y: shy, mix_rotate: mr, mix_x: mx, mix_y: my, mix_scale_x: msx, mix_scale_y: msy, mix_shear_y: msh, local, relative, skin_required });
+        transform.push(TransformData { name, order, bones: bs, target, rotation, x: tx, y: ty, scale_x: sx, scale_y: sy, shear_y: shy, mix_rotate: mr, mix_x: mx, mix_y: my, mix_scale_x: msx, mix_scale_y: msy, mix_shear_y: msh, local, relative, skin_required, v43: None });
     }
     trace(&r, &format!("ik {} transform {}", ik.len(), transform.len()));
-    // Path constraints: only their presence matters.
+    // Path constraints.
     let np = r.count(8)?;
-    if np > 0 {
-        return Err("skel: this skeleton has path constraints, which the binary reader does not read: export JSON".into());
-    }
-    // Physics constraints (4.2): read to stay in step, not applied.
-    let mut unsupported: Vec<String> = Vec::new();
-    let mut physics_count = 0usize;
-    if ver.v42 {
-        physics_count = r.count(8)?;
-        for _ in 0..physics_count {
-            r.string()?; // name
-            r.var()?; // order
-            r.index(bones.len(), "physics bone")?;
+    let mut paths: Vec<PathData> = Vec::with_capacity(np);
+    for _ in 0..np {
+        let name = r.string()?.unwrap_or_default();
+        let order = r.var()? as i32;
+        let skin_required = r.bool()?;
+        let nbn = r.count(1)?;
+        let mut bs = Vec::with_capacity(nbn);
+        for _ in 0..nbn {
+            bs.push(r.index(bones.len(), "path bone")?);
+        }
+        let slot = r.index(slots.len(), "path slot")?;
+        let (position_mode, spacing_mode, rotate_mode, offset_rotation);
+        if ver.v42 {
             let flags = r.byte()?;
-            for bit in [2u8, 4, 8, 16, 32, 64] {
-                if flags & bit != 0 {
-                    r.float()?;
-                }
-            }
-            r.byte()?; // step
-            r.float()?; // inertia
-            r.float()?; // strength
-            r.float()?; // damping
-            if flags & 128 != 0 {
-                r.float()?; // mass
-            }
-            r.float()?; // wind
-            r.float()?; // gravity
-            let flags2 = r.byte()?;
-            if flags2 & 128 != 0 {
-                r.float()?; // mix
-            }
+            position_mode = if flags & 1 == 0 { PositionMode::Fixed } else { PositionMode::Percent };
+            spacing_mode = [SpacingMode::Length, SpacingMode::Fixed, SpacingMode::Percent, SpacingMode::Proportional][((flags >> 1) & 3) as usize];
+            rotate_mode = [RotateMode::Tangent, RotateMode::Chain, RotateMode::ChainScale, RotateMode::ChainScale][((flags >> 3) & 3) as usize];
+            offset_rotation = if flags & 128 != 0 { r.float()? } else { 0.0 };
+        } else {
+            position_mode = if r.var()? == 0 { PositionMode::Fixed } else { PositionMode::Percent };
+            spacing_mode = [SpacingMode::Length, SpacingMode::Fixed, SpacingMode::Percent, SpacingMode::Proportional][r.var()?.min(3)];
+            rotate_mode = [RotateMode::Tangent, RotateMode::Chain, RotateMode::ChainScale][r.var()?.min(2)];
+            offset_rotation = r.float()?;
         }
-        if physics_count > 0 {
-            unsupported.push("physics constraints".into());
+        let (position, spacing) = (r.float()?, r.float()?);
+        let (mix_rotate, mix_x, mix_y);
+        if ver.v42 || ver.minor41 {
+            (mix_rotate, mix_x, mix_y) = (r.float()?, r.float()?, r.float()?);
+        } else {
+            let (rm, tm) = (r.float()?, r.float()?);
+            (mix_rotate, mix_x, mix_y) = (rm, tm, tm);
+        }
+        paths.push(PathData { name, order, bones: bs, slot, position_mode, spacing_mode, rotate_mode, offset_rotation, position, spacing, mix_rotate, mix_x, mix_y, skin_required });
+    }
+    // Physics constraints (4.2).
+    let mut physics: Vec<PhysicsData> = Vec::new();
+    if ver.v42 {
+        let nph = r.count(8)?;
+        for _ in 0..nph {
+            let name = r.string()?.unwrap_or_default();
+            let order = r.var()? as i32;
+            let bone = r.index(bones.len(), "physics bone")?;
+            let flags = r.byte()?;
+            let opt = |r: &mut R, bit: u8| -> Res<f32> { if flags & bit != 0 { r.float() } else { Ok(0.0) } };
+            let (px, py, rotate, scale_x, shear_x) = (opt(&mut r, 2)?, opt(&mut r, 4)?, opt(&mut r, 8)?, opt(&mut r, 16)?, opt(&mut r, 32)?);
+            let limit = if flags & 64 != 0 { r.float()? } else { 5000.0 };
+            let step_byte = r.byte()?;
+            let step = if step_byte == 0 { 1.0 / 60.0 } else { 1.0 / step_byte as f32 };
+            let (inertia, strength, damping) = (r.float()?, r.float()?, r.float()?);
+            let mass_inverse = if flags & 128 != 0 { r.float()? } else { 1.0 };
+            let (wind, gravity) = (r.float()?, r.float()?);
+            let f2 = r.byte()?;
+            let mix = if f2 & 128 != 0 { r.float()? } else { 1.0 };
+            physics.push(PhysicsData { name, order, bone, x: px, y: py, rotate, scale_x, shear_x, scale_y_mode: ScaleYMode::None, limit, step, inertia, strength, damping, mass_inverse, wind, gravity, mix, global: [f2 & 1 != 0, f2 & 2 != 0, f2 & 4 != 0, f2 & 8 != 0, f2 & 16 != 0, f2 & 32 != 0, f2 & 64 != 0], skin_required: flags & 1 != 0 });
         }
     }
+    let unsupported: Vec<String> = Vec::new();
     // Skins.
     let mut skins: Vec<Skin> = Vec::new();
-    let mut linked: Vec<(usize, usize, String, String, String, bool, String, [f32; 4], f32, f32)> = Vec::new();
+    let mut linked: Vec<LinkedRec> = Vec::new();
     trace(&r, "before skins");
     let default_slots = r.var()?;
     trace(&r, &format!("default skin slots {default_slots}"));
@@ -437,12 +462,14 @@ fn body(bytes: &[u8], at: usize, version: &str, ver: &Ver, table: bool, atlas: A
             }
             let npa = r.count(1)?;
             for _ in 0..npa {
-                r.var()?;
+                let index = r.index(paths.len(), "skin path constraint")?;
+                skin.extra.push(CRef { kind: CKind::Path, index });
             }
             if ver.v42 {
                 let nph = r.count(1)?;
                 for _ in 0..nph {
-                    r.var()?;
+                    let index = r.index(physics.len(), "skin physics constraint")?;
+                    skin.extra.push(CRef { kind: CKind::Physics, index });
                 }
             }
         }
@@ -472,33 +499,46 @@ fn body(bytes: &[u8], at: usize, version: &str, ver: &Ver, table: bool, atlas: A
     let mut animations = Vec::with_capacity(na);
     for _ in 0..na {
         let name = r.string()?.unwrap_or_default();
-        animations.push(read_animation(&mut r, name, ver, &bones, &slots, &skins, &ik, &transform, &event_audio)?);
+        animations.push(read_animation(&mut r, name, ver, &bones, &slots, &skins, &ik, &transform, &paths, &physics, &event_audio)?);
     }
     if r.p != bytes.len() {
         return Err(format!("skel: {} bytes are left over after the animations (the reader is out of step)", bytes.len() - r.p));
     }
     animations.sort_by(|a, b| a.name.cmp(&b.name));
-    let _ = physics_count;
-    Ok(Rig { version: version.to_string(), name: String::new(), x, y, width, height, fps, bones, slots, skins, ik, transform, animations, atlas, legacy: ver.legacy, unsupported })
+    Ok(Rig { version: version.to_string(), name: String::new(), x, y, width, height, fps, bones, slots, skins, ik, transform, path: paths, physics, slider: Vec::new(), constraints: Vec::new(), reference_scale, animations, atlas, legacy: ver.legacy, unsupported })
 }
 
-fn trace(r: &R, what: &str) {
+pub(crate) fn trace(r: &R, what: &str) {
     if std::env::var_os("NV_SKEL_TRACE").is_some() {
         eprintln!("skel@{}/{}: {what}", r.p, r.b.len());
     }
 }
 
-/// 4.2's image sequence: four numbers (the flag that says it is there is in the attachment's flag byte).
-fn skip_sequence42(r: &mut R) -> Res<()> {
-    for _ in 0..4 {
-        r.var()?;
-    }
-    Ok(())
+/// An image sequence: four numbers (4.2: the flag that says it is there is in the attachment's flag byte).
+/// A linked mesh waiting for the mesh it borrows from.
+pub(crate) struct LinkedRec {
+    pub si: usize,
+    pub slot: usize,
+    pub key: String,
+    pub parent: String,
+    /// "#n" (a skin by number) or a name.
+    pub parent_skin: String,
+    pub parent_slot: Option<usize>,
+    pub deform: bool,
+    pub path: String,
+    pub color: [f32; 4],
+    pub w: f32,
+    pub h: f32,
+    pub seq: Option<Seq>,
+}
+
+pub(crate) fn read_seq(r: &mut R) -> Res<Seq> {
+    Ok(Seq { count: r.var()?, start: r.var()? as i32, digits: r.var()?, setup: r.var()? })
 }
 
 /// One attachment in the 4.2 layout: a flag byte (type in the low 3 bits, the rest say which optional parts follow).
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-fn read_attachment42(r: &mut R, key: &str, si: usize, slot: usize, bones: &[BoneData], slots: &[SlotData], nonessential: bool, linked: &mut Vec<(usize, usize, String, String, String, bool, String, [f32; 4], f32, f32)>) -> Res<Option<Attachment>> {
+fn read_attachment42(r: &mut R, key: &str, si: usize, slot: usize, bones: &[BoneData], slots: &[SlotData], nonessential: bool, linked: &mut Vec<LinkedRec>) -> Res<Option<Attachment>> {
     let flags = r.byte()?;
     let name = if flags & 8 != 0 { r.sref()?.unwrap_or_else(|| key.to_string()) } else { key.to_string() };
     let ty = flags & 7;
@@ -524,12 +564,10 @@ fn read_attachment42(r: &mut R, key: &str, si: usize, slot: usize, bones: &[Bone
         0 => {
             let path = if flags & 16 != 0 { r.sref()?.unwrap_or_else(|| name.clone()) } else { name.clone() };
             let color = if flags & 32 != 0 { r.rgba()? } else { [1.0; 4] };
-            if flags & 64 != 0 {
-                skip_sequence42(r)?;
-            }
+            let seq = if flags & 64 != 0 { Some(read_seq(r)?) } else { None };
             let rotation = if flags & 128 != 0 { r.float()? } else { 0.0 };
             let (x, y, sx, sy, width, height) = (r.float()?, r.float()?, r.float()?, r.float()?, r.float()?, r.float()?);
-            Some(Attachment::Region(Region { path, x, y, rotation, scale_x: sx, scale_y: sy, width, height, color }))
+            Some(Attachment::Region(Region { path, seq, x, y, rotation, scale_x: sx, scale_y: sy, width, height, color }))
         }
         1 => {
             read_verts(r, weighted_flag(16))?;
@@ -541,9 +579,7 @@ fn read_attachment42(r: &mut R, key: &str, si: usize, slot: usize, bones: &[Bone
         2 => {
             let path = if flags & 16 != 0 { r.sref()?.unwrap_or_else(|| name.clone()) } else { name.clone() };
             let color = if flags & 32 != 0 { r.rgba()? } else { [1.0; 4] };
-            if flags & 64 != 0 {
-                skip_sequence42(r)?;
-            }
+            let seq = if flags & 64 != 0 { Some(read_seq(r)?) } else { None };
             let hull = r.var()?;
             let (vc, vertices) = read_verts(r, weighted_flag(128))?;
             let uvs = r.floats(vc * 2)?;
@@ -572,14 +608,12 @@ fn read_attachment42(r: &mut R, key: &str, si: usize, slot: usize, bones: &[Bone
                     return Err("skel: a mesh is weighted to a bone that does not exist".into());
                 }
             }
-            Some(Attachment::Mesh(Mesh { path, color, width, height, uvs, triangles, vertices, hull, deform_skin: si, deform_name: key.to_string() }))
+            Some(Attachment::Mesh(Mesh { path, seq, color, width, height, uvs, triangles, vertices, hull, deform_skin: si, deform_name: key.to_string() }))
         }
         3 => {
             let path = if flags & 16 != 0 { r.sref()?.unwrap_or_else(|| name.clone()) } else { name.clone() };
             let color = if flags & 32 != 0 { r.rgba()? } else { [1.0; 4] };
-            if flags & 64 != 0 {
-                skip_sequence42(r)?;
-            }
+            let seq = if flags & 64 != 0 { Some(read_seq(r)?) } else { None };
             let deform = flags & 128 != 0;
             let skin_index = r.var()?;
             let parent = r.sref()?.unwrap_or_default();
@@ -589,16 +623,16 @@ fn read_attachment42(r: &mut R, key: &str, si: usize, slot: usize, bones: &[Bone
                 h = r.float()?;
             }
             // The skin is given by number; "" means the skin being read is not known yet, so the default (0) stands in when it is out of range.
-            linked.push((si, slot, key.to_string(), parent, format!("#{skin_index}"), deform, path, color, w, h));
+            linked.push(LinkedRec { si, slot, key: key.to_string(), parent, parent_skin: format!("#{skin_index}"), parent_slot: None, deform, path, color, w, h, seq });
             None
         }
         4 => {
-            let (vc, _) = read_verts(r, weighted_flag(64))?;
-            r.floats(vc * 2 / 6)?;
+            let (vc, vertices) = read_verts(r, weighted_flag(64))?;
+            let lengths = r.floats(vc * 2 / 6)?;
             if nonessential {
                 r.int()?;
             }
-            Some(Attachment::Other)
+            Some(Attachment::Path(PathAtt { closed: flags & 16 != 0, constant_speed: flags & 32 != 0, vertices, lengths }))
         }
         5 => {
             r.float()?;
@@ -622,13 +656,12 @@ fn read_attachment42(r: &mut R, key: &str, si: usize, slot: usize, bones: &[Bone
 }
 
 /// 4.1's image-sequence block: a flag, then four numbers.
-fn skip_sequence(r: &mut R) -> Res<()> {
+fn read_seq41(r: &mut R) -> Res<Option<Seq>> {
     if r.bool()? {
-        for _ in 0..4 {
-            r.var()?;
-        }
+        Ok(Some(read_seq(r)?))
+    } else {
+        Ok(None)
     }
-    Ok(())
 }
 
 fn read_vertices(r: &mut R, count: usize) -> Res<Vertices> {
@@ -649,7 +682,7 @@ fn read_vertices(r: &mut R, count: usize) -> Res<Vertices> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn read_skin_slots(r: &mut R, sequences: bool, v42: bool, skins: &mut [Skin], si: usize, slot_count: usize, bones: &[BoneData], slots: &[SlotData], nonessential: bool, linked: &mut Vec<(usize, usize, String, String, String, bool, String, [f32; 4], f32, f32)>) -> Res<()> {
+fn read_skin_slots(r: &mut R, sequences: bool, v42: bool, skins: &mut [Skin], si: usize, slot_count: usize, bones: &[BoneData], slots: &[SlotData], nonessential: bool, linked: &mut Vec<LinkedRec>) -> Res<()> {
     for _ in 0..slot_count {
         let slot = r.index(slots.len(), "skin slot")?;
         let n = r.count(2)?;
@@ -667,12 +700,10 @@ fn read_skin_slots(r: &mut R, sequences: bool, v42: bool, skins: &mut [Skin], si
             let att = match ty {
                 0 => {
                     let path = r.sref()?.unwrap_or_else(|| name.clone());
-                    if sequences {
-                        skip_sequence(r)?;
-                    }
+                    let seq = if sequences { read_seq41(r)? } else { None };
                     let (rotation, x, y, sx, sy, width, height) = (r.float()?, r.float()?, r.float()?, r.float()?, r.float()?, r.float()?, r.float()?);
                     let color = r.rgba()?;
-                    Attachment::Region(Region { path, x, y, rotation, scale_x: sx, scale_y: sy, width, height, color })
+                    Attachment::Region(Region { path, seq, x, y, rotation, scale_x: sx, scale_y: sy, width, height, color })
                 }
                 1 => {
                     let n = r.var()?;
@@ -695,9 +726,7 @@ fn read_skin_slots(r: &mut R, sequences: bool, v42: bool, skins: &mut [Skin], si
                         }
                     }
                     let hull = r.var()?;
-                    if sequences {
-                        skip_sequence(r)?;
-                    }
+                    let seq = if sequences { read_seq41(r)? } else { None };
                     let (mut width, mut height) = (0.0, 0.0);
                     if nonessential {
                         r.shorts()?;
@@ -707,7 +736,7 @@ fn read_skin_slots(r: &mut R, sequences: bool, v42: bool, skins: &mut [Skin], si
                     if triangles.iter().any(|&t| t as usize >= vc) {
                         return Err("skel: a mesh triangle points at a vertex that does not exist".into());
                     }
-                    Attachment::Mesh(Mesh { path, color, width, height, uvs, triangles, vertices, hull, deform_skin: si, deform_name: key.clone() })
+                    Attachment::Mesh(Mesh { path, seq, color, width, height, uvs, triangles, vertices, hull, deform_skin: si, deform_name: key.clone() })
                 }
                 3 => {
                     let path = r.sref()?.unwrap_or_else(|| name.clone());
@@ -715,27 +744,25 @@ fn read_skin_slots(r: &mut R, sequences: bool, v42: bool, skins: &mut [Skin], si
                     let skin = r.sref()?.unwrap_or_else(|| "default".into());
                     let parent = r.sref()?.unwrap_or_default();
                     let deform = r.bool()?;
-                    if sequences {
-                        skip_sequence(r)?;
-                    }
+                    let seq = if sequences { read_seq41(r)? } else { None };
                     let (mut w, mut h) = (0.0, 0.0);
                     if nonessential {
                         w = r.float()?;
                         h = r.float()?;
                     }
-                    linked.push((si, slot, key.clone(), parent, skin, deform, path, color, w, h));
+                    linked.push(LinkedRec { si, slot, key: key.clone(), parent, parent_skin: skin, parent_slot: None, deform, path, color, w, h, seq });
                     continue;
                 }
                 4 => {
-                    let _closed = r.bool()?;
-                    let _constant = r.bool()?;
+                    let closed = r.bool()?;
+                    let constant_speed = r.bool()?;
                     let vc = r.var()?;
-                    read_vertices(r, vc)?;
-                    r.floats(vc / 3)?;
+                    let vertices = read_vertices(r, vc)?;
+                    let lengths = r.floats(vc / 3)?;
                     if nonessential {
                         r.int()?;
                     }
-                    Attachment::Other
+                    Attachment::Path(PathAtt { closed, constant_speed, vertices, lengths })
                 }
                 5 => {
                     r.float()?;
@@ -763,25 +790,24 @@ fn read_skin_slots(r: &mut R, sequences: bool, v42: bool, skins: &mut [Skin], si
     Ok(())
 }
 
-#[allow(clippy::type_complexity)]
-fn resolve_linked(skins: &mut [Skin], linked: Vec<(usize, usize, String, String, String, bool, String, [f32; 4], f32, f32)>) {
+pub(crate) fn resolve_linked(skins: &mut [Skin], linked: Vec<LinkedRec>) {
     let mut pending = linked;
     while !pending.is_empty() {
         let before = pending.len();
         let mut rest = Vec::new();
         for l in pending {
-            let (si, slot, key, parent, parent_skin, deform, path, color, w, h) = l;
-            let psi = match parent_skin.strip_prefix('#') {
+            let psi = match l.parent_skin.strip_prefix('#') {
                 Some(n) => n.parse::<usize>().unwrap_or(0).min(skins.len().saturating_sub(1)),
-                None => skins.iter().position(|s| s.name == parent_skin).unwrap_or(0),
+                None => skins.iter().position(|s| s.name == l.parent_skin).unwrap_or(0),
             };
-            let p = skins.get(psi).and_then(|s| s.slots.get(slot)).and_then(|m| m.get(&parent)).cloned();
+            let pslot = l.parent_slot.unwrap_or(l.slot);
+            let p = skins.get(psi).and_then(|s| s.slots.get(pslot)).and_then(|m| m.get(&l.parent)).cloned();
             match p {
                 Some(Attachment::Mesh(p)) => {
-                    let (deform_skin, deform_name) = if deform { (p.deform_skin, p.deform_name.clone()) } else { (si, key.clone()) };
-                    skins[si].slots[slot].insert(key, Attachment::Mesh(Mesh { path, color, width: if w > 0.0 { w } else { p.width }, height: if h > 0.0 { h } else { p.height }, deform_skin, deform_name, ..p }));
+                    let (deform_skin, deform_name) = if l.deform { (p.deform_skin, p.deform_name.clone()) } else { (l.si, l.key.clone()) };
+                    skins[l.si].slots[l.slot].insert(l.key.clone(), Attachment::Mesh(Mesh { path: l.path.clone(), seq: l.seq, color: l.color, width: if l.w > 0.0 { l.w } else { p.width }, height: if l.h > 0.0 { l.h } else { p.height }, deform_skin, deform_name, ..p }));
                 }
-                _ => rest.push((si, slot, key, parent, parent_skin, deform, path, color, w, h)),
+                _ => rest.push(l),
             }
         }
         if rest.len() == before {
@@ -792,7 +818,7 @@ fn resolve_linked(skins: &mut [Skin], linked: Vec<(usize, usize, String, String,
 }
 
 /// Read the curve that leaves a key, into `keys` for `frame`, `channels` channels.
-fn read_curve(r: &mut R, keys: &mut Keys, frame: usize, channels: usize, first_channel: usize, legacy: bool) -> Res<()> {
+pub(crate) fn read_curve(r: &mut R, keys: &mut Keys, frame: usize, channels: usize, first_channel: usize, legacy: bool) -> Res<()> {
     match r.byte()? {
         0 => {}
         1 => {
@@ -820,7 +846,7 @@ fn read_curve(r: &mut R, keys: &mut Keys, frame: usize, channels: usize, first_c
 }
 
 /// A timeline of `stride` floats per key in the 4.x layout: first key, then (next key, curve of the previous) pairs.
-fn read_keys4(r: &mut R, frame_count: usize, stride: usize, scale_channels: &dyn Fn(usize) -> bool, read_vals: &mut dyn FnMut(&mut R) -> Res<Vec<f32>>) -> Res<Keys> {
+pub(crate) fn read_keys4(r: &mut R, frame_count: usize, stride: usize, scale_channels: &dyn Fn(usize) -> bool, read_vals: &mut dyn FnMut(&mut R) -> Res<Vec<f32>>) -> Res<Keys> {
     let _ = scale_channels;
     let mut keys = Keys::new(stride);
     if frame_count == 0 {
@@ -856,12 +882,12 @@ fn read_keys3(r: &mut R, frame_count: usize, stride: usize, read_vals: &mut dyn 
     Ok(keys)
 }
 
-fn byte_color(r: &mut R, n: usize) -> Res<Vec<f32>> {
+pub(crate) fn byte_color(r: &mut R, n: usize) -> Res<Vec<f32>> {
     (0..n).map(|_| Ok(r.byte()? as f32 / 255.0)).collect()
 }
 
 #[allow(clippy::too_many_arguments)]
-fn read_animation(r: &mut R, name: String, ver: &Ver, bones: &[BoneData], slots: &[SlotData], skins: &[Skin], ik: &[IkData], transform: &[TransformData], event_audio: &[bool]) -> Res<Animation> {
+fn read_animation(r: &mut R, name: String, ver: &Ver, bones: &[BoneData], slots: &[SlotData], skins: &[Skin], ik: &[IkData], transform: &[TransformData], paths: &[PathData], physics: &[PhysicsData], event_audio: &[bool]) -> Res<Animation> {
     let absolute = !ver.legacy;
     let mut anim = Animation { name, ..Default::default() };
     let mut dur = 0.0f32;
@@ -1097,29 +1123,87 @@ fn read_animation(r: &mut R, name: String, ver: &Ver, bones: &[BoneData], slots:
         anim.transform.push((ci, t));
     }
     trace(r, "  transform done");
-    // Path timelines: not supported (skeletons with path constraints are refused earlier).
+    // Path constraint timelines.
     let n = r.count(2)?;
-    if n > 0 {
-        return Err("skel: path constraint timelines are not read".into());
+    for _ in 0..n {
+        let ci = r.index(paths.len(), "animation path")?;
+        let nn = r.count(2)?;
+        for _ in 0..nn {
+            let ty = r.byte()?;
+            let frames = r.count(4)?;
+            let tl = if ver.legacy {
+                match ty {
+                    0 => PathTl::Position(read_keys3(r, frames, 1, &mut |r| Ok(vec![r.float()?]))?.track(false)),
+                    1 => PathTl::Spacing(read_keys3(r, frames, 1, &mut |r| Ok(vec![r.float()?]))?.track(false)),
+                    2 => PathTl::Mix(read_keys3(r, frames, 3, &mut |r| {
+                        let (a, b) = (r.float()?, r.float()?);
+                        Ok(vec![a, b, b])
+                    })?.track(false)),
+                    t => return Err(format!("skel: unknown path timeline {t}")),
+                }
+            } else {
+                let _bezier = r.var()?;
+                match ty {
+                    0 => PathTl::Position(read_keys4(r, frames, 1, &|_| false, &mut |r| Ok(vec![r.float()?]))?.track(true)),
+                    1 => PathTl::Spacing(read_keys4(r, frames, 1, &|_| false, &mut |r| Ok(vec![r.float()?]))?.track(true)),
+                    2 if ver.minor41 => PathTl::Mix(read_keys4(r, frames, 3, &|_| false, &mut |r| Ok(vec![r.float()?, r.float()?, r.float()?]))?.track(true)),
+                    2 => {
+                        // 4.0: rotate and translate mixes (two channels; y follows x).
+                        let k = read_keys4(r, frames, 2, &|_| false, &mut |r| Ok(vec![r.float()?, r.float()?]))?;
+                        let mut three = Keys::new(3);
+                        for i in 0..k.times.len() {
+                            let v = &k.vals[i * 2..i * 2 + 2];
+                            three.push(k.times[i], &[v[0], v[1], v[1]]);
+                            for (c, src) in [(0, 0), (1, 1), (2, 1)] {
+                                three.set_raw(i, c, k.raws[i * 2 + src]);
+                            }
+                        }
+                        PathTl::Mix(three.track(true))
+                    }
+                    t => return Err(format!("skel: unknown path timeline {t}")),
+                }
+            };
+            let (PathTl::Position(t) | PathTl::Spacing(t) | PathTl::Mix(t)) = &tl;
+            dur = dur.max(t.duration());
+            anim.path.push((ci, tl));
+        }
     }
     trace(r, "  path done");
     if ver.v42 {
-        // Physics constraint timelines: read to stay in step, not played.
+        // Physics constraint timelines (a constraint number of 0 is "all that follow the skeleton-wide value").
         let n = r.count(2)?;
         for _ in 0..n {
-            r.var()?; // constraint index + 1 (0 = all)
+            let u = r.var()?;
+            let ci = if u == 0 { None } else if u - 1 < physics.len() { Some(u - 1) } else { return Err("skel: a physics timeline points at a constraint that does not exist".into()) };
             let nn = r.count(2)?;
             for _ in 0..nn {
                 let ty = r.byte()?;
                 let frames = r.count(4)?;
                 if ty == 8 {
+                    let mut times = Vec::with_capacity(frames);
                     for _ in 0..frames {
-                        r.float()?;
+                        times.push(r.float()?);
                     }
-                } else {
-                    r.var()?; // bezier count
-                    read_keys4(r, frames, 1, &|_| false, &mut |r| Ok(vec![r.float()?]))?;
+                    if let Some(&l) = times.last() {
+                        dur = dur.max(l);
+                    }
+                    anim.physics.push((ci, PhysTl::Reset(times)));
+                    continue;
                 }
+                let _bezier = r.var()?;
+                let prop = match ty {
+                    0 => PhysProp::Inertia,
+                    1 => PhysProp::Strength,
+                    2 => PhysProp::Damping,
+                    4 => PhysProp::Mass,
+                    5 => PhysProp::Wind,
+                    6 => PhysProp::Gravity,
+                    7 => PhysProp::Mix,
+                    t => return Err(format!("skel: unknown physics timeline {t}")),
+                };
+                let t = read_keys4(r, frames, 1, &|_| false, &mut |r| Ok(vec![r.float()?]))?.track(true);
+                dur = dur.max(t.duration());
+                anim.physics.push((ci, PhysTl::Prop(prop, t)));
             }
         }
     }
@@ -1135,15 +1219,20 @@ fn read_animation(r: &mut R, name: String, ver: &Ver, bones: &[BoneData], slots:
                 let att_name = r.sref()?.unwrap_or_default();
                 // 4.1 and later: a type byte (0 deform, 1 image sequence) comes before the key count.
                 let kind = if ver.minor41 { r.byte()? } else { 0 };
-                let mesh_len = skins.get(si).and_then(|s| s.slots.get(slot)).and_then(|m| m.get(&att_name)).and_then(|a| if let Attachment::Mesh(m) = a { Some(m.vertices.deform_len()) } else { None });
+                let mesh_len = skins.get(si).and_then(|s| s.slots.get(slot)).and_then(|m| m.get(&att_name)).and_then(|a| a.deform_len());
                 let frames = r.count(4)?;
                 if kind == 1 {
-                    // A sequence timeline: time, mode and index, delay per key. Not played.
+                    // An image sequence over time: time, mode and index, delay per key.
+                    let mut keys = Vec::with_capacity(frames);
                     for _ in 0..frames {
-                        r.float()?;
-                        r.int()?;
-                        r.float()?;
+                        let time = r.float()?;
+                        let mi = r.int()?;
+                        keys.push(SeqKey { time, mode: (mi & 0xF) as u8, index: mi >> 4, delay: r.float()? });
                     }
+                    if let Some(l) = keys.last() {
+                        dur = dur.max(l.time);
+                    }
+                    anim.sequence.push(SeqTl { skin: si, slot, attachment: att_name, keys });
                     continue;
                 }
                 if kind != 0 {
@@ -1152,19 +1241,24 @@ fn read_animation(r: &mut R, name: String, ver: &Ver, bones: &[BoneData], slots:
                 if !ver.legacy {
                     let _bezier = r.var()?;
                 }
-                let len = mesh_len.ok_or_else(|| format!("skel: a deform timeline for {att_name} that is not a mesh"))?;
+                // (A bounding box can be deformed too: its keys are read and dropped.)
+                let len = mesh_len.unwrap_or(usize::MAX);
                 let mut tl = DeformTl { skin: si, slot, attachment: att_name, times: Vec::new(), frames: Vec::new(), curves: Vec::new() };
                 let mut time = r.float()?;
                 for frame in 0..frames {
                     let end = r.var()?;
-                    let mut full = vec![0.0f32; len];
+                    let mut full = vec![0.0f32; if len == usize::MAX { 0 } else { len }];
                     if end > 0 {
                         let start = r.var()?;
-                        if start + end > len {
-                            return Err("skel: a deform key reaches past its mesh".into());
-                        }
-                        for v in full.iter_mut().skip(start).take(end) {
-                            *v = r.float()?;
+                        if len == usize::MAX {
+                            r.floats(end)?;
+                        } else {
+                            if start + end > len {
+                                return Err("skel: a deform key reaches past its mesh".into());
+                            }
+                            for v in full.iter_mut().skip(start).take(end) {
+                                *v = r.float()?;
+                            }
                         }
                     }
                     tl.times.push(time);
@@ -1193,7 +1287,9 @@ fn read_animation(r: &mut R, name: String, ver: &Ver, bones: &[BoneData], slots:
                 if let Some(&t) = tl.times.last() {
                     dur = dur.max(t);
                 }
-                anim.deform.push(tl);
+                if len != usize::MAX {
+                    anim.deform.push(tl);
+                }
             }
         }
     }
@@ -1429,8 +1525,7 @@ mod tests {
 
     #[test]
     fn version_4_2_and_unknown_versions_say_what_to_do() {
-        let e = parse(&skel("4.3.10", true), Atlas::parse(ATLAS).unwrap()).unwrap_err();
-        assert!(e.contains("JSON") && e.contains("4.3"), "{e}");
+        assert!(parse(&skel("4.3.10", true), Atlas::parse(ATLAS).unwrap()).is_err(), "a made-up 4.3 file is not a 4.3 file");
         let e = parse(&skel("3.4.02", true), Atlas::parse(ATLAS).unwrap()).unwrap_err();
         assert!(e.contains("not supported"), "{e}");
     }

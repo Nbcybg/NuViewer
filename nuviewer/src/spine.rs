@@ -29,7 +29,14 @@ pub struct Player {
     pub slot_alpha: Vec<f32>,
     pub last: Instant,
     pub dirty: bool,
+    /// What the springs (4.2+ physics constraints) remember from frame to frame.
+    pub sim: nv_anim::PhysicsSim,
+    /// The animation being left (number, its time) and how far the new one has taken over (seconds of the fade so far).
+    pub fade: Option<(usize, f32, f32)>,
 }
+
+/// How long one animation eases into the next.
+const FADE_SECONDS: f32 = 0.25;
 
 pub struct Spine {
     pub rigs: HashMap<u64, Arc<Rig>>,
@@ -43,8 +50,15 @@ impl Spine {
 }
 
 /// One frame of `rig` as straight RGBA: the pose at `time`, slots dimmed by `alpha`.
-pub fn render_pose(rig: &Rig, skin: usize, anim: Option<usize>, time: f32, alpha: &[f32], w: usize, h: usize, view: nv_anim::View, ssaa: usize, background: Option<[f32; 3]>) -> Vec<u8> {
-    let mut pose = rig.pose(skin, anim, time);
+#[allow(clippy::too_many_arguments)]
+pub fn render_pose(rig: &Rig, skin: usize, anim: Option<usize>, time: f32, alpha: &[f32], w: usize, h: usize, view: nv_anim::View, ssaa: usize, background: Option<[f32; 3]>, sim: Option<&mut nv_anim::PhysicsSim>) -> Vec<u8> {
+    render_pose_mix(rig, skin, None, anim, time, 1.0, alpha, w, h, view, ssaa, background, sim)
+}
+
+/// `render_pose` easing from another animation (see `Rig::pose_mix`).
+#[allow(clippy::too_many_arguments)]
+pub fn render_pose_mix(rig: &Rig, skin: usize, from: Option<(usize, f32)>, anim: Option<usize>, time: f32, mix: f32, alpha: &[f32], w: usize, h: usize, view: nv_anim::View, ssaa: usize, background: Option<[f32; 3]>, sim: Option<&mut nv_anim::PhysicsSim>) -> Vec<u8> {
+    let mut pose = rig.pose_mix(skin, from, anim, time, mix, sim);
     for (s, a) in pose.slots.iter_mut().zip(alpha) {
         s.user_alpha = *a;
     }
@@ -62,9 +76,12 @@ impl Player {
 
     /// Choose an animation (None = the setup pose) and fit the canvas to the whole of its motion.
     pub fn set_anim(&mut self, anim: Option<usize>) {
+        // Ease out of the animation that was playing (a single bone pose swaps in 0.25 s instead of jumping).
+        self.fade = self.anim.filter(|_| self.rig.animations.len() > 1 && anim != self.anim).map(|a| (a, self.time, 0.0));
         self.anim = anim;
         self.time = 0.0;
         self.dir = 1.0;
+        self.sim.reset();
         let (w, h, view) = spinefmt::canvas_for(&self.rig, self.skin, anim, 1024);
         self.canvas = (w, h);
         self.view = view;
@@ -95,7 +112,7 @@ impl App {
                         let anim = if rig.animations.is_empty() { None } else { Some(rig.animation_index("idle").or_else(|| rig.animation_index("Idle")).unwrap_or(0)) };
                         let (w, h, view) = spinefmt::canvas_for(&rig, skin, anim, 1024);
                         let n = rig.slots.len();
-                        self.spine.player = Some(Player { id, path, rig, skin, anim, time: 0.0, playing: true, dir: 1.0, canvas: (w, h), view, slot_alpha: vec![1.0; n], last: Instant::now(), dirty: true });
+                        self.spine.player = Some(Player { id, path, rig, skin, anim, time: 0.0, playing: true, dir: 1.0, canvas: (w, h), view, slot_alpha: vec![1.0; n], last: Instant::now(), dirty: true, sim: nv_anim::PhysicsSim::new(), fade: None });
                         set_timer(self.hwnd, TIMER_SPINE, TICK_MS);
                         self.toast("Spine skeleton: P plays / pauses, wheel zooms, drag pans, Ctrl+L = animations, skins and layers");
                     }
@@ -113,6 +130,19 @@ impl App {
         let dt = now.duration_since(p.last).as_secs_f32().min(0.25);
         p.last = now;
         let dur = p.duration();
+        // Physics keeps swinging for as long as the skeleton plays, whatever the animation does (even a still pose).
+        if p.playing && !p.rig.physics.is_empty() {
+            p.sim.advance(dt * speed);
+            p.dirty = true;
+        }
+        if let Some((fa, ft, el)) = p.fade {
+            let el = el + dt;
+            let old_len = p.rig.animations.get(fa).map(|a| a.duration).unwrap_or(0.0);
+            // (The old animation keeps moving while it fades out, looping if it must.)
+            let ft = if old_len > 0.0 { (ft + dt * speed).rem_euclid(old_len) } else { ft };
+            p.fade = if el >= FADE_SECONDS { None } else { Some((fa, ft, el)) };
+            p.dirty = true;
+        }
         if p.playing && dur > 0.0 {
             p.time += dt * speed * p.dir;
             if ping {
@@ -140,7 +170,11 @@ impl App {
         let Some(p) = self.spine.player.as_mut() else { return };
         p.dirty = false;
         let (w, h) = p.canvas;
-        let rgba = render_pose(&p.rig, p.skin, p.anim, p.time, &p.slot_alpha, w, h, p.view, 1, None);
+        let (from, mix) = match p.fade {
+            Some((fa, ft, el)) => (Some((fa, ft)), (el / FADE_SECONDS).clamp(0.0, 1.0)),
+            None => (None, 1.0),
+        };
+        let rgba = render_pose_mix(&p.rig, p.skin, from, p.anim, p.time, mix, &p.slot_alpha, w, h, p.view, 1, None, Some(&mut p.sim));
         let mut img = nv_codecs::Image::new(w as u32, h as u32, rgba);
         img.profile_assumable = false;
         let id = p.id;
@@ -271,7 +305,8 @@ impl App {
             let c = canvas_rgb();
             Some([(c >> 16 & 0xFF) as f32 / 255.0, (c >> 8 & 0xFF) as f32 / 255.0, (c & 0xFF) as f32 / 255.0])
         };
-        let rgba = render_pose(&p.rig, p.skin, p.anim, p.time, &p.slot_alpha, w, h, view, 2, bg);
+        let mut sim = p.sim.clone(); // (the springs as they are on screen)
+        let rgba = render_pose(&p.rig, p.skin, p.anim, p.time, &p.slot_alpha, w, h, view, 2, bg, Some(&mut sim));
         let label = format!("{} {:.2}s", p.anim_name(), p.time);
         let shown = nv_core::snapshot::Shown { width: w as u32, height: h as u32, rgba };
         match nv_core::snapshot::take_shown_labeled(&p.path, &label, &prefs, shown) {
@@ -303,12 +338,16 @@ impl App {
         let stem_job = stem.clone();
         let result = nv_win::progress::run("Spine: export frames", &format!("{stem} - {name}: {frames} frames, {w}x{h}"), move |cancel, report| -> Result<usize, String> {
             std::fs::create_dir_all(&out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
+            let mut sim = nv_anim::PhysicsSim::new();
             for i in 0..frames {
                 if cancel.load(std::sync::atomic::Ordering::Relaxed) {
                     return Err("cancelled".into());
                 }
                 let t = i as f32 / fps;
-                let rgba = render_pose(&rig, skin, anim, t, &alpha, w, h, view, 2, None);
+                if i > 0 {
+                    sim.advance(1.0 / fps);
+                }
+                let rgba = render_pose(&rig, skin, anim, t, &alpha, w, h, view, 2, None, Some(&mut sim));
                 let bytes = nv_editor::convert::encode(&nv_editor::raster::Pixels::new(w as u32, h as u32, rgba), nv_editor::convert::Out::Png, [0; 3], None)?;
                 let file = out_dir.join(format!("{stem_job}_{:05}.png", i + 1));
                 nv_editor::save::write_atomic(&file, &bytes).map_err(|e| format!("{}: {e}", file.display()))?;
@@ -339,9 +378,13 @@ impl App {
         let file = nv_core::fileops::unique_path(path.parent().unwrap_or(Path::new(".")), std::ffi::OsStr::new(&format!("{stem}_{}.webm", name.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|', ' '], "_"))));
         let out = file.clone();
         let result = nv_win::progress::run("Spine: export WebM", &format!("{stem} - {name}: {frames} frames, {w}x{h}, {fps:.0} fps"), move |cancel, report| {
+            let mut sim = nv_anim::PhysicsSim::new();
             nv_core::ffmpeg::encode_webm_alpha(&out, w, h, fps, frames, cancel, |i| {
                 report.set(i + 1, frames);
-                render_pose(&rig, skin, anim, i as f32 / fps, &alpha, w, h, view, 2, None)
+                if i > 0 {
+                    sim.advance(1.0 / fps);
+                }
+                render_pose(&rig, skin, anim, i as f32 / fps, &alpha, w, h, view, 2, None, Some(&mut sim))
             })
         });
         match result {

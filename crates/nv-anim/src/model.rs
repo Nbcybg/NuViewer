@@ -122,9 +122,27 @@ impl Vertices {
     }
 }
 
+/// An image sequence: the picture is one of `count` numbered regions (`path` + the number, `digits` wide), starting at `start`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Seq {
+    pub count: usize,
+    pub start: i32,
+    pub digits: usize,
+    /// The frame shown in the setup pose.
+    pub setup: usize,
+}
+
+impl Seq {
+    /// The atlas name of frame `index` of an attachment whose picture is `path`.
+    pub fn frame_name(&self, path: &str, index: usize) -> String {
+        format!("{path}{:0>width$}", self.start + index.min(self.count.saturating_sub(1)) as i32, width = self.digits)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Region {
     pub path: String,
+    pub seq: Option<Seq>,
     pub x: f32,
     pub y: f32,
     pub rotation: f32,
@@ -138,6 +156,7 @@ pub struct Region {
 #[derive(Clone, Debug)]
 pub struct Mesh {
     pub path: String,
+    pub seq: Option<Seq>,
     pub color: [f32; 4],
     pub width: f32,
     pub height: f32,
@@ -162,8 +181,32 @@ pub enum Attachment {
     Region(Region),
     Mesh(Mesh),
     Clip(Clip),
-    /// bounding box, path, point: nothing to draw.
+    /// A path other things follow (only a path constraint uses it).
+    Path(PathAtt),
+    /// bounding box, point: nothing to draw.
     Other,
+}
+
+impl Attachment {
+    /// How many numbers a deform key of this attachment has (meshes, clipping polygons and paths can be deformed).
+    pub fn deform_len(&self) -> Option<usize> {
+        match self {
+            Attachment::Mesh(m) => Some(m.vertices.deform_len()),
+            Attachment::Clip(c) => Some(c.vertices.deform_len()),
+            Attachment::Path(p) => Some(p.vertices.deform_len()),
+            _ => None,
+        }
+    }
+}
+
+/// A path: Bezier curves as x, y triples (handle in, point, handle out), in the slot's bone space (or weighted).
+#[derive(Clone, Debug)]
+pub struct PathAtt {
+    pub closed: bool,
+    pub constant_speed: bool,
+    pub vertices: Vertices,
+    /// Length up to the end of each curve (the file's own numbers, used when the speed is not constant).
+    pub lengths: Vec<f32>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -175,6 +218,25 @@ pub struct Skin {
     pub bones: Vec<usize>,
     pub ik: Vec<usize>,
     pub transform: Vec<usize>,
+    /// 4.3: the path / physics / slider constraints (and any other kind) this skin needs.
+    pub extra: Vec<CRef>,
+}
+
+/// Which list of the rig a constraint is in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CKind {
+    Ik,
+    Transform,
+    Path,
+    Physics,
+    Slider,
+}
+
+/// One constraint: its kind and its place in that kind's list.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CRef {
+    pub kind: CKind,
+    pub index: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -212,6 +274,181 @@ pub struct TransformData {
     pub mix_shear_y: f32,
     pub local: bool,
     pub relative: bool,
+    pub skin_required: bool,
+    /// 4.3: the constraint is a list of "this property of the source drives that property of the bones" (then `rotation` ... `shear_y` are the
+    /// source offsets, and `mix_*` the starting mixes). `None` for the older, fixed kind.
+    pub v43: Option<Transform43>,
+}
+
+/// A bone property a 4.3 transform constraint (or slider) reads or writes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Prop {
+    Rotate,
+    X,
+    Y,
+    ScaleX,
+    ScaleY,
+    ShearY,
+}
+
+impl Prop {
+    pub fn from_name(s: &str) -> Option<Prop> {
+        Some(match s {
+            "rotate" => Prop::Rotate,
+            "x" => Prop::X,
+            "y" => Prop::Y,
+            "scaleX" => Prop::ScaleX,
+            "scaleY" => Prop::ScaleY,
+            "shearY" => Prop::ShearY,
+            _ => return None,
+        })
+    }
+    pub fn from_index(i: u8) -> Option<Prop> {
+        Some(match i {
+            0 => Prop::Rotate,
+            1 => Prop::X,
+            2 => Prop::Y,
+            3 => Prop::ScaleX,
+            4 => Prop::ScaleY,
+            5 => Prop::ShearY,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ToProp {
+    pub prop: Prop,
+    pub offset: f32,
+    pub max: f32,
+    pub scale: f32,
+}
+
+#[derive(Clone, Debug)]
+pub struct FromProp {
+    pub prop: Prop,
+    pub offset: f32,
+    pub to: Vec<ToProp>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Transform43 {
+    pub props: Vec<FromProp>,
+    pub local_source: bool,
+    pub local_target: bool,
+    pub additive: bool,
+    pub clamp: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ScaleYMode {
+    None,
+    Uniform,
+    Volume,
+}
+
+impl ScaleYMode {
+    pub fn from_name(s: &str) -> ScaleYMode {
+        match s.to_ascii_lowercase().as_str() {
+            "uniform" => ScaleYMode::Uniform,
+            "volume" => ScaleYMode::Volume,
+            _ => ScaleYMode::None,
+        }
+    }
+    pub fn from_index(i: u8) -> ScaleYMode {
+        match i {
+            1 => ScaleYMode::Uniform,
+            2 => ScaleYMode::Volume,
+            _ => ScaleYMode::None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PositionMode {
+    Fixed,
+    Percent,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SpacingMode {
+    Length,
+    Fixed,
+    Percent,
+    Proportional,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RotateMode {
+    Tangent,
+    Chain,
+    ChainScale,
+}
+
+/// Makes bones follow a path attachment.
+#[derive(Clone, Debug)]
+pub struct PathData {
+    pub name: String,
+    pub order: i32,
+    pub bones: Vec<usize>,
+    /// The slot whose attachment is the path.
+    pub slot: usize,
+    pub position_mode: PositionMode,
+    pub spacing_mode: SpacingMode,
+    pub rotate_mode: RotateMode,
+    pub offset_rotation: f32,
+    pub position: f32,
+    pub spacing: f32,
+    pub mix_rotate: f32,
+    pub mix_x: f32,
+    pub mix_y: f32,
+    pub skin_required: bool,
+}
+
+/// A bone that swings (spring physics): 4.2 and later.
+#[derive(Clone, Debug)]
+pub struct PhysicsData {
+    pub name: String,
+    pub order: i32,
+    pub bone: usize,
+    pub x: f32,
+    pub y: f32,
+    pub rotate: f32,
+    pub scale_x: f32,
+    pub shear_x: f32,
+    pub scale_y_mode: ScaleYMode,
+    pub limit: f32,
+    /// Seconds per simulation step.
+    pub step: f32,
+    pub inertia: f32,
+    pub strength: f32,
+    pub damping: f32,
+    pub mass_inverse: f32,
+    pub wind: f32,
+    pub gravity: f32,
+    pub mix: f32,
+    /// inertia, strength, damping, mass, wind, gravity, mix: follow the skeleton-wide timeline of that name.
+    pub global: [bool; 7],
+    pub skin_required: bool,
+}
+
+/// 4.3: plays an animation, its time taken from a bone property (or set by a timeline).
+#[derive(Clone, Debug)]
+pub struct SliderData {
+    pub name: String,
+    pub order: i32,
+    pub animation: Option<usize>,
+    pub additive: bool,
+    pub looped: bool,
+    pub bone: Option<usize>,
+    pub property: Prop,
+    /// The property value that maps to `offset`.
+    pub from: f32,
+    pub offset: f32,
+    pub scale: f32,
+    pub local: bool,
+    pub time: f32,
+    pub mix: f32,
     pub skin_required: bool,
 }
 
@@ -410,6 +647,111 @@ pub struct Animation {
     pub deform: Vec<DeformTl>,
     /// (time, slot offsets): the new draw order is the setup order with each listed slot moved by its offset.
     pub draw_order: Vec<(f32, Vec<(usize, i32)>)>,
+    /// (index into `Rig::path`, what changes)
+    pub path: Vec<(usize, PathTl)>,
+    /// (index into `Rig::physics`, or `None` for every constraint that follows the skeleton-wide value, what changes)
+    pub physics: Vec<(Option<usize>, PhysTl)>,
+    /// (index into `Rig::slider`, what changes)
+    pub slider: Vec<(usize, SliderTl)>,
+    /// Which picture of an image sequence a slot shows over time.
+    pub sequence: Vec<SeqTl>,
+}
+
+/// One key of an image-sequence timeline: from `time` the frames play in `mode` (0 hold, 1 once, 2 loop, 3 pingpong, 4 onceReverse,
+/// 5 loopReverse, 6 pingpongReverse), starting at `index`, `delay` seconds apart.
+#[derive(Clone, Copy, Debug)]
+pub struct SeqKey {
+    pub time: f32,
+    pub mode: u8,
+    pub index: i32,
+    pub delay: f32,
+}
+
+#[derive(Clone, Debug)]
+pub struct SeqTl {
+    pub skin: usize,
+    pub slot: usize,
+    pub attachment: String,
+    pub keys: Vec<SeqKey>,
+}
+
+impl SeqKey {
+    pub fn mode_from_name(s: &str) -> u8 {
+        match s {
+            "once" => 1,
+            "loop" => 2,
+            "pingpong" => 3,
+            "onceReverse" => 4,
+            "loopReverse" => 5,
+            "pingpongReverse" => 6,
+            _ => 0,
+        }
+    }
+}
+
+/// The frame of a sequence of `count` pictures that `keys` show at `t` (`None` before the first key).
+pub fn sequence_frame(keys: &[SeqKey], t: f32, count: usize) -> Option<usize> {
+    let i = keys.partition_point(|k| k.time <= t).checked_sub(1)?;
+    let k = keys[i];
+    let count = count.max(1) as i64;
+    let mut index = k.index as i64;
+    if k.mode != 0 {
+        index += (((t - k.time) / k.delay.max(1e-6)) + 1e-5) as i64;
+        match k.mode {
+            1 => index = index.min(count - 1),
+            2 => index %= count,
+            3 => {
+                let n = (count << 1) - 2;
+                index = if n == 0 { 0 } else { index % n };
+                if index >= count {
+                    index = n - index;
+                }
+            }
+            4 => index = (count - 1 - index).max(0),
+            5 => index = count - 1 - (index % count),
+            6 => {
+                let n = (count << 1) - 2;
+                index = if n == 0 { 0 } else { (index + count - 1) % n };
+                if index >= count {
+                    index = n - index;
+                }
+            }
+            _ => {}
+        }
+    }
+    Some(index.clamp(0, count - 1) as usize)
+}
+
+#[derive(Clone, Debug)]
+pub enum PathTl {
+    Position(Track),
+    Spacing(Track),
+    /// stride 3: rotate, x, y
+    Mix(Track),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PhysProp {
+    Inertia,
+    Strength,
+    Damping,
+    Mass,
+    Wind,
+    Gravity,
+    Mix,
+}
+
+#[derive(Clone, Debug)]
+pub enum PhysTl {
+    Prop(PhysProp, Track),
+    /// The times at which the simulation starts over.
+    Reset(Vec<f32>),
+}
+
+#[derive(Clone, Debug)]
+pub enum SliderTl {
+    Time(Track),
+    Mix(Track),
 }
 
 /// A whole skeleton.
@@ -428,6 +770,13 @@ pub struct Rig {
     pub skins: Vec<Skin>,
     pub ik: Vec<IkData>,
     pub transform: Vec<TransformData>,
+    pub path: Vec<PathData>,
+    pub physics: Vec<PhysicsData>,
+    pub slider: Vec<SliderData>,
+    /// 4.3 numbers its constraints in one list (animations and skins refer to it): where each one is kept. Empty before 4.3.
+    pub constraints: Vec<CRef>,
+    /// The skeleton's size the physics constraints are tuned to (4.2 and later).
+    pub reference_scale: f32,
     pub animations: Vec<Animation>,
     pub atlas: Atlas,
     /// The file is from Spine 3.x: curves are fractions, rotation takes the short way round.

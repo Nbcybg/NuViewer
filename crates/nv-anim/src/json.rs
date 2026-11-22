@@ -4,7 +4,7 @@
 //!  * rotation timelines: 3.x takes the short way round between two angles, 4.x does not; 4.2 splits translate / scale / shear in x and y;
 //!  * slot colours: `color` / `twoColor` (3.x) and `rgba` / `rgb` / `alpha` / `rgba2` / `rgb2` (4.x).
 //!
-//! Path constraints and 4.2's physics constraints are read as "not supported" (named in `Rig::unsupported`), events are skipped.
+//! Path, physics (4.2) and, in 4.3, slider constraints and the new transform constraint are read; events, 4.3 bone inherit timelines and draw order folders are skipped.
 
 use crate::atlas::Atlas;
 use crate::model::*;
@@ -124,7 +124,7 @@ pub fn parse(src: &str, atlas: Atlas) -> Result<Rig, String> {
     let major: u32 = version.split('.').next().and_then(|m| m.parse().ok()).unwrap_or(4);
     let legacy = major < 4;
     let absolute = !legacy;
-    let mut unsupported: Vec<String> = Vec::new();
+    let unsupported: Vec<String> = Vec::new();
 
     // Bones.
     let mut bones: Vec<BoneData> = Vec::new();
@@ -156,63 +156,89 @@ pub fn parse(src: &str, atlas: Atlas) -> Result<Rig, String> {
         }), attachment: text(s, "attachment").map(String::from), blend: text(s, "blend").map(BlendMode::from_name).unwrap_or(BlendMode::Normal) });
     }
 
-    // Constraints.
+    // Constraints: four lists up to 4.2 (each with its own `order`), one list from 4.3 (the order of the list is the order of work).
     let mut ik: Vec<IkData> = Vec::new();
     let mut ik_ids: HashMap<String, usize> = HashMap::new();
-    let mut order_guess = 0;
-    for c in root.get("ik").and_then(|c| c.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
-        let name = text(c, "name").unwrap_or("").to_string();
-        let bones_of: Vec<usize> = c.get("bones").and_then(|b| b.as_array()).map(|a| a.iter().filter_map(|n| n.as_str()).filter_map(|n| bone_ids.get(n).copied()).collect()).unwrap_or_default();
-        let target = bone_ids.get(text(c, "target").unwrap_or("")).copied();
-        let (Some(target), false) = (target, bones_of.is_empty() || bones_of.len() > 2) else { continue };
-        ik_ids.insert(name.clone(), ik.len());
-        ik.push(IkData { name, order: c.get("order").and_then(|o| o.as_i64()).map(|o| o as i32).unwrap_or(order_guess), bones: bones_of, target, mix: num(c, "mix", 1.0), softness: num(c, "softness", 0.0), bend_positive: flag(c, "bendPositive", true), compress: flag(c, "compress", false), stretch: flag(c, "stretch", false), uniform: flag(c, "uniform", false), skin_required: flag(c, "skin", false) });
-        order_guess += 1;
-    }
     let mut transform: Vec<TransformData> = Vec::new();
     let mut tf_ids: HashMap<String, usize> = HashMap::new();
-    for c in root.get("transform").and_then(|c| c.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+    let mut paths: Vec<PathData> = Vec::new();
+    let mut path_ids: HashMap<String, usize> = HashMap::new();
+    let mut physics: Vec<PhysicsData> = Vec::new();
+    let mut phys_ids: HashMap<String, usize> = HashMap::new();
+    let mut sliders: Vec<SliderData> = Vec::new();
+    let mut slider_ids: HashMap<String, usize> = HashMap::new();
+    let mut slider_anims: Vec<Option<String>> = Vec::new();
+    let mut unified: Vec<CRef> = Vec::new();
+    let mut order_guess = 0;
+    let arr = |key: &str| root.get(key).and_then(|c| c.as_array()).map(|a| a.as_slice()).unwrap_or(&[]).to_vec();
+    let mut add = |c: &Value, ty: &str, order_guess: &mut i32, unified: &mut Vec<CRef>, in_list: bool| {
+        let order = c.get("order").and_then(|o| o.as_i64()).map(|o| o as i32).unwrap_or(*order_guess);
         let name = text(c, "name").unwrap_or("").to_string();
-        let mut bones_of: Vec<usize> = c.get("bones").and_then(|b| b.as_array()).map(|a| a.iter().filter_map(|n| n.as_str()).filter_map(|n| bone_ids.get(n).copied()).collect()).unwrap_or_default();
-        if bones_of.is_empty() {
-            if let Some(b) = text(c, "bone").and_then(|n| bone_ids.get(n)) {
-                bones_of.push(*b); // Spine 3.5 and older wrote a single bone
+        match ty {
+            "ik" => {
+                if let Some(d) = read_ik(c, &bone_ids, order) {
+                    ik_ids.insert(name, ik.len());
+                    if in_list {
+                        unified.push(CRef { kind: CKind::Ik, index: ik.len() });
+                    }
+                    ik.push(d);
+                    *order_guess += 1;
+                }
+            }
+            "transform" => {
+                if let Some(d) = read_transform(c, &bone_ids, order) {
+                    tf_ids.insert(name, transform.len());
+                    if in_list {
+                        unified.push(CRef { kind: CKind::Transform, index: transform.len() });
+                    }
+                    transform.push(d);
+                    *order_guess += 1;
+                }
+            }
+            "path" => {
+                if let Some(d) = read_path_constraint(c, &bone_ids, &slot_ids, order) {
+                    path_ids.insert(name, paths.len());
+                    if in_list {
+                        unified.push(CRef { kind: CKind::Path, index: paths.len() });
+                    }
+                    paths.push(d);
+                    *order_guess += 1;
+                }
+            }
+            "physics" => {
+                if let Some(d) = read_physics(c, &bone_ids, order) {
+                    phys_ids.insert(name, physics.len());
+                    if in_list {
+                        unified.push(CRef { kind: CKind::Physics, index: physics.len() });
+                    }
+                    physics.push(d);
+                    *order_guess += 1;
+                }
+            }
+            "slider" => {
+                let (d, anim) = read_slider(c, &bone_ids, order);
+                slider_ids.insert(name, sliders.len());
+                if in_list {
+                    unified.push(CRef { kind: CKind::Slider, index: sliders.len() });
+                }
+                sliders.push(d);
+                slider_anims.push(anim);
+                *order_guess += 1;
+            }
+            _ => {}
+        }
+    };
+    if let Some(Value::Array(list)) = root.get("constraints") {
+        for c in list {
+            let ty = text(c, "type").unwrap_or("").to_string();
+            add(c, &ty, &mut order_guess, &mut unified, true);
+        }
+    } else {
+        for ty in ["ik", "transform", "path", "physics"] {
+            for c in arr(ty) {
+                add(&c, ty, &mut order_guess, &mut unified, false);
             }
         }
-        let Some(target) = bone_ids.get(text(c, "target").unwrap_or("")).copied() else { continue };
-        let first = |a: &str, b: &str, d: f32| if c.get(a).is_some() { num(c, a, d) } else { num(c, b, d) };
-        let mix_rotate = first("mixRotate", "rotateMix", 1.0);
-        let mix_x = first("mixX", "translateMix", 1.0);
-        let mix_scale_x = first("mixScaleX", "scaleMix", 1.0);
-        tf_ids.insert(name.clone(), transform.len());
-        transform.push(TransformData {
-            name,
-            order: c.get("order").and_then(|o| o.as_i64()).map(|o| o as i32).unwrap_or(order_guess),
-            bones: bones_of,
-            target,
-            rotation: num(c, "rotation", 0.0),
-            x: num(c, "x", 0.0),
-            y: num(c, "y", 0.0),
-            scale_x: num(c, "scaleX", 0.0),
-            scale_y: num(c, "scaleY", 0.0),
-            shear_y: num(c, "shearY", 0.0),
-            mix_rotate,
-            mix_x,
-            mix_y: if c.get("mixY").is_some() { num(c, "mixY", mix_x) } else { mix_x },
-            mix_scale_x,
-            mix_scale_y: if c.get("mixScaleY").is_some() { num(c, "mixScaleY", mix_scale_x) } else { mix_scale_x },
-            mix_shear_y: first("mixShearY", "shearMix", 1.0),
-            local: flag(c, "local", false),
-            relative: flag(c, "relative", false),
-            skin_required: flag(c, "skin", false),
-        });
-        order_guess += 1;
-    }
-    if root.get("path").and_then(|p| p.as_array()).map(|a| !a.is_empty()).unwrap_or(false) {
-        unsupported.push("path constraints".into());
-    }
-    if root.get("physics").and_then(|p| p.as_array()).map(|a| !a.is_empty()).unwrap_or(false) {
-        unsupported.push("physics constraints".into());
     }
 
     // Skins: an array (3.6 and later) or an object (older).
@@ -223,11 +249,13 @@ pub fn parse(src: &str, atlas: Atlas) -> Result<Rig, String> {
         key: String,
         parent: String,
         parent_skin: String,
+        parent_slot: usize,
         deform: bool,
         path: String,
         color: [f32; 4],
         width: f32,
         height: f32,
+        seq: Option<Seq>,
     }
     let mut linked: Vec<Linked> = Vec::new();
     let skin_values: Vec<(String, &Value)> = match root.get("skins") {
@@ -236,11 +264,14 @@ pub fn parse(src: &str, atlas: Atlas) -> Result<Rig, String> {
         _ => Vec::new(),
     };
     for (si, (name, sv)) in skin_values.iter().enumerate() {
-        let mut skin = Skin { name: name.clone(), slots: vec![HashMap::new(); slots.len()], bones: Vec::new(), ik: Vec::new(), transform: Vec::new() };
+        let mut skin = Skin { name: name.clone(), slots: vec![HashMap::new(); slots.len()], ..Default::default() };
         let by_names = |key: &str, ids: &HashMap<String, usize>| -> Vec<usize> { sv.get(key).and_then(|b| b.as_array()).map(|a| a.iter().filter_map(|n| n.as_str()).filter_map(|n| ids.get(n).copied()).collect()).unwrap_or_default() };
         skin.bones = by_names("bones", &bone_ids);
         skin.ik = by_names("ik", &ik_ids);
         skin.transform = by_names("transform", &tf_ids);
+        for (key, kind, ids) in [("path", CKind::Path, &path_ids), ("physics", CKind::Physics, &phys_ids), ("slider", CKind::Slider, &slider_ids)] {
+            skin.extra.extend(by_names(key, ids).into_iter().map(|index| CRef { kind, index }));
+        }
         let atts = if sv.get("attachments").is_some() { sv.get("attachments") } else { Some(*sv) };
         if let Some(Value::Object(per_slot)) = atts {
             for (slot_name, entries) in per_slot {
@@ -249,17 +280,20 @@ pub fn parse(src: &str, atlas: Atlas) -> Result<Rig, String> {
                 for (key, a) in entries {
                     let ty = text(a, "type").unwrap_or("region");
                     let path = text(a, "path").or_else(|| text(a, "name")).unwrap_or(key).to_string();
+                    // 4.3 writes a linked mesh as a mesh with a `source` (and `timelines` for what used to be `deform`).
+                    let ty = if ty == "mesh" && a.get("source").is_some() { "linkedmesh" } else { ty };
                     let att = match ty {
-                        "region" => Attachment::Region(Region { path, x: num(a, "x", 0.0), y: num(a, "y", 0.0), rotation: num(a, "rotation", 0.0), scale_x: num(a, "scaleX", 1.0), scale_y: num(a, "scaleY", 1.0), width: num(a, "width", 32.0), height: num(a, "height", 32.0), color: color(a, "color", [1.0; 4]) }),
+                        "region" => Attachment::Region(Region { path, seq: read_seq(a), x: num(a, "x", 0.0), y: num(a, "y", 0.0), rotation: num(a, "rotation", 0.0), scale_x: num(a, "scaleX", 1.0), scale_y: num(a, "scaleY", 1.0), width: num(a, "width", 32.0), height: num(a, "height", 32.0), color: color(a, "color", [1.0; 4]) }),
                         "mesh" => {
                             let uvs = floats(a.get("uvs"));
                             let verts = floats(a.get("vertices"));
                             let vertices = if verts.len() == uvs.len() { Vertices::Plain(verts) } else { weighted(&verts) };
                             let tris: Vec<u16> = floats(a.get("triangles")).iter().map(|&t| t as u16).collect();
-                            Attachment::Mesh(Mesh { path, color: color(a, "color", [1.0; 4]), width: num(a, "width", 0.0), height: num(a, "height", 0.0), uvs, triangles: tris, vertices, hull: num(a, "hull", 0.0) as usize, deform_skin: si, deform_name: key.clone() })
+                            Attachment::Mesh(Mesh { path, seq: read_seq(a), color: color(a, "color", [1.0; 4]), width: num(a, "width", 0.0), height: num(a, "height", 0.0), uvs, triangles: tris, vertices, hull: num(a, "hull", 0.0) as usize, deform_skin: si, deform_name: key.clone() })
                         }
                         "linkedmesh" | "weightedlinkedmesh" => {
-                            linked.push(Linked { skin: si, slot, key: key.clone(), parent: text(a, "parent").unwrap_or("").to_string(), parent_skin: text(a, "skin").unwrap_or("default").to_string(), deform: flag(a, "deform", true), path, color: color(a, "color", [1.0; 4]), width: num(a, "width", 0.0), height: num(a, "height", 0.0) });
+                            let parent_slot = text(a, "slot").and_then(|n| slot_ids.get(n).copied()).unwrap_or(slot);
+                            linked.push(Linked { skin: si, slot, key: key.clone(), parent: text(a, "parent").or_else(|| text(a, "source")).unwrap_or("").to_string(), parent_skin: text(a, "skin").unwrap_or("default").to_string(), parent_slot, deform: flag(a, "deform", flag(a, "timelines", true)), path, color: color(a, "color", [1.0; 4]), width: num(a, "width", 0.0), height: num(a, "height", 0.0), seq: read_seq(a) });
                             continue;
                         }
                         "clipping" => {
@@ -267,6 +301,12 @@ pub fn parse(src: &str, atlas: Atlas) -> Result<Rig, String> {
                             let count = num(a, "vertexCount", 0.0) as usize;
                             let vertices = if verts.len() == count * 2 { Vertices::Plain(verts) } else { weighted(&verts) };
                             Attachment::Clip(Clip { end_slot: text(a, "end").and_then(|e| slot_ids.get(e).copied()).unwrap_or(slot), vertices, vertex_count: count })
+                        }
+                        "path" => {
+                            let count = num(a, "vertexCount", 0.0) as usize;
+                            let verts = floats(a.get("vertices"));
+                            let vertices = if verts.len() == count * 2 { Vertices::Plain(verts) } else { weighted(&verts) };
+                            Attachment::Path(PathAtt { closed: flag(a, "closed", false), constant_speed: flag(a, "constantSpeed", true), vertices, lengths: floats(a.get("lengths")) })
                         }
                         _ => Attachment::Other,
                     };
@@ -286,11 +326,11 @@ pub fn parse(src: &str, atlas: Atlas) -> Result<Rig, String> {
         let mut rest = Vec::new();
         for l in pending {
             let psi = skins.iter().position(|s| s.name == l.parent_skin).unwrap_or(0);
-            let parent = skins.get(psi).and_then(|s| s.slots.get(l.slot)).and_then(|m| m.get(&l.parent)).cloned();
+            let parent = skins.get(psi).and_then(|s| s.slots.get(l.parent_slot)).and_then(|m| m.get(&l.parent)).cloned();
             match parent {
                 Some(Attachment::Mesh(p)) => {
                     let (deform_skin, deform_name) = if l.deform { (p.deform_skin, p.deform_name.clone()) } else { (l.skin, l.key.clone()) };
-                    skins[l.skin].slots[l.slot].insert(l.key.clone(), Attachment::Mesh(Mesh { path: l.path.clone(), color: l.color, width: if l.width > 0.0 { l.width } else { p.width }, height: if l.height > 0.0 { l.height } else { p.height }, deform_skin, deform_name, ..p }));
+                    skins[l.skin].slots[l.slot].insert(l.key.clone(), Attachment::Mesh(Mesh { path: l.path.clone(), seq: l.seq, color: l.color, width: if l.width > 0.0 { l.width } else { p.width }, height: if l.height > 0.0 { l.height } else { p.height }, deform_skin, deform_name, ..p }));
                 }
                 _ => rest.push(l),
             }
@@ -305,12 +345,210 @@ pub fn parse(src: &str, atlas: Atlas) -> Result<Rig, String> {
     let mut animations: Vec<Animation> = Vec::new();
     if let Some(Value::Object(anims)) = root.get("animations") {
         for (name, a) in anims {
-            animations.push(read_animation(name, a, absolute, &bone_ids, &slot_ids, &ik_ids, &tf_ids, &skins, &slots, &ik));
+            animations.push(read_animation(name, a, absolute, &bone_ids, &slot_ids, &ik_ids, &tf_ids, &path_ids, &phys_ids, &slider_ids, &skins, &slots, &ik));
         }
     }
     animations.sort_by(|a, b| a.name.cmp(&b.name));
+    for (sl, name) in sliders.iter_mut().zip(&slider_anims) {
+        sl.animation = name.as_deref().and_then(|n| animations.iter().position(|a| a.name == n));
+    }
+    let reference_scale = num(head, "referenceScale", 100.0);
 
-    Ok(Rig { version, name: String::new(), x: num(head, "x", 0.0), y: num(head, "y", 0.0), width: num(head, "width", 0.0), height: num(head, "height", 0.0), fps: num(head, "fps", 30.0), bones, slots, skins, ik, transform, animations, atlas, legacy, unsupported })
+    Ok(Rig { version, name: String::new(), x: num(head, "x", 0.0), y: num(head, "y", 0.0), width: num(head, "width", 0.0), height: num(head, "height", 0.0), fps: num(head, "fps", 30.0), bones, slots, skins, ik, transform, path: paths, physics, slider: sliders, constraints: unified, reference_scale, animations, atlas, legacy, unsupported })
+}
+
+fn bone_list(c: &Value, key: &str, ids: &HashMap<String, usize>) -> Vec<usize> {
+    c.get(key).and_then(|b| b.as_array()).map(|a| a.iter().filter_map(|n| n.as_str()).filter_map(|n| ids.get(n).copied()).collect()).unwrap_or_default()
+}
+
+fn read_ik(c: &Value, bone_ids: &HashMap<String, usize>, order: i32) -> Option<IkData> {
+    let bones_of = bone_list(c, "bones", bone_ids);
+    let target = bone_ids.get(text(c, "target").unwrap_or("")).copied()?;
+    if bones_of.is_empty() || bones_of.len() > 2 {
+        return None;
+    }
+    // 4.3 names how the other axis follows ("uniform", "volume"); before, a flag.
+    let uniform = flag(c, "uniform", false) || text(c, "scaleY").map(|m| ScaleYMode::from_name(m) != ScaleYMode::None).unwrap_or(false);
+    Some(IkData { name: text(c, "name").unwrap_or("").to_string(), order, bones: bones_of, target, mix: num(c, "mix", 1.0), softness: num(c, "softness", 0.0), bend_positive: flag(c, "bendPositive", true), compress: flag(c, "compress", false), stretch: flag(c, "stretch", false), uniform, skin_required: flag(c, "skin", false) })
+}
+
+fn read_transform(c: &Value, bone_ids: &HashMap<String, usize>, order: i32) -> Option<TransformData> {
+    let name = text(c, "name").unwrap_or("").to_string();
+    let mut bones_of = bone_list(c, "bones", bone_ids);
+    if bones_of.is_empty() {
+        if let Some(b) = text(c, "bone").and_then(|n| bone_ids.get(n)) {
+            bones_of.push(*b); // Spine 3.5 and older wrote a single bone
+        }
+    }
+    if let Some(src) = text(c, "source") {
+        // 4.3: a list of "this property of the source drives that property of the bones".
+        let target = *bone_ids.get(src)?;
+        let mut props: Vec<FromProp> = Vec::new();
+        let (mut rotate, mut x, mut y, mut sx, mut sy, mut sh) = (false, false, false, false, false, false);
+        if let Some(Value::Object(from_map)) = c.get("properties") {
+            for (from_name, entry) in from_map {
+                let Some(prop) = Prop::from_name(from_name) else { continue };
+                let mut from = FromProp { prop, offset: num(entry, "offset", 0.0), to: Vec::new() };
+                if let Some(Value::Object(to_map)) = entry.get("to") {
+                    for (to_name, te) in to_map {
+                        let Some(to) = Prop::from_name(to_name) else { continue };
+                        match to {
+                            Prop::Rotate => rotate = true,
+                            Prop::X => x = true,
+                            Prop::Y => y = true,
+                            Prop::ScaleX => sx = true,
+                            Prop::ScaleY => sy = true,
+                            Prop::ShearY => sh = true,
+                        }
+                        from.to.push(ToProp { prop: to, offset: num(te, "offset", 0.0), max: num(te, "max", 1.0), scale: num(te, "scale", 1.0) });
+                    }
+                }
+                if !from.to.is_empty() {
+                    props.push(from);
+                }
+            }
+        }
+        let mix_x = if x { num(c, "mixX", 1.0) } else { 0.0 };
+        let mix_scale_x = if sx { num(c, "mixScaleX", 1.0) } else { 0.0 };
+        return Some(TransformData {
+            name,
+            order,
+            bones: bones_of,
+            target,
+            rotation: num(c, "rotation", 0.0),
+            x: num(c, "x", 0.0),
+            y: num(c, "y", 0.0),
+            scale_x: num(c, "scaleX", 0.0),
+            scale_y: num(c, "scaleY", 0.0),
+            shear_y: num(c, "shearY", 0.0),
+            mix_rotate: if rotate { num(c, "mixRotate", 1.0) } else { 0.0 },
+            mix_x,
+            mix_y: if y { num(c, "mixY", mix_x) } else { 0.0 },
+            mix_scale_x,
+            mix_scale_y: if sy { num(c, "mixScaleY", mix_scale_x) } else { 0.0 },
+            mix_shear_y: if sh { num(c, "mixShearY", 1.0) } else { 0.0 },
+            local: false,
+            relative: false,
+            skin_required: flag(c, "skin", false),
+            v43: Some(Transform43 { props, local_source: flag(c, "localSource", false), local_target: flag(c, "localTarget", false), additive: flag(c, "additive", false), clamp: flag(c, "clamp", false) }),
+        });
+    }
+    let target = bone_ids.get(text(c, "target").unwrap_or("")).copied()?;
+    let first = |a: &str, b: &str, d: f32| if c.get(a).is_some() { num(c, a, d) } else { num(c, b, d) };
+    let mix_rotate = first("mixRotate", "rotateMix", 1.0);
+    let mix_x = first("mixX", "translateMix", 1.0);
+    let mix_scale_x = first("mixScaleX", "scaleMix", 1.0);
+    Some(TransformData {
+        name,
+        order,
+        bones: bones_of,
+        target,
+        rotation: num(c, "rotation", 0.0),
+        x: num(c, "x", 0.0),
+        y: num(c, "y", 0.0),
+        scale_x: num(c, "scaleX", 0.0),
+        scale_y: num(c, "scaleY", 0.0),
+        shear_y: num(c, "shearY", 0.0),
+        mix_rotate,
+        mix_x,
+        mix_y: if c.get("mixY").is_some() { num(c, "mixY", mix_x) } else { mix_x },
+        mix_scale_x,
+        mix_scale_y: if c.get("mixScaleY").is_some() { num(c, "mixScaleY", mix_scale_x) } else { mix_scale_x },
+        mix_shear_y: first("mixShearY", "shearMix", 1.0),
+        local: flag(c, "local", false),
+        relative: flag(c, "relative", false),
+        skin_required: flag(c, "skin", false),
+        v43: None,
+    })
+}
+
+fn read_path_constraint(c: &Value, bone_ids: &HashMap<String, usize>, slot_ids: &HashMap<String, usize>, order: i32) -> Option<PathData> {
+    let slot = *slot_ids.get(text(c, "slot").or_else(|| text(c, "target"))?)?;
+    let bones = bone_list(c, "bones", bone_ids);
+    if bones.is_empty() {
+        return None;
+    }
+    let mix_x = num(c, "mixX", num(c, "translateMix", 1.0));
+    Some(PathData {
+        name: text(c, "name").unwrap_or("").to_string(),
+        order,
+        bones,
+        slot,
+        position_mode: if text(c, "positionMode").map(|m| m.eq_ignore_ascii_case("fixed")).unwrap_or(false) { PositionMode::Fixed } else { PositionMode::Percent },
+        spacing_mode: match text(c, "spacingMode").map(|m| m.to_ascii_lowercase()).as_deref() {
+            Some("fixed") => SpacingMode::Fixed,
+            Some("percent") => SpacingMode::Percent,
+            Some("proportional") => SpacingMode::Proportional,
+            _ => SpacingMode::Length,
+        },
+        rotate_mode: match text(c, "rotateMode").map(|m| m.to_ascii_lowercase()).as_deref() {
+            Some("chain") => RotateMode::Chain,
+            Some("chainscale") => RotateMode::ChainScale,
+            _ => RotateMode::Tangent,
+        },
+        offset_rotation: num(c, "rotation", 0.0),
+        position: num(c, "position", 0.0),
+        spacing: num(c, "spacing", 0.0),
+        mix_rotate: num(c, "mixRotate", num(c, "rotateMix", 1.0)),
+        mix_x,
+        mix_y: num(c, "mixY", mix_x),
+        skin_required: flag(c, "skin", false),
+    })
+}
+
+fn read_physics(c: &Value, bone_ids: &HashMap<String, usize>, order: i32) -> Option<PhysicsData> {
+    let bone = *bone_ids.get(text(c, "bone")?)?;
+    let g = |k: &str| flag(c, k, false);
+    Some(PhysicsData {
+        name: text(c, "name").unwrap_or("").to_string(),
+        order,
+        bone,
+        x: num(c, "x", 0.0),
+        y: num(c, "y", 0.0),
+        rotate: num(c, "rotate", 0.0),
+        scale_x: num(c, "scaleX", 0.0),
+        shear_x: num(c, "shearX", 0.0),
+        scale_y_mode: text(c, "scaleY").map(ScaleYMode::from_name).unwrap_or(ScaleYMode::None),
+        limit: num(c, "limit", 5000.0),
+        step: 1.0 / num(c, "fps", 60.0).max(1.0),
+        inertia: num(c, "inertia", 0.5),
+        strength: num(c, "strength", 100.0),
+        damping: num(c, "damping", 0.85),
+        mass_inverse: 1.0 / num(c, "mass", 1.0).max(1e-6),
+        wind: num(c, "wind", 0.0),
+        gravity: num(c, "gravity", 0.0),
+        mix: num(c, "mix", 1.0),
+        global: [g("inertiaGlobal"), g("strengthGlobal"), g("dampingGlobal"), g("massGlobal"), g("windGlobal"), g("gravityGlobal"), g("mixGlobal")],
+        skin_required: flag(c, "skin", false),
+    })
+}
+
+/// A slider; the name of its animation is looked up once the animations are read.
+fn read_slider(c: &Value, bone_ids: &HashMap<String, usize>, order: i32) -> (SliderData, Option<String>) {
+    let bone = text(c, "bone").and_then(|n| bone_ids.get(n)).copied();
+    let d = SliderData {
+        name: text(c, "name").unwrap_or("").to_string(),
+        order,
+        animation: None,
+        additive: flag(c, "additive", false),
+        looped: flag(c, "loop", false),
+        bone,
+        property: text(c, "property").and_then(Prop::from_name).unwrap_or(Prop::Rotate),
+        from: num(c, "from", 0.0),
+        offset: num(c, "to", 0.0),
+        scale: num(c, "scale", 1.0),
+        local: flag(c, "local", false),
+        time: num(c, "time", 0.0),
+        mix: num(c, "mix", 1.0),
+        skin_required: flag(c, "skin", false),
+    };
+    (d, text(c, "animation").map(String::from))
+}
+
+/// The `sequence` of an attachment (4.1 and later): which numbered pictures it can show.
+fn read_seq(a: &Value) -> Option<Seq> {
+    let s = a.get("sequence")?;
+    Some(Seq { count: num(s, "count", 0.0) as usize, start: num(s, "start", 1.0) as i32, digits: num(s, "digits", 0.0) as usize, setup: num(s, "setup", 0.0) as usize })
 }
 
 pub(crate) fn weighted(v: &[f32]) -> Vertices {
@@ -333,7 +571,7 @@ pub(crate) fn weighted(v: &[f32]) -> Vertices {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn read_animation(name: &str, a: &Value, absolute: bool, bone_ids: &HashMap<String, usize>, slot_ids: &HashMap<String, usize>, ik_ids: &HashMap<String, usize>, tf_ids: &HashMap<String, usize>, skins: &[Skin], slots: &[SlotData], _ik: &[IkData]) -> Animation {
+fn read_animation(name: &str, a: &Value, absolute: bool, bone_ids: &HashMap<String, usize>, slot_ids: &HashMap<String, usize>, ik_ids: &HashMap<String, usize>, tf_ids: &HashMap<String, usize>, path_ids: &HashMap<String, usize>, phys_ids: &HashMap<String, usize>, slider_ids: &HashMap<String, usize>, skins: &[Skin], slots: &[SlotData], _ik: &[IkData]) -> Animation {
     let mut anim = Animation { name: name.to_string(), ..Default::default() };
     let mut dur = 0.0f32;
     let mut note = |t: f32| dur = dur.max(t);
@@ -434,17 +672,112 @@ fn read_animation(name: &str, a: &Value, absolute: bool, bone_ids: &HashMap<Stri
         }
     }
 
-    // Deform: skin -> slot -> attachment -> keys.
-    if let Some(Value::Object(per_skin)) = a.get("deform") {
+    // 4.3 / 4.2: path, physics (a "" name is the skeleton-wide one) and, from 4.3, slider timelines.
+    if let Some(Value::Object(m)) = a.get("path") {
+        for (n, tls) in m {
+            let (Some(&ci), Value::Object(tls)) = (path_ids.get(n), tls) else { continue };
+            for (kind, arr) in tls {
+                let tl = match kind.as_str() {
+                    "position" => PathTl::Position(track(1, keys_of(arr, 1, |f| vec![num(f, "value", 0.0)]), absolute)),
+                    "spacing" => PathTl::Spacing(track(1, keys_of(arr, 1, |f| vec![num(f, "value", 0.0)]), absolute)),
+                    "mix" => PathTl::Mix(track(3, keys_of(arr, 3, |f| {
+                        let mx = if f.get("mixX").is_some() { num(f, "mixX", 1.0) } else { num(f, "translateMix", 1.0) };
+                        vec![if f.get("mixRotate").is_some() { num(f, "mixRotate", 1.0) } else { num(f, "rotateMix", 1.0) }, mx, num(f, "mixY", mx)]
+                    }), absolute)),
+                    _ => continue,
+                };
+                let (PathTl::Position(t) | PathTl::Spacing(t) | PathTl::Mix(t)) = &tl;
+                note(t.duration());
+                anim.path.push((ci, tl));
+            }
+        }
+    }
+    if let Some(Value::Object(m)) = a.get("physics") {
+        for (n, tls) in m {
+            let ci = if n.is_empty() { None } else if let Some(&c) = phys_ids.get(n) { Some(c) } else { continue };
+            let Value::Object(tls) = tls else { continue };
+            for (kind, arr) in tls {
+                let prop = match kind.as_str() {
+                    "inertia" => PhysProp::Inertia,
+                    "strength" => PhysProp::Strength,
+                    "damping" => PhysProp::Damping,
+                    "mass" => PhysProp::Mass,
+                    "wind" => PhysProp::Wind,
+                    "gravity" => PhysProp::Gravity,
+                    "mix" => PhysProp::Mix,
+                    "reset" => {
+                        let mut times: Vec<f32> = arr.as_array().map(|a| a.iter().map(|f| num(f, "time", 0.0)).collect()).unwrap_or_default();
+                        times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                        if let Some(&l) = times.last() {
+                            note(l);
+                        }
+                        anim.physics.push((ci, PhysTl::Reset(times)));
+                        continue;
+                    }
+                    _ => continue,
+                };
+                let d = if prop == PhysProp::Mix { 1.0 } else { 0.0 };
+                let t = track(1, keys_of(arr, 1, move |f| vec![num(f, "value", d)]), absolute);
+                note(t.duration());
+                anim.physics.push((ci, PhysTl::Prop(prop, t)));
+            }
+        }
+    }
+    if let Some(Value::Object(m)) = a.get("slider") {
+        for (n, tls) in m {
+            let (Some(&ci), Value::Object(tls)) = (slider_ids.get(n), tls) else { continue };
+            for (kind, arr) in tls {
+                let t = track(1, keys_of(arr, 1, |f| vec![num(f, "value", 1.0)]), absolute);
+                let tl = match kind.as_str() {
+                    "time" => SliderTl::Time(t),
+                    "mix" => SliderTl::Mix(t),
+                    _ => continue,
+                };
+                let (SliderTl::Time(t) | SliderTl::Mix(t)) = &tl;
+                note(t.duration());
+                anim.slider.push((ci, tl));
+            }
+        }
+    }
+
+    // Deform: skin -> slot -> attachment -> keys (4.3 files file it as attachments: skin -> slot -> attachment -> { deform: keys }).
+    let mut deform_sources: Vec<(&Value, bool)> = Vec::new();
+    if let Some(d) = a.get("deform") {
+        deform_sources.push((d, false));
+    }
+    if let Some(d) = a.get("attachments") {
+        deform_sources.push((d, true));
+    }
+    for (deform_root, nested) in deform_sources {
+    if let Value::Object(per_skin) = deform_root {
         for (skin_name, per_slot) in per_skin {
             let Some(si) = skins.iter().position(|s| &s.name == skin_name) else { continue };
             let Value::Object(per_slot) = per_slot else { continue };
             for (slot_name, atts) in per_slot {
                 let Some(&slot) = slot_ids.get(slot_name) else { continue };
                 let Value::Object(atts) = atts else { continue };
-                for (att_name, arr) in atts {
+                for (att_name, arr_or_map) in atts {
+                    if nested {
+                        if let Some(Value::Array(keys)) = arr_or_map.get("sequence") {
+                            let mut last_delay = 0.0;
+                            let mut sk: Vec<SeqKey> = keys
+                                .iter()
+                                .map(|f| {
+                                    let delay = num(f, "delay", last_delay);
+                                    last_delay = delay;
+                                    SeqKey { time: num(f, "time", 0.0), mode: SeqKey::mode_from_name(text(f, "mode").unwrap_or("hold")), index: num(f, "index", 0.0) as i32, delay }
+                                })
+                                .collect();
+                            sk.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap_or(std::cmp::Ordering::Equal));
+                            if let Some(l) = sk.last() {
+                                note(l.time);
+                            }
+                            anim.sequence.push(SeqTl { skin: si, slot, attachment: att_name.clone(), keys: sk });
+                        }
+                    }
+                    let arr = if nested { match arr_or_map.get("deform") { Some(d) => d, None => continue } } else { arr_or_map };
                     // The mesh's length, from whichever skin has it.
-                    let len = skins.get(si).and_then(|s| s.slots.get(slot)).and_then(|m| m.get(att_name)).or_else(|| skins.iter().find_map(|s| s.slots.get(slot).and_then(|m| m.get(att_name)))).and_then(|a| if let Attachment::Mesh(m) = a { Some(m.vertices.deform_len()) } else { None });
+                    let len = skins.get(si).and_then(|s| s.slots.get(slot)).and_then(|m| m.get(att_name)).or_else(|| skins.iter().find_map(|s| s.slots.get(slot).and_then(|m| m.get(att_name)))).and_then(|a| a.deform_len());
                     let Some(len) = len else { continue };
                     let frames_v: Vec<&Value> = arr.as_array().map(|a| a.iter().collect()).unwrap_or_default();
                     let mut keys: Vec<(f32, Vec<f32>, Raw)> = Vec::new();
@@ -479,6 +812,7 @@ fn read_animation(name: &str, a: &Value, absolute: bool, bone_ids: &HashMap<Stri
                 }
             }
         }
+    }
     }
 
     let order = a.get("drawOrder").or_else(|| a.get("draworder"));

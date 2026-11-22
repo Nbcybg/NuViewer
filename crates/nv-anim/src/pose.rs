@@ -1,8 +1,9 @@
 //! A skeleton in a pose: the animation applied to the setup pose, bone world transforms (all five inherit modes), IK and transform
 //! constraints, and the geometry (world-space triangles with texture coordinates) in draw order.
 //!
-//! One animation is applied at a time with full strength (no mixing between animations). Path and physics constraints are not applied.
+//! One animation is applied at a time with full strength (no mixing between animations). Physics needs a `PhysicsSim` (frame to frame memory).
 
+use crate::constraints::{prop_value, PhysicsSim};
 use crate::model::*;
 
 const DEG: f32 = std::f32::consts::PI / 180.0;
@@ -34,6 +35,8 @@ pub struct SlotState {
     pub deform: Vec<(usize, String, Vec<f32>)>,
     /// The user switched this slot off in the layer panel, or set its opacity (1 = as the file has it).
     pub user_alpha: f32,
+    /// Which picture of an image sequence the slot shows (`None`: the one the file sets up).
+    pub seq: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -52,6 +55,8 @@ pub struct DrawItem {
     pub blend: BlendMode,
     pub pma: bool,
     pub color: [f32; 4],
+    /// The dark colour of a two-colour tint (what black texels become), when the slot has one.
+    pub dark: Option<[f32; 3]>,
     pub verts: Vec<[f32; 2]>,
     /// Fractions of the page picture.
     pub uvs: Vec<[f32; 2]>,
@@ -88,7 +93,7 @@ impl Pose {
     }
 
     /// Recompute `roots` and everything below them (bones are listed parents first), leaving the rest of the skeleton alone.
-    fn update_subtrees(&mut self, rig: &Rig, roots: &[usize]) {
+    pub(crate) fn update_subtrees(&mut self, rig: &Rig, roots: &[usize]) {
         let Some(&start) = roots.iter().min() else { return };
         let n = self.bones.len();
         let mut dirty = vec![false; n];
@@ -109,7 +114,7 @@ impl Pose {
         }
     }
 
-    fn update_bone(&mut self, rig: &Rig, i: usize) {
+    pub(crate) fn update_bone(&mut self, rig: &Rig, i: usize) {
         let (x, y, rot, sx, sy, shx, shy) = {
             let b = &self.bones[i];
             (b.x, b.y, b.rotation, b.scale_x, b.scale_y, b.shear_x, b.shear_y)
@@ -201,7 +206,7 @@ impl Pose {
     }
 
     /// Make the local values reproduce the world matrix as it is now (after a constraint changed it directly).
-    fn set_local_from_world(&mut self, rig: &Rig, i: usize) {
+    pub(crate) fn set_local_from_world(&mut self, rig: &Rig, i: usize) {
         let (a, b, c, d, wx, wy) = {
             let s = &self.bones[i];
             (s.a, s.b, s.c, s.d, s.wx, s.wy)
@@ -456,161 +461,222 @@ impl Pose {
 
 // ---- sampling an animation onto the setup pose ---------------------------------------------------------------------------------------
 
+/// The numbers constraints take from animation: what the timelines set this frame, for every constraint.
+pub(crate) struct Dynamic {
+    ik: Vec<[f32; 6]>,
+    tf: Vec<[f32; 6]>,
+    /// position, spacing, mix rotate, mix x, mix y
+    path: Vec<[f32; 5]>,
+    /// inertia, strength, damping, mass inverse, wind, gravity, mix
+    phys: Vec<[f32; 7]>,
+    /// time, mix
+    slider: Vec<[f32; 2]>,
+}
+
 impl Rig {
-    /// The setup pose with `animation` at `time` (seconds) applied, constraints solved.
+    /// The setup pose with `animation` at `time` (seconds) applied, constraints solved. Physics constraints stay at rest (see `pose_sim`).
     pub fn pose(&self, skin: usize, animation: Option<usize>, time: f32) -> Pose {
+        self.pose_sim(skin, animation, time, None)
+    }
+
+    /// The same, with physics constraints swinging: `sim` remembers where they were the frame before (and says what time it is).
+    pub fn pose_sim(&self, skin: usize, animation: Option<usize>, time: f32, sim: Option<&mut PhysicsSim>) -> Pose {
+        self.pose_mix(skin, None, animation, time, 1.0, sim)
+    }
+
+    /// The same, easing from another animation: `from` (its number and time) is applied first, then `animation` takes over by `alpha`
+    /// (0 = still all of `from`, 1 = all of `animation`). Bones ease; slots, constraints and deform switch at once.
+    pub fn pose_mix(&self, skin: usize, from: Option<(usize, f32)>, animation: Option<usize>, time: f32, alpha: f32, mut sim: Option<&mut PhysicsSim>) -> Pose {
         let skin = skin.min(self.skins.len().saturating_sub(1));
         let mut pose = Pose {
             bones: self.bones.iter().map(|b| BoneState { x: b.x, y: b.y, rotation: b.rotation, scale_x: b.scale_x, scale_y: b.scale_y, shear_x: b.shear_x, shear_y: b.shear_y, ..Default::default() }).collect(),
-            slots: self.slots.iter().map(|s| SlotState { color: s.color, dark: s.dark, attachment: s.attachment.clone(), deform: Vec::new(), user_alpha: 1.0 }).collect(),
+            slots: self.slots.iter().map(|s| SlotState { color: s.color, dark: s.dark, attachment: s.attachment.clone(), deform: Vec::new(), user_alpha: 1.0, seq: None }).collect(),
             draw_order: (0..self.slots.len()).collect(),
             skin,
         };
-        let mut ik_state: Vec<[f32; 6]> = self.ik.iter().map(|c| [c.mix, c.softness, if c.bend_positive { 1.0 } else { -1.0 }, c.compress as u8 as f32, c.stretch as u8 as f32, 0.0]).collect();
-        let mut tf_state: Vec<[f32; 6]> = self.transform.iter().map(|c| [c.mix_rotate, c.mix_x, c.mix_y, c.mix_scale_x, c.mix_scale_y, c.mix_shear_y]).collect();
+        let mut dynamic = Dynamic {
+            ik: self.ik.iter().map(|c| [c.mix, c.softness, if c.bend_positive { 1.0 } else { -1.0 }, c.compress as u8 as f32, c.stretch as u8 as f32, 0.0]).collect(),
+            tf: self.transform.iter().map(|c| [c.mix_rotate, c.mix_x, c.mix_y, c.mix_scale_x, c.mix_scale_y, c.mix_shear_y]).collect(),
+            path: self.path.iter().map(|c| [c.position, c.spacing, c.mix_rotate, c.mix_x, c.mix_y]).collect(),
+            phys: self.physics.iter().map(|c| [c.inertia, c.strength, c.damping, c.mass_inverse, c.wind, c.gravity, c.mix]).collect(),
+            slider: self.slider.iter().map(|c| [c.time, c.mix]).collect(),
+        };
+        let from_anim = from.and_then(|(a, t)| self.animations.get(a).map(|an| (an, t))).filter(|_| alpha < 1.0);
+        if let Some((old, ot)) = from_anim {
+            self.apply_animation(old, ot, &mut pose, &mut dynamic, 1.0);
+        }
         if let Some(anim) = animation.and_then(|i| self.animations.get(i)) {
-            self.apply_animation(anim, time, &mut pose, &mut ik_state, &mut tf_state);
+            self.apply_animation(anim, time, &mut pose, &mut dynamic, if from_anim.is_some() { alpha.clamp(0.0, 1.0) } else { 1.0 });
         }
         pose.update_world(self);
         // Constraints in their order.
-        let mut order: Vec<(i32, bool, usize)> = self.ik.iter().enumerate().map(|(i, c)| (c.order, true, i)).chain(self.transform.iter().enumerate().map(|(i, c)| (c.order, false, i))).collect();
+        let mut order: Vec<(i32, CKind, usize)> = Vec::new();
+        order.extend(self.ik.iter().enumerate().map(|(i, c)| (c.order, CKind::Ik, i)));
+        order.extend(self.transform.iter().enumerate().map(|(i, c)| (c.order, CKind::Transform, i)));
+        order.extend(self.path.iter().enumerate().map(|(i, c)| (c.order, CKind::Path, i)));
+        order.extend(self.physics.iter().enumerate().map(|(i, c)| (c.order, CKind::Physics, i)));
+        order.extend(self.slider.iter().enumerate().map(|(i, c)| (c.order, CKind::Slider, i)));
         order.sort_by_key(|o| o.0);
         let sk = &self.skins[skin];
-        for (_, is_ik, i) in order {
-            if is_ik {
-                let c = &self.ik[i];
-                let st = ik_state[i];
-                if (c.skin_required && !sk.ik.contains(&i)) || st[0] == 0.0 {
-                    continue;
+        if let Some(s) = sim.as_deref_mut() {
+            s.ensure_for(self.physics.len());
+        }
+        for (_, kind, i) in order {
+            match kind {
+                CKind::Ik => {
+                    let c = &self.ik[i];
+                    let st = dynamic.ik[i];
+                    if (c.skin_required && !sk.ik.contains(&i)) || st[0] == 0.0 {
+                        continue;
+                    }
+                    let t = pose.bones[c.target].clone();
+                    match c.bones.len() {
+                        1 => pose.ik_one(self, c.bones[0], t.wx, t.wy, st[3] != 0.0, st[4] != 0.0, c.uniform, st[0]),
+                        2 => pose.ik_two(self, c.bones[0], c.bones[1], t.wx, t.wy, st[2], st[4] != 0.0, c.uniform, st[1], st[0]),
+                        _ => {}
+                    }
+                    pose.update_subtrees(self, &c.bones);
                 }
-                let t = pose.bones[c.target].clone();
-                match c.bones.len() {
-                    1 => pose.ik_one(self, c.bones[0], t.wx, t.wy, st[3] != 0.0, st[4] != 0.0, c.uniform, st[0]),
-                    2 => pose.ik_two(self, c.bones[0], c.bones[1], t.wx, t.wy, st[2], st[4] != 0.0, c.uniform, st[1], st[0]),
-                    _ => {}
+                CKind::Transform => {
+                    let c = &self.transform[i];
+                    if c.skin_required && !sk.transform.contains(&i) {
+                        continue;
+                    }
+                    let st = dynamic.tf[i];
+                    if st.iter().all(|&m| m == 0.0) {
+                        continue;
+                    }
+                    match &c.v43 {
+                        Some(v) => pose.transform43(self, c, v, st),
+                        None => {
+                            pose.transform_constraint(self, c, st);
+                            pose.update_subtrees(self, &c.bones);
+                        }
+                    }
                 }
-                pose.update_subtrees(self, &c.bones);
-            } else {
-                let c = &self.transform[i];
-                if c.skin_required && !sk.transform.contains(&i) {
-                    continue;
+                CKind::Path => {
+                    let c = &self.path[i];
+                    if c.skin_required && !sk.extra.contains(&CRef { kind: CKind::Path, index: i }) {
+                        continue;
+                    }
+                    pose.path_constraint(self, c, dynamic.path[i]);
                 }
-                let st = tf_state[i];
-                if st.iter().all(|&m| m == 0.0) {
-                    continue;
+                CKind::Physics => {
+                    let c = &self.physics[i];
+                    if c.skin_required && !sk.extra.contains(&CRef { kind: CKind::Physics, index: i }) {
+                        continue;
+                    }
+                    if let Some(s) = sim.as_deref_mut() {
+                        let (time, wind, gravity) = (s.time, s.wind, s.gravity);
+                        pose.physics_constraint(self, c, dynamic.phys[i], &mut s.states[i], time, wind, gravity);
+                    }
                 }
-                pose.transform_constraint(self, c, st);
-                pose.update_subtrees(self, &c.bones);
+                CKind::Slider => {
+                    let c = &self.slider[i];
+                    if c.skin_required && !sk.extra.contains(&CRef { kind: CKind::Slider, index: i }) {
+                        continue;
+                    }
+                    let st = dynamic.slider[i];
+                    let Some(anim) = c.animation.and_then(|a| self.animations.get(a)) else { continue };
+                    if st[1] == 0.0 {
+                        continue;
+                    }
+                    let mut t = st[0];
+                    if let Some(bi) = c.bone {
+                        t = c.offset + (prop_value(&pose.bones[bi], c.property, c.local, &[0.0; 6]) - c.from) * c.scale;
+                    }
+                    t = if c.looped {
+                        if anim.duration > 0.0 {
+                            t.rem_euclid(anim.duration)
+                        } else {
+                            0.0
+                        }
+                    } else {
+                        t.max(0.0)
+                    };
+                    let touched = self.apply_bone_timelines(anim, t, &mut pose, st[1], c.additive);
+                    // (the animation of a slider may recolour slots and play image sequences too: that is what a spinning gem does)
+                    self.apply_slot_timelines(anim, t, &mut pose, st[1]);
+                    pose.update_subtrees(self, &touched);
+                }
             }
         }
         pose
     }
 
-    fn apply_animation(&self, anim: &Animation, t: f32, pose: &mut Pose, ik_state: &mut [[f32; 6]], tf_state: &mut [[f32; 6]]) {
-        for (bi, tl) in &anim.bones {
-            let data = &self.bones[*bi];
-            let b = &mut pose.bones[*bi];
-            match tl {
-                BoneTl::Rotate(tr) => {
-                    if let Some(v) = tr.sample(t, self.legacy) {
-                        b.rotation = data.rotation + v[0];
-                    }
-                }
-                BoneTl::Translate(tr) => {
-                    if let Some(v) = tr.sample(t, false) {
-                        b.x = data.x + v[0];
-                        b.y = data.y + v[1];
-                    }
-                }
-                BoneTl::TranslateX(tr) => {
-                    if let Some(v) = tr.sample(t, false) {
-                        b.x = data.x + v[0];
-                    }
-                }
-                BoneTl::TranslateY(tr) => {
-                    if let Some(v) = tr.sample(t, false) {
-                        b.y = data.y + v[0];
-                    }
-                }
-                BoneTl::Scale(tr) => {
-                    if let Some(v) = tr.sample(t, false) {
-                        b.scale_x = data.scale_x * v[0];
-                        b.scale_y = data.scale_y * v[1];
-                    }
-                }
-                BoneTl::ScaleX(tr) => {
-                    if let Some(v) = tr.sample(t, false) {
-                        b.scale_x = data.scale_x * v[0];
-                    }
-                }
-                BoneTl::ScaleY(tr) => {
-                    if let Some(v) = tr.sample(t, false) {
-                        b.scale_y = data.scale_y * v[0];
-                    }
-                }
-                BoneTl::Shear(tr) => {
-                    if let Some(v) = tr.sample(t, false) {
-                        b.shear_x = data.shear_x + v[0];
-                        b.shear_y = data.shear_y + v[1];
-                    }
-                }
-                BoneTl::ShearX(tr) => {
-                    if let Some(v) = tr.sample(t, false) {
-                        b.shear_x = data.shear_x + v[0];
-                    }
-                }
-                BoneTl::ShearY(tr) => {
-                    if let Some(v) = tr.sample(t, false) {
-                        b.shear_y = data.shear_y + v[0];
-                    }
-                }
-            }
-        }
-        for (si, tl) in &anim.slots {
-            let s = &mut pose.slots[*si];
-            match tl {
-                SlotTl::Attachment(keys) => {
-                    if let Some(i) = keys.partition_point(|k| k.0 <= t).checked_sub(1) {
-                        s.attachment = keys[i].1.clone();
-                    }
-                }
-                SlotTl::Color(tr) => {
-                    if let Some(v) = tr.sample(t, false) {
-                        s.color = [v[0], v[1], v[2], v[3]];
-                    }
-                }
-                SlotTl::Rgb(tr) => {
-                    if let Some(v) = tr.sample(t, false) {
-                        s.color[..3].copy_from_slice(&v[..3]);
-                    }
-                }
-                SlotTl::Alpha(tr) => {
-                    if let Some(v) = tr.sample(t, false) {
-                        s.color[3] = v[0];
-                    }
-                }
-                SlotTl::TwoColor(tr) => {
-                    if let Some(v) = tr.sample(t, false) {
-                        s.color = [v[0], v[1], v[2], v[3]];
-                        s.dark = Some([v[4], v[5], v[6]]);
-                    }
-                }
-                SlotTl::Rgb2(tr) => {
-                    if let Some(v) = tr.sample(t, false) {
-                        s.color[..3].copy_from_slice(&v[..3]);
-                        s.dark = Some([v[3], v[4], v[5]]);
-                    }
-                }
-            }
-        }
+    fn apply_animation(&self, anim: &Animation, t: f32, pose: &mut Pose, dynamic: &mut Dynamic, bone_alpha: f32) {
+        self.apply_bone_timelines(anim, t, pose, bone_alpha, false);
+        self.apply_slot_timelines(anim, t, pose, 1.0);
         for (ci, tr) in &anim.ik {
-            if let (Some(v), Some(st)) = (tr.sample(t, false), ik_state.get_mut(*ci)) {
+            if let (Some(v), Some(st)) = (tr.sample(t, false), dynamic.ik.get_mut(*ci)) {
                 *st = [v[0], v[1], v[2], v[3], v[4], 0.0];
             }
         }
         for (ci, tr) in &anim.transform {
-            if let (Some(v), Some(st)) = (tr.sample(t, false), tf_state.get_mut(*ci)) {
+            if let (Some(v), Some(st)) = (tr.sample(t, false), dynamic.tf.get_mut(*ci)) {
                 st.copy_from_slice(&v[..6]);
+            }
+        }
+        for (ci, tl) in &anim.path {
+            let Some(st) = dynamic.path.get_mut(*ci) else { continue };
+            match tl {
+                PathTl::Position(tr) => {
+                    if let Some(v) = tr.sample(t, false) {
+                        st[0] = v[0];
+                    }
+                }
+                PathTl::Spacing(tr) => {
+                    if let Some(v) = tr.sample(t, false) {
+                        st[1] = v[0];
+                    }
+                }
+                PathTl::Mix(tr) => {
+                    if let Some(v) = tr.sample(t, false) {
+                        st[2..5].copy_from_slice(&v[..3]);
+                    }
+                }
+            }
+        }
+        for (ci, tl) in &anim.physics {
+            let PhysTl::Prop(prop, tr) = tl else { continue };
+            let Some(v) = tr.sample(t, false) else { continue };
+            let slot = match prop {
+                PhysProp::Inertia => 0,
+                PhysProp::Strength => 1,
+                PhysProp::Damping => 2,
+                PhysProp::Mass => 3,
+                PhysProp::Wind => 4,
+                PhysProp::Gravity => 5,
+                PhysProp::Mix => 6,
+            };
+            let value = if slot == 3 { 1.0 / v[0].max(1e-6) } else { v[0] };
+            let range = match ci {
+                Some(c) => *c..*c + 1,
+                None => 0..dynamic.phys.len(),
+            };
+            for c in range {
+                // A skeleton-wide timeline (no constraint named) moves only the constraints that follow it.
+                if ci.is_none() && !self.physics.get(c).map(|p| p.global[slot.min(6) as usize]).unwrap_or(false) {
+                    continue;
+                }
+                if let Some(st) = dynamic.phys.get_mut(c) {
+                    st[slot] = value;
+                }
+            }
+        }
+        for (ci, tl) in &anim.slider {
+            let Some(st) = dynamic.slider.get_mut(*ci) else { continue };
+            match tl {
+                SliderTl::Time(tr) => {
+                    if let Some(v) = tr.sample(t, false) {
+                        st[0] = v[0];
+                    }
+                }
+                SliderTl::Mix(tr) => {
+                    if let Some(v) = tr.sample(t, false) {
+                        st[1] = v[0];
+                    }
+                }
             }
         }
         for d in &anim.deform {
@@ -633,6 +699,162 @@ impl Rig {
         if let Some(i) = anim.draw_order.partition_point(|k| k.0 <= t).checked_sub(1) {
             pose.draw_order = apply_draw_order(self.slots.len(), &anim.draw_order[i].1);
         }
+    }
+
+    /// The slot timelines of `anim` at `t` (colours, attachments, image-sequence frames), `alpha` of the way: colours ease, attachments switch
+    /// once it is at least half.
+    pub(crate) fn apply_slot_timelines(&self, anim: &Animation, t: f32, pose: &mut Pose, alpha: f32) {
+        let alpha = alpha.clamp(0.0, 1.0);
+        let ease = |cur: f32, new: f32| if alpha >= 1.0 { new } else { cur + (new - cur) * alpha };
+        for (si, tl) in &anim.slots {
+            let s = &mut pose.slots[*si];
+            match tl {
+                SlotTl::Attachment(keys) => {
+                    if alpha >= 0.5 {
+                        if let Some(i) = keys.partition_point(|k| k.0 <= t).checked_sub(1) {
+                            s.attachment = keys[i].1.clone();
+                        }
+                    }
+                }
+                SlotTl::Color(tr) => {
+                    if let Some(v) = tr.sample(t, false) {
+                        for k in 0..4 {
+                            s.color[k] = ease(s.color[k], v[k]);
+                        }
+                    }
+                }
+                SlotTl::Rgb(tr) => {
+                    if let Some(v) = tr.sample(t, false) {
+                        for k in 0..3 {
+                            s.color[k] = ease(s.color[k], v[k]);
+                        }
+                    }
+                }
+                SlotTl::Alpha(tr) => {
+                    if let Some(v) = tr.sample(t, false) {
+                        s.color[3] = ease(s.color[3], v[0]);
+                    }
+                }
+                SlotTl::TwoColor(tr) => {
+                    if let Some(v) = tr.sample(t, false) {
+                        for k in 0..4 {
+                            s.color[k] = ease(s.color[k], v[k]);
+                        }
+                        let d = s.dark.unwrap_or([0.0; 3]);
+                        s.dark = Some([ease(d[0], v[4]), ease(d[1], v[5]), ease(d[2], v[6])]);
+                    }
+                }
+                SlotTl::Rgb2(tr) => {
+                    if let Some(v) = tr.sample(t, false) {
+                        for k in 0..3 {
+                            s.color[k] = ease(s.color[k], v[k]);
+                        }
+                        let d = s.dark.unwrap_or([0.0; 3]);
+                        s.dark = Some([ease(d[0], v[3]), ease(d[1], v[4]), ease(d[2], v[5])]);
+                    }
+                }
+            }
+        }
+        if alpha >= 0.5 {
+        for sq in &anim.sequence {
+            let Some(s) = pose.slots.get_mut(sq.slot) else { continue };
+            if s.attachment.as_deref() != Some(sq.attachment.as_str()) {
+                continue;
+            }
+            let count = match self.find_attachment(pose.skin, sq.slot, &sq.attachment) {
+                Some((Attachment::Region(r), _)) => r.seq.map(|q| q.count),
+                Some((Attachment::Mesh(m), _)) => m.seq.map(|q| q.count),
+                _ => None,
+            };
+            if let Some(count) = count {
+                s.seq = sequence_frame(&sq.keys, t, count);
+            }
+        }
+        }
+    }
+
+    /// Apply the bone timelines of `anim` at `t`, `alpha` of the way (1 = replace the pose), added to the pose when `additive`. Gives the bones touched.
+    pub(crate) fn apply_bone_timelines(&self, anim: &Animation, t: f32, pose: &mut Pose, alpha: f32, additive: bool) -> Vec<usize> {
+        let mut touched: Vec<usize> = Vec::new();
+        // Where a value ends up: replacing the pose, easing towards the animation, or adding to it.
+        let put = |cur: f32, setup: f32, v: f32, scale: bool, rotate: bool| -> f32 {
+            if additive {
+                if scale {
+                    cur * (1.0 + (v - 1.0) * alpha)
+                } else {
+                    cur + v * alpha
+                }
+            } else {
+                let target = if scale { setup * v } else { setup + v };
+                if alpha >= 1.0 {
+                    target
+                } else if rotate {
+                    cur + wrap180(target - cur) * alpha
+                } else {
+                    cur + (target - cur) * alpha
+                }
+            }
+        };
+        for (bi, tl) in &anim.bones {
+            let data = &self.bones[*bi];
+            let b = &mut pose.bones[*bi];
+            let mut hit = true;
+            match tl {
+                BoneTl::Rotate(tr) => match tr.sample(t, self.legacy) {
+                    Some(v) => b.rotation = put(b.rotation, data.rotation, v[0], false, true),
+                    None => hit = false,
+                },
+                BoneTl::Translate(tr) => match tr.sample(t, false) {
+                    Some(v) => {
+                        b.x = put(b.x, data.x, v[0], false, false);
+                        b.y = put(b.y, data.y, v[1], false, false);
+                    }
+                    None => hit = false,
+                },
+                BoneTl::TranslateX(tr) => match tr.sample(t, false) {
+                    Some(v) => b.x = put(b.x, data.x, v[0], false, false),
+                    None => hit = false,
+                },
+                BoneTl::TranslateY(tr) => match tr.sample(t, false) {
+                    Some(v) => b.y = put(b.y, data.y, v[0], false, false),
+                    None => hit = false,
+                },
+                BoneTl::Scale(tr) => match tr.sample(t, false) {
+                    Some(v) => {
+                        b.scale_x = put(b.scale_x, data.scale_x, v[0], true, false);
+                        b.scale_y = put(b.scale_y, data.scale_y, v[1], true, false);
+                    }
+                    None => hit = false,
+                },
+                BoneTl::ScaleX(tr) => match tr.sample(t, false) {
+                    Some(v) => b.scale_x = put(b.scale_x, data.scale_x, v[0], true, false),
+                    None => hit = false,
+                },
+                BoneTl::ScaleY(tr) => match tr.sample(t, false) {
+                    Some(v) => b.scale_y = put(b.scale_y, data.scale_y, v[0], true, false),
+                    None => hit = false,
+                },
+                BoneTl::Shear(tr) => match tr.sample(t, false) {
+                    Some(v) => {
+                        b.shear_x = put(b.shear_x, data.shear_x, v[0], false, false);
+                        b.shear_y = put(b.shear_y, data.shear_y, v[1], false, false);
+                    }
+                    None => hit = false,
+                },
+                BoneTl::ShearX(tr) => match tr.sample(t, false) {
+                    Some(v) => b.shear_x = put(b.shear_x, data.shear_x, v[0], false, false),
+                    None => hit = false,
+                },
+                BoneTl::ShearY(tr) => match tr.sample(t, false) {
+                    Some(v) => b.shear_y = put(b.shear_y, data.shear_y, v[0], false, false),
+                    None => hit = false,
+                },
+            }
+            if hit && !touched.contains(bi) {
+                touched.push(*bi);
+            }
+        }
+        touched
     }
 }
 
@@ -668,7 +890,7 @@ pub fn apply_draw_order(n: usize, offsets: &[(usize, i32)]) -> Vec<usize> {
 // ---- geometry ----------------------------------------------------------------------------------------------------------------------
 
 impl Rig {
-    fn world_vertices(&self, pose: &Pose, bone: usize, v: &Vertices, deform: Option<&Vec<f32>>) -> Vec<[f32; 2]> {
+    pub(crate) fn world_vertices(&self, pose: &Pose, bone: usize, v: &Vertices, deform: Option<&Vec<f32>>) -> Vec<[f32; 2]> {
         match v {
             Vertices::Plain(p) => {
                 let b = &pose.bones[bone];
@@ -713,11 +935,12 @@ impl Rig {
                 }
                 continue;
             };
-            let Some((att, _found_in)) = self.find_attachment(pose.skin, si, name) else { continue };
+            let Some((att, found_in)) = self.find_attachment(pose.skin, si, name) else { continue };
             let slot_color = [state.color[0], state.color[1], state.color[2], state.color[3] * state.user_alpha];
             match att {
                 Attachment::Clip(c) => {
-                    let poly = self.world_vertices(pose, slot.bone, &c.vertices, None);
+                    let deform = state.deform.iter().find(|d| d.0 == found_in && d.1 == name).map(|d| &d.2);
+                    let poly = self.world_vertices(pose, slot.bone, &c.vertices, deform);
                     if poly.len() >= 3 {
                         clip = Some((c.end_slot, std::sync::Arc::new(poly)));
                     }
@@ -725,20 +948,20 @@ impl Rig {
                 }
                 Attachment::Region(r) => {
                     if slot_color[3] * r.color[3] > 0.0 {
-                        if let Some(item) = self.region_item(pose, si, slot.bone, r, slot_color, slot.blend) {
-                            out.push(DrawItem { clip: clip.as_ref().map(|c| c.1.clone()), ..item });
+                        if let Some(item) = self.region_item(pose, si, slot.bone, r, slot_color, slot.blend, state.seq) {
+                            out.push(DrawItem { clip: clip.as_ref().map(|c| c.1.clone()), dark: state.dark, ..item });
                         }
                     }
                 }
                 Attachment::Mesh(m) => {
                     if slot_color[3] * m.color[3] > 0.0 {
                         let deform = state.deform.iter().find(|d| d.0 == m.deform_skin && d.1 == m.deform_name).map(|d| &d.2);
-                        if let Some(item) = self.mesh_item(pose, si, slot.bone, m, slot_color, slot.blend, deform) {
-                            out.push(DrawItem { clip: clip.as_ref().map(|c| c.1.clone()), ..item });
+                        if let Some(item) = self.mesh_item(pose, si, slot.bone, m, slot_color, slot.blend, deform, state.seq) {
+                            out.push(DrawItem { clip: clip.as_ref().map(|c| c.1.clone()), dark: state.dark, ..item });
                         }
                     }
                 }
-                Attachment::Other => {}
+                Attachment::Other | Attachment::Path(_) => {}
             }
             if let Some((end, _)) = &clip {
                 if *end == si {
@@ -749,8 +972,11 @@ impl Rig {
         out
     }
 
-    fn region_item(&self, pose: &Pose, slot: usize, bone: usize, r: &Region, slot_color: [f32; 4], blend: BlendMode) -> Option<DrawItem> {
-        let reg = self.atlas.find(&r.path)?;
+    fn region_item(&self, pose: &Pose, slot: usize, bone: usize, r: &Region, slot_color: [f32; 4], blend: BlendMode, seq: Option<usize>) -> Option<DrawItem> {
+        let reg = match r.seq {
+            Some(q) => self.atlas.find(&q.frame_name(&r.path, seq.unwrap_or(q.setup)))?,
+            None => self.atlas.find(&r.path)?,
+        };
         let (pw, ph) = self.atlas.page_size(reg.page);
         let (orig_w, orig_h) = (if reg.orig_w > 0.0 { reg.orig_w } else { reg.w }, if reg.orig_h > 0.0 { reg.orig_h } else { reg.h });
         let (sx, sy) = (r.width / orig_w * r.scale_x, r.height / orig_h * r.scale_y);
@@ -763,15 +989,26 @@ impl Rig {
         let b = &pose.bones[bone];
         let verts: Vec<[f32; 2]> = local.iter().map(|p| [p[0] * b.a + p[1] * b.b + b.wx, p[0] * b.c + p[1] * b.d + b.wy]).collect();
         let (u, v) = (reg.x / pw, reg.y / ph);
-        let (u2, v2) = if reg.rotate == 90 { ((reg.x + reg.h) / pw, (reg.y + reg.w) / ph) } else { ((reg.x + reg.w) / pw, (reg.y + reg.h) / ph) };
-        let uvs = if reg.rotate == 90 { vec![[u2, v], [u2, v2], [u, v2], [u, v]] } else { vec![[u, v2], [u, v], [u2, v], [u2, v2]] };
+        // "rotate" says the picture was packed turned counter-clockwise by that many degrees (a quarter turn swaps width and height on the page).
+        let swapped = reg.rotate == 90 || reg.rotate == 270;
+        let (u2, v2) = if swapped { ((reg.x + reg.h) / pw, (reg.y + reg.w) / ph) } else { ((reg.x + reg.w) / pw, (reg.y + reg.h) / ph) };
+        // Corners in the order bottom-left, top-left, top-right, bottom-right.
+        let uvs = match reg.rotate {
+            90 => vec![[u2, v2], [u, v2], [u, v], [u2, v]],
+            180 => vec![[u2, v], [u2, v2], [u, v2], [u, v]],
+            270 => vec![[u, v], [u2, v], [u2, v2], [u, v2]],
+            _ => vec![[u, v2], [u, v], [u2, v], [u2, v2]],
+        };
         let color = [slot_color[0] * r.color[0], slot_color[1] * r.color[1], slot_color[2] * r.color[2], slot_color[3] * r.color[3]];
-        Some(DrawItem { slot, page: reg.page, blend, pma: self.atlas.pages[reg.page].pma, color, verts, uvs, tris: vec![0, 1, 2, 2, 3, 0], clip: None, mask: None })
+        Some(DrawItem { slot, page: reg.page, blend, pma: self.atlas.pages[reg.page].pma, color, dark: None, verts, uvs, tris: vec![0, 1, 2, 2, 3, 0], clip: None, mask: None })
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn mesh_item(&self, pose: &Pose, slot: usize, bone: usize, m: &Mesh, slot_color: [f32; 4], blend: BlendMode, deform: Option<&Vec<f32>>) -> Option<DrawItem> {
-        let reg = self.atlas.find(&m.path)?;
+    fn mesh_item(&self, pose: &Pose, slot: usize, bone: usize, m: &Mesh, slot_color: [f32; 4], blend: BlendMode, deform: Option<&Vec<f32>>, seq: Option<usize>) -> Option<DrawItem> {
+        let reg = match m.seq {
+            Some(q) => self.atlas.find(&q.frame_name(&m.path, seq.unwrap_or(q.setup)))?,
+            None => self.atlas.find(&m.path)?,
+        };
         let (pw, ph) = self.atlas.page_size(reg.page);
         let verts = self.world_vertices(pose, bone, &m.vertices, deform);
         if verts.len() * 2 != m.uvs.len() {
@@ -781,20 +1018,33 @@ impl Rig {
         let uvs: Vec<[f32; 2]> = (0..verts.len())
             .map(|i| {
                 let (tu, tv) = (m.uvs[i * 2], m.uvs[i * 2 + 1]);
-                if reg.rotate == 90 {
-                    let u0 = (reg.x - (orig_h - reg.off_y - reg.h)) / pw;
-                    let v0 = (reg.y - (orig_w - reg.off_x - reg.w)) / ph;
-                    let (w, h) = (orig_h / pw, orig_w / ph);
-                    [u0 + tv * w, v0 + (1.0 - tu) * h]
-                } else {
-                    let u0 = (reg.x - reg.off_x) / pw;
-                    let v0 = (reg.y - (orig_h - reg.off_y - reg.h)) / ph;
-                    [u0 + tu * (orig_w / pw), v0 + tv * (orig_h / ph)]
+                let (u, v) = (reg.x / pw, reg.y / ph);
+                match reg.rotate {
+                    90 => {
+                        let u0 = u - (orig_h - reg.off_y - reg.h) / pw;
+                        let v0 = v - (orig_w - reg.off_x - reg.w) / ph;
+                        [u0 + tv * (orig_h / pw), v0 + (1.0 - tu) * (orig_w / ph)]
+                    }
+                    180 => {
+                        let u0 = u - (orig_w - reg.off_x - reg.w) / pw;
+                        let v0 = v - reg.off_y / ph;
+                        [u0 + (1.0 - tu) * (orig_w / pw), v0 + (1.0 - tv) * (orig_h / ph)]
+                    }
+                    270 => {
+                        let u0 = u - reg.off_y / pw;
+                        let v0 = v - reg.off_x / ph;
+                        [u0 + (1.0 - tv) * (orig_h / pw), v0 + tu * (orig_w / ph)]
+                    }
+                    _ => {
+                        let u0 = u - reg.off_x / pw;
+                        let v0 = v - (orig_h - reg.off_y - reg.h) / ph;
+                        [u0 + tu * (orig_w / pw), v0 + tv * (orig_h / ph)]
+                    }
                 }
             })
             .collect();
         let color = [slot_color[0] * m.color[0], slot_color[1] * m.color[1], slot_color[2] * m.color[2], slot_color[3] * m.color[3]];
-        Some(DrawItem { slot, page: reg.page, blend, pma: self.atlas.pages[reg.page].pma, color, verts, uvs, tris: m.triangles.clone(), clip: None, mask: None })
+        Some(DrawItem { slot, page: reg.page, blend, pma: self.atlas.pages[reg.page].pma, color, dark: None, verts, uvs, tris: m.triangles.clone(), clip: None, mask: None })
     }
 
     /// The box around everything drawn in `pose`: (min x, min y, max x, max y), or None when nothing is.

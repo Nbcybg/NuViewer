@@ -82,7 +82,7 @@ impl Atlas {
                 } else if let Some(r) = atlas.regions.last_mut() {
                     let n = nums(v);
                     match k {
-                        "rotate" => r.rotate = if v == "true" || v == "90" { 90 } else { 0 },
+                        "rotate" => r.rotate = if v == "true" { 90 } else { v.parse::<u16>().ok().filter(|d| matches!(d, 90 | 180 | 270)).unwrap_or(0) },
                         "xy" if n.len() >= 2 => {
                             r.x = n[0];
                             r.y = n[1];

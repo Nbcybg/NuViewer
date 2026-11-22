@@ -1,9 +1,11 @@
-//! Spine skeletons (versions 3.8, 4.0, 4.1 and 4.2): read the file, pose it, rasterise it. See `json` and `binary` for the readers,
+//! Spine skeletons (versions 3.8, 4.0, 4.1, 4.2 and 4.3): read the file, pose it, rasterise it. See `json` and `binary` for the readers,
 //! `pose` for the animation and constraints, `raster` for the picture. Nothing here knows about windows or image formats: the caller
 //! decodes the atlas pages and puts them in `Rig::atlas.pages[i].image`.
 
 pub mod atlas;
 pub mod binary;
+mod binary43;
+pub mod constraints;
 pub mod cubism;
 pub mod json;
 pub mod live2d;
@@ -13,6 +15,7 @@ pub mod raster;
 
 pub use atlas::{Atlas, PageImage};
 pub use model::*;
+pub use constraints::PhysicsSim;
 pub use pose::{DrawItem, Pose};
 pub use raster::{render, render_pages, View};
 

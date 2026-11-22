@@ -123,7 +123,12 @@ fn main() {
     let (w, h, view) = nv_codecs::spinefmt::canvas_for(&rig, 0, ai, 1024);
     let t1 = std::time::Instant::now();
     let pose = rig.pose(0, ai, t);
-    let items = rig.geometry(&pose);
+    let mut items = rig.geometry(&pose);
+    // --hide a,b : leave out the slots whose name contains one of these (to see what a layer does to the picture)
+    if let Some(h) = args.iter().position(|a| a == "--hide").and_then(|i| args.get(i + 1)) {
+        let words: Vec<&str> = h.split(',').collect();
+        items.retain(|it| !words.iter().any(|w| rig.slots[it.slot].name.contains(w)));
+    }
     let tp = t1.elapsed().as_secs_f64() * 1000.0;
     let mut big: Vec<(f32, String, [f32; 4], usize, [f32; 4])> = items.iter().map(|it| {
         let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
@@ -140,6 +145,27 @@ fn main() {
         println!("  item area {:.0} slot {} box {:?} page {} colour {:?}", b.0, b.1, b.2, b.3, b.4);
     }
     println!("  median area {:.0}", big[big.len() / 2].0);
+    if args.iter().any(|a| a == "--slotcolors") {
+        // Every slot alone on black: how much it covers and the colour of what it draws (to find what tints a picture wrong).
+        for si in 0..rig.slots.len() {
+            let one: Vec<_> = items.iter().filter(|it| it.slot == si).cloned().collect();
+            if one.is_empty() {
+                continue;
+            }
+            let px = nv_anim::render(&rig, &one, w, h, view, 1, Some([0.0, 0.0, 0.0]));
+            let (mut n, mut r, mut g, mut b) = (0u64, 0u64, 0u64, 0u64);
+            for c in px.chunks(4) {
+                if c[0] as u32 + c[1] as u32 + c[2] as u32 > 12 {
+                    n += 1;
+                    r += c[0] as u64;
+                    g += c[1] as u64;
+                    b += c[2] as u64;
+                }
+            }
+            let n1 = n.max(1);
+            println!("  slot {:>2} {:<32} blend {:?} covers {:>7} px, mean rgb ({}, {}, {})", si, rig.slots[si].name, rig.slots[si].blend, n, r / n1, g / n1, b / n1);
+        }
+    }
     let t2 = std::time::Instant::now();
     let rgba = nv_anim::render(&rig, &items, w, h, view, 1, None);
     println!("canvas {w}x{h}: pose + geometry {tp:.1} ms ({} items), raster {:.1} ms", items.len(), t2.elapsed().as_secs_f64() * 1000.0);

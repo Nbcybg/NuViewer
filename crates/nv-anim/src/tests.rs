@@ -276,11 +276,148 @@ fn rotated_and_trimmed_atlas_regions_map_to_the_right_texels() {
 }
 
 #[test]
-fn unsupported_things_are_named_and_garbage_is_an_error_not_a_panic() {
-    let src = r#"{"skeleton":{"spine":"4.2.33"},"bones":[{"name":"root"}],"slots":[],"path":[{"name":"p"}],"physics":[{"name":"ph"}]}"#;
+fn garbage_is_an_error_not_a_panic() {
+    let src = r#"{"skeleton":{"spine":"4.2.33"},"bones":[{"name":"root"}],"slots":[],"path":[{"name":"p"}],"physics":[{"name":"ph","bone":"root"}]}"#;
     let rig = Rig::from_json(src, ATLAS).unwrap();
-    assert!(rig.unsupported.iter().any(|u| u.contains("path")) && rig.unsupported.iter().any(|u| u.contains("physics")));
+    assert_eq!(rig.physics.len(), 1, "a physics constraint of 4.2 is read now");
+    assert!(rig.path.is_empty(), "a path constraint without slot and bones is dropped, not an error");
     assert!(Rig::from_json("{}", ATLAS).is_err());
     assert!(Rig::from_json("not json", ATLAS).is_err());
     assert!(Rig::from_json(r#"{"skeleton":{},"bones":[{"name":"a","parent":"zzz"}]}"#, ATLAS).is_err());
+}
+
+/// A picture with four coloured quarters, packed into an atlas turned `degrees` counter-clockwise, comes out upright.
+#[test]
+fn regions_packed_at_every_quarter_turn_come_out_upright() {
+    const R: [u8; 4] = [255, 0, 0, 255];
+    const G: [u8; 4] = [0, 255, 0, 255];
+    const B: [u8; 4] = [0, 0, 255, 255];
+    const Y: [u8; 4] = [255, 255, 0, 255];
+    // (degrees, page size, page pixels row by row). The original is 4 x 2: top row R R G G, bottom row B B Y Y.
+    let cases: [(u32, (usize, usize), Vec<[u8; 4]>); 4] = [
+        (0, (4, 2), vec![R, R, G, G, B, B, Y, Y]),
+        (90, (2, 4), vec![G, Y, G, Y, R, B, R, B]),
+        (180, (4, 2), vec![Y, Y, B, B, G, G, R, R]),
+        (270, (2, 4), vec![B, R, B, R, Y, G, Y, G]),
+    ];
+    for (deg, (pw, ph), px) in cases {
+        let atlas = format!("t.png\nsize:{pw},{ph}\npma:false\nbox\nbounds:0,0,4,2\n{}", if deg == 0 { String::new() } else { format!("rotate:{deg}\n") });
+        let src = r#"{"skeleton":{"spine":"4.2.33"},"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root","attachment":"box"}],
+          "skins":[{"name":"default","attachments":{"s":{"box":{"width":40,"height":20}}}}]}"#;
+        let mut rig = Rig::from_json(src, &atlas).unwrap();
+        rig.atlas.pages[0].image = Some(Arc::new(PageImage { width: pw as u32, height: ph as u32, rgba: px.iter().flatten().copied().collect() }));
+        let out = rig.draw(&rig.pose(0, None, 0.0), 40, 20, View { cx: 0.0, cy: 0.0, scale: 1.0 }, 1, None);
+        let at = |x: usize, y: usize| [out[(y * 40 + x) * 4], out[(y * 40 + x) * 4 + 1], out[(y * 40 + x) * 4 + 2], out[(y * 40 + x) * 4 + 3]];
+        let near = |a: [u8; 4], b: [u8; 4]| a.iter().zip(b).all(|(x, y)| (*x as i32 - y as i32).abs() < 40);
+        let got = (at(5, 5), at(35, 5), at(5, 15), at(35, 15));
+        assert!(near(got.0, R) && near(got.1, G) && near(got.2, B) && near(got.3, Y), "packed {deg} degrees: top-left, top-right, bottom-left, bottom-right are {got:?}");
+    }
+}
+
+/// The same picture as a mesh.
+#[test]
+fn meshes_on_regions_packed_at_every_quarter_turn_come_out_upright() {
+    const R: [u8; 4] = [255, 0, 0, 255];
+    const G: [u8; 4] = [0, 255, 0, 255];
+    const B: [u8; 4] = [0, 0, 255, 255];
+    const Y: [u8; 4] = [255, 255, 0, 255];
+    let cases: [(u32, (usize, usize), Vec<[u8; 4]>); 4] = [
+        (0, (4, 2), vec![R, R, G, G, B, B, Y, Y]),
+        (90, (2, 4), vec![G, Y, G, Y, R, B, R, B]),
+        (180, (4, 2), vec![Y, Y, B, B, G, G, R, R]),
+        (270, (2, 4), vec![B, R, B, R, Y, G, Y, G]),
+    ];
+    for (deg, (pw, ph), px) in cases {
+        let atlas = format!("t.png\nsize:{pw},{ph}\npma:false\nbox\nbounds:0,0,4,2\n{}", if deg == 0 { String::new() } else { format!("rotate:{deg}\n") });
+        // A quad (uvs 0..1 over the picture, v down) 40 x 20 around the origin.
+        let src = r#"{"skeleton":{"spine":"4.2.33"},"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root","attachment":"box"}],
+          "skins":[{"name":"default","attachments":{"s":{"box":{"type":"mesh","uvs":[0,1,0,0,1,0,1,1],"triangles":[0,1,2,2,3,0],"vertices":[-20,-10,-20,10,20,10,20,-10],"hull":4,"width":40,"height":20}}}}]}"#;
+        let mut rig = Rig::from_json(src, &atlas).unwrap();
+        rig.atlas.pages[0].image = Some(Arc::new(PageImage { width: pw as u32, height: ph as u32, rgba: px.iter().flatten().copied().collect() }));
+        let out = rig.draw(&rig.pose(0, None, 0.0), 40, 20, View { cx: 0.0, cy: 0.0, scale: 1.0 }, 1, None);
+        let at = |x: usize, y: usize| [out[(y * 40 + x) * 4], out[(y * 40 + x) * 4 + 1], out[(y * 40 + x) * 4 + 2], out[(y * 40 + x) * 4 + 3]];
+        let near = |a: [u8; 4], b: [u8; 4]| a.iter().zip(b).all(|(x, y)| (*x as i32 - y as i32).abs() < 40);
+        let got = (at(5, 5), at(35, 5), at(5, 15), at(35, 15));
+        assert!(near(got.0, R) && near(got.1, G) && near(got.2, B) && near(got.3, Y), "mesh, packed {deg} degrees: {got:?}");
+    }
+}
+
+#[test]
+fn easing_from_another_animation_lands_between_the_two_poses() {
+    let rig = Rig::from_json(&skeleton("4.2.33"), ATLAS).unwrap();
+    let a = rig.animation_index("turn").unwrap();
+    // From the arm at 0 degrees (turn at 0 s) to the arm at 90 (turn at 1 s): half way is 45, a full alpha is 90, none is 0.
+    let at = |alpha: f32| angle(&rig.pose_mix(0, Some((a, 0.0)), Some(a), 1.0, alpha, None), 1);
+    assert!((at(0.5) - 45.0).abs() < 0.01, "{}", at(0.5));
+    assert!((at(0.0) - 0.0).abs() < 0.01);
+    assert!((at(1.0) - 90.0).abs() < 0.01);
+}
+
+#[test]
+fn a_two_colour_tint_turns_black_texels_into_the_dark_colour() {
+    // A page that is half black, half white; slot light colour white, dark colour red: the black half comes out red, the white half white.
+    let atlas = "t.png\nsize:2,1\npma:false\nbox\nbounds:0,0,2,1\n";
+    let src = r#"{"skeleton":{"spine":"4.2.33"},"bones":[{"name":"root"}],"slots":[{"name":"s","bone":"root","attachment":"box","dark":"ff0000"}],
+      "skins":[{"name":"default","attachments":{"s":{"box":{"width":40,"height":20}}}}]}"#;
+    let mut rig = Rig::from_json(src, atlas).unwrap();
+    rig.atlas.pages[0].image = Some(Arc::new(PageImage { width: 2, height: 1, rgba: vec![0, 0, 0, 255, 255, 255, 255, 255] }));
+    let out = rig.draw(&rig.pose(0, None, 0.0), 40, 20, View { cx: 0.0, cy: 0.0, scale: 1.0 }, 1, None);
+    let at = |x: usize| [out[(10 * 40 + x) * 4], out[(10 * 40 + x) * 4 + 1], out[(10 * 40 + x) * 4 + 2]];
+    let (left, right) = (at(4), at(35));
+    assert!(left[0] > 200 && left[1] < 60 && left[2] < 60, "black texels are the dark colour: {left:?}");
+    assert!(right[0] > 200 && right[1] > 200 && right[2] > 200, "white texels stay light: {right:?}");
+}
+
+/// A 4.3 transform constraint: one bone's x copied to another's (a property mapping, no fixed "translate mix").
+#[test]
+fn a_43_transform_constraint_copies_the_mapped_property() {
+    let src = r#"{"skeleton":{"spine":"4.3.40"},"bones":[{"name":"root"},{"name":"a","parent":"root","x":100,"y":30},{"name":"b","parent":"root"}],"slots":[],
+      "constraints":[{"type":"transform","name":"t","bones":["b"],"source":"a","properties":{"x":{"to":{"x":{}}}}}]}"#;
+    let rig = Rig::from_json(src, ATLAS).unwrap();
+    assert_eq!(rig.transform.len(), 1);
+    assert!(rig.transform[0].v43.is_some());
+    let p = rig.pose(0, None, 0.0);
+    let (b, a) = (rig.bone_index("b").unwrap(), rig.bone_index("a").unwrap());
+    assert!((p.bones[b].wx - 100.0).abs() < 1e-3, "x copied: {}", p.bones[b].wx);
+    assert!(p.bones[b].wy.abs() < 1e-3, "y was not mapped: {}", p.bones[b].wy);
+    assert!((p.bones[a].wx - 100.0).abs() < 1e-3);
+}
+
+/// A 4.3 slider turns a bone property into the time of an animation.
+#[test]
+fn a_slider_plays_its_animation_at_the_time_a_bone_property_gives() {
+    let src = r#"{"skeleton":{"spine":"4.3.40"},"bones":[{"name":"root"},{"name":"ctl","parent":"root","rotation":45},{"name":"target","parent":"root"}],"slots":[],
+      "constraints":[{"type":"slider","name":"s","animation":"follow","bone":"ctl","property":"rotate","scale":0.0111111111,"local":true}],
+      "animations":{"follow":{"bones":{"target":{"rotate":[{"time":0,"value":0},{"time":1,"value":90}]}}}}}"#;
+    let rig = Rig::from_json(src, ATLAS).unwrap();
+    assert_eq!(rig.slider.len(), 1);
+    assert!(rig.slider[0].animation.is_some());
+    let p = rig.pose(0, None, 0.0);
+    let t = rig.bone_index("target").unwrap();
+    assert!((angle(&p, t) - 45.0).abs() < 0.1, "half way through the animation: {}", angle(&p, t));
+}
+
+/// A physics constraint lets a bone lag behind its parent's move and settle again; without a simulation it stays rigid.
+#[test]
+fn physics_lags_and_settles() {
+    let src = r#"{"skeleton":{"spine":"4.2.40"},"bones":[{"name":"root"},{"name":"child","parent":"root","x":50}],"slots":[],
+      "physics":[{"name":"p","bone":"child","x":1,"inertia":1,"strength":100,"damping":0.85}],
+      "animations":{"go":{"bones":{"root":{"translate":[{"time":0,"x":0},{"time":0.5,"x":200}]}}}}}"#;
+    let rig = Rig::from_json(src, ATLAS).unwrap();
+    assert_eq!(rig.physics.len(), 1);
+    let go = rig.animation_index("go").unwrap();
+    let child = rig.bone_index("child").unwrap();
+    let mut sim = PhysicsSim::new();
+    let (mut lag_seen, mut last) = (0.0f32, 0.0f32);
+    for k in 0..=240 {
+        let t = (k as f32 / 60.0).min(0.5);
+        sim.advance(1.0 / 60.0);
+        let p = rig.pose_sim(0, Some(go), t, Some(&mut sim));
+        let rigid = rig.pose(0, Some(go), t).bones[child].wx;
+        lag_seen = lag_seen.max((rigid - p.bones[child].wx).abs());
+        last = (p.bones[child].wx - rigid).abs();
+        assert!(p.bones[child].wx.is_finite());
+    }
+    assert!(lag_seen > 3.0, "the bone should lag behind while the parent moves (max {lag_seen})");
+    assert!(last < 1.0, "and settle after the parent stops (still {last} away after 4 s)");
 }
