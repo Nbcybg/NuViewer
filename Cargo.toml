@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/nv-text", "crates/nv-core", "crates/nv-codecs", "crates/nv-render", "crates/nv-win", "crates/nv-editor", "crates/nv-media", "crates/nv-anim", "tools/mock-cubism", "nuviewer", "nugallery", "nueditor", "nuimporter", "nuquick", "nunote", "setup"]
 
 [workspace.package]
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/Nbcybg/NuViewer"

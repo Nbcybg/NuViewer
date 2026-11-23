@@ -3,6 +3,9 @@
 
 mod extras;
 mod mesh;
+mod spine;
+
+pub use spine::{SpineBatch, SpinePage, SpineVertex};
 
 pub use nv_codecs::model::{LightMode, ModelStyle, Orbit, Shading, UpAxis};
 use nv_codecs::Image;
@@ -76,6 +79,8 @@ pub struct Renderer {
     size: (u32, u32),
     /// 3D model pipeline, created when the first model is uploaded.
     mesh: Option<mesh::MeshPipeline>,
+    /// Spine skeleton pipeline (`spine_draw`), created when the first skeleton is drawn on the GPU.
+    spine: Option<spine::SpineGpu>,
     /// 360 view pipeline, created when the first panorama is drawn.
     pano: Option<extras::PanoPipeline>,
     /// A big picture being copied to the GPU a slice at a time (see `begin_upload`).
@@ -260,6 +265,7 @@ impl Renderer {
                 current: None,
                 size: (width.max(1), height.max(1)),
                 mesh: None,
+                spine: None,
                 bg: [0.1, 0.1, 0.1, 1.0],
                 pano: None,
                 pending: None,
@@ -571,6 +577,7 @@ impl Renderer {
     pub fn forget(&mut self, id: u64) {
         self.textures.remove(&id);
         self.live.remove(&id);
+        self.spine_forget(id);
         self.thumbs.remove(&id);
         if let Some(m) = &mut self.mesh {
             m.meshes.remove(&id);

@@ -421,3 +421,59 @@ fn physics_lags_and_settles() {
     assert!(lag_seen > 3.0, "the bone should lag behind while the parent moves (max {lag_seen})");
     assert!(last < 1.0, "and settle after the parent stops (still {last} away after 4 s)");
 }
+
+#[test]
+fn an_ik_stretch_measures_the_distance_in_the_parents_space() {
+    // The root is scaled by 2; the target is 200 units away in the root's own space (400 in the world). The bone is 50 long, so it must
+    // stretch by 200 / 50 = 4 in its local scale (the parent's 2 comes on top), not by 400 / 50.
+    let src = r#"{"skeleton":{"spine":"4.1.24"},
+      "bones":[{"name":"root","scaleX":2,"scaleY":2},{"name":"a","parent":"root","length":50},{"name":"tgt","parent":"root","x":200}],
+      "slots":[],"ik":[{"name":"ik","bones":["a"],"target":"tgt","stretch":true}]}"#;
+    let p = Rig::from_json(src, ATLAS).unwrap().pose(0, None, 0.0);
+    assert!((p.bones[1].scale_x - 4.0).abs() < 1e-3, "local scale {}", p.bones[1].scale_x);
+}
+
+#[test]
+fn local_and_relative_transform_constraints_work_on_the_bones_own_values() {
+    // f hangs on a parent that sits at x = 100; the driver is at x = 30 on the root and f itself at x = 10 on its parent.
+    let rig = |flags: &str| {
+        let src = format!(
+            r#"{{"skeleton":{{"spine":"4.1.24"}},
+          "bones":[{{"name":"root"}},{{"name":"p","parent":"root","x":100}},{{"name":"driver","parent":"root","x":30}},{{"name":"f","parent":"p","x":10}}],
+          "slots":[],"transform":[{{"name":"t","bones":["f"],"target":"driver","mixRotate":0,"mixX":1,"mixScaleX":0,"mixShearY":0{flags}}}]}}"#
+        );
+        Rig::from_json(&src, ATLAS).unwrap().pose(0, None, 0.0)
+    };
+    // World, absolute: f goes to where the driver is.
+    assert!((rig("").bones[3].wx - 30.0).abs() < 1e-3);
+    // Local, absolute: f takes the driver's x as its own x on its parent (30 on top of the parent's 100).
+    assert!((rig(r#","local":true"#).bones[3].wx - 130.0).abs() < 1e-3);
+    // Local, relative: the driver's x is added to f's (10 + 30).
+    assert!((rig(r#","local":true,"relative":true"#).bones[3].wx - 140.0).abs() < 1e-3);
+    // World, relative: the driver's world x is added to f's world position (110 + 30).
+    assert!((rig(r#","relative":true"#).bones[3].wx - 140.0).abs() < 1e-3);
+}
+
+#[test]
+fn a_mix_animation_plays_over_the_idle_with_the_same_number() {
+    let src = r#"{"skeleton":{"spine":"4.1.24"},
+      "bones":[{"name":"root"},{"name":"a","parent":"root","length":10},{"name":"b","parent":"root","length":10}],
+      "slots":[],
+      "animations":{
+        "idle1":{"bones":{"a":{"rotate":[{"time":0,"value":0},{"time":1,"value":90},{"time":2,"value":0}]}}},
+        "mix1_2_1":{"bones":{"b":{"rotate":[{"time":0,"value":45}]}}},
+        "mix2_1_1":{"bones":{"b":{"rotate":[{"time":0,"value":45}]}}}}}"#;
+    let rig = Rig::from_json(src, ATLAS).unwrap();
+    let (idle, mix, lone) = (rig.animation_index("idle1").unwrap(), rig.animation_index("mix1_2_1").unwrap(), rig.animation_index("mix2_1_1").unwrap());
+    assert_eq!(rig.base_layer(mix), Some(idle));
+    assert_eq!(rig.base_layer(idle), None);
+    assert_eq!(rig.base_layer(lone), None, "no idle2: nothing underneath");
+    let p = rig.pose(0, Some(mix), 0.5);
+    assert!((angle(&p, 2) - 45.0).abs() < 0.01, "the mix turns b");
+    assert!((angle(&p, 1) - 45.0).abs() < 0.01, "the idle underneath turns a: {}", angle(&p, 1));
+    // The idle loops while the mix is held: at t = 2.5 it is where it is at 0.5.
+    let later = rig.pose(0, Some(mix), 2.5);
+    assert!((angle(&later, 1) - 45.0).abs() < 0.01, "{}", angle(&later, 1));
+    let p = rig.pose(0, Some(lone), 0.5);
+    assert!(angle(&p, 1).abs() < 0.01);
+}

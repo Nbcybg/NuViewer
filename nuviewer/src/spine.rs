@@ -15,7 +15,8 @@ use nv_codecs::spinefmt;
 use crate::controls::fmt_speed;
 
 pub const TIMER_SPINE: u32 = 12;
-const TICK_MS: u32 = 33;
+/// The timer interval (`set_timer` never goes below 10 ms): a frame is drawn as soon as the one before has been shown.
+const TICK_MS: u32 = 10;
 
 pub struct Player {
     pub id: u64,
@@ -39,6 +40,8 @@ pub struct Player {
     pub settle: Option<Instant>,
     /// The window size the last frame was drawn for.
     pub win: (u32, u32),
+    /// The graphics card could not draw this skeleton (clipping masks, a failure): the CPU rasteriser does it.
+    pub gpu_off: bool,
     /// What the layer panel says per slot (0 = off, 1 = as the file has it).
     pub slot_alpha: Vec<f32>,
     pub last: Instant,
@@ -55,11 +58,13 @@ const FADE_SECONDS: f32 = 0.25;
 pub struct Spine {
     pub rigs: HashMap<u64, Arc<Rig>>,
     pub player: Option<Player>,
+    /// 1 ms timer precision is on (while a skeleton plays).
+    precise: bool,
 }
 
 impl Spine {
     pub fn new() -> Spine {
-        Spine { rigs: HashMap::new(), player: None }
+        Spine { rigs: HashMap::new(), player: None, precise: false }
     }
 }
 
@@ -152,6 +157,7 @@ impl App {
             if Some(p.id) != cur || self.mode != Mode::Viewer {
                 self.spine.player = None;
                 kill_timer(self.hwnd, TIMER_SPINE);
+                self.spine_precision(false);
             }
         }
         if self.spine.player.is_none() && self.mode == Mode::Viewer {
@@ -160,11 +166,24 @@ impl App {
                     if self.renderer.has(id) && self.renderer.current() == Some(id) {
                         let skin = 0;
                         let anim = if rig.animations.is_empty() { None } else { Some(rig.animation_index("idle").or_else(|| rig.animation_index("Idle")).unwrap_or(0)) };
+                        // (Testing: NV_SPINE_ANIM names the animation to start with.)
+                        let anim = std::env::var("NV_SPINE_ANIM").ok().and_then(|n| rig.animation_index(&n)).or(anim);
                         let bounds = spinefmt::bounds_for(&rig, skin, anim);
                         let n = rig.slots.len();
                         self.view = self.view.fresh();
-                        self.spine.player = Some(Player { id, path, rig, skin, anim, time: 0.0, playing: true, dir: 1.0, bounds, zoom: 1.0, pan: (0.0, 0.0), cost: 0.0, settle: None, win: (0, 0), slot_alpha: vec![1.0; n], last: Instant::now(), dirty: true, sim: nv_anim::PhysicsSim::new(), fade: None });
+                        self.spine.player = Some(Player { id, path, rig, skin, anim, time: 0.0, playing: true, dir: 1.0, bounds, zoom: 1.0, pan: (0.0, 0.0), cost: 0.0, settle: None, win: (0, 0), gpu_off: false, slot_alpha: vec![1.0; n], last: Instant::now(), dirty: true, sim: nv_anim::PhysicsSim::new(), fade: None });
+                        // (Testing: NV_SPINE_VIEW = zoom,world x,world y starts zoomed on that point of the skeleton.)
+                        if let Some(v) = std::env::var("NV_SPINE_VIEW").ok().map(|v| v.split(',').filter_map(|n| n.trim().parse::<f32>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 3) {
+                            let win = self.renderer.size();
+                            if let Some(p) = self.spine.player.as_mut() {
+                                let base = p.base_scale(win);
+                                let (cx, cy) = ((p.bounds[0] + p.bounds[2]) / 2.0, (p.bounds[1] + p.bounds[3]) / 2.0);
+                                p.zoom = v[0];
+                                p.pan = ((cx - v[1]) * base * v[0], (v[2] - cy) * base * v[0]);
+                            }
+                        }
                         set_timer(self.hwnd, TIMER_SPINE, TICK_MS);
+                        self.spine_precision(true);
                         self.toast("Spine skeleton: P plays / pauses, wheel zooms, drag pans, Ctrl+L = animations, skins and layers");
                     }
                 }
@@ -230,8 +249,129 @@ impl App {
         self.spine_render_with(false);
     }
 
+    fn spine_precision(&mut self, on: bool) {
+        if self.spine.precise != on {
+            self.spine.precise = on;
+            nv_win::timer_resolution(on);
+        }
+    }
+
+    /// Draw the skeleton on the graphics card: posed here, drawn into a texture of the window's size with 4x multisampling and mip-mapped
+    /// pages, so it is sharp and smooth at any size. False when it can't (clipping, no atlas, a failure): the CPU rasteriser takes over.
+    fn spine_render_gpu(&mut self) -> bool {
+        let t_start = Instant::now();
+        let drawn = self.spine_render_gpu_inner();
+        if drawn {
+            if let Ok(path) = std::env::var("NV_SPINE_STATS") {
+                use std::sync::Mutex;
+                static STATS: Mutex<Option<(Instant, u32, f32)>> = Mutex::new(None);
+                let mut g = STATS.lock().unwrap();
+                let st = g.get_or_insert((Instant::now(), 0, 0.0));
+                st.1 += 1;
+                st.2 += t_start.elapsed().as_secs_f32() * 1000.0;
+                if st.0.elapsed().as_secs_f32() >= 1.0 {
+                    let line = format!("{:.1} frames/s, {:.2} ms per frame (pose + geometry + upload + draw), window {:?}
+", st.1 as f32 / st.0.elapsed().as_secs_f32(), st.2 / st.1 as f32, self.renderer.size());
+                    let _ = std::fs::OpenOptions::new().create(true).append(true).open(path).and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()));
+                    *st = (Instant::now(), 0, 0.0);
+                }
+            }
+        }
+        drawn
+    }
+
+    fn spine_render_gpu_inner(&mut self) -> bool {
+        let win = self.renderer.size();
+        let bg_rgb = canvas_rgb();
+        let bg = [((bg_rgb >> 16) & 0xFF) as f32 / 255.0, ((bg_rgb >> 8) & 0xFF) as f32 / 255.0, (bg_rgb & 0xFF) as f32 / 255.0];
+        let Some(p) = self.spine.player.as_mut() else { return false };
+        if p.gpu_off || win.0 == 0 || win.1 == 0 {
+            return false;
+        }
+        let (from, mix) = match p.fade {
+            Some((fa, ft, el)) => (Some((fa, ft)), (el / FADE_SECONDS).clamp(0.0, 1.0)),
+            None => (None, 1.0),
+        };
+        let mut pose = p.rig.pose_mix(p.skin, from, p.anim, p.time, mix, Some(&mut p.sim));
+        for (s, a) in pose.slots.iter_mut().zip(&p.slot_alpha) {
+            s.user_alpha = *a;
+        }
+        let items = p.rig.geometry(&pose);
+        // Clipping polygons are cut on the CPU (the rasteriser knows how); the card does everything else.
+        if items.iter().any(|it| it.clip.is_some() || it.mask.is_some()) {
+            p.gpu_off = true;
+            return false;
+        }
+        let key = Arc::as_ptr(&p.rig) as usize as u64;
+        let rig = p.rig.clone();
+        let id = p.id;
+        let view = p.rig_view(win, (win.0 as usize, win.1 as usize));
+        if !self.renderer.spine_has_atlas(key) {
+            let pages: Vec<Option<nv_render::SpinePage>> = rig
+                .atlas
+                .pages
+                .iter()
+                .map(|pg| pg.image.as_ref().map(|im| nv_render::SpinePage { width: im.width, height: im.height, rgba: &im.rgba, premultiplied: pg.pma }))
+                .collect();
+            if self.renderer.spine_set_atlas(key, &pages).is_err() {
+                if let Some(p) = self.spine.player.as_mut() {
+                    p.gpu_off = true;
+                }
+                return false;
+            }
+        }
+        let (w, h) = (win.0 as usize, win.1 as usize);
+        let mut verts: Vec<nv_render::SpineVertex> = Vec::with_capacity(items.iter().map(|i| i.verts.len()).sum());
+        let mut indices: Vec<u32> = Vec::with_capacity(items.iter().map(|i| i.tris.len()).sum());
+        let mut batches: Vec<nv_render::SpineBatch> = Vec::new();
+        for it in &items {
+            if it.tris.is_empty() || it.verts.len() != it.uvs.len() {
+                continue;
+            }
+            let base = verts.len() as u32;
+            let dark = match it.dark {
+                Some(d) => [d[0], d[1], d[2], if it.pma { 1.0 } else { 2.0 }],
+                None => [0.0; 4],
+            };
+            for (v, uv) in it.verts.iter().zip(&it.uvs) {
+                let s = view.to_canvas(w, h, *v);
+                verts.push(nv_render::SpineVertex { pos: s, uv: *uv, light: it.color, dark });
+            }
+            let first = indices.len() as u32;
+            indices.extend(it.tris.iter().map(|t| base + *t as u32));
+            let blend = match it.blend {
+                nv_anim::BlendMode::Normal => 0u8,
+                nv_anim::BlendMode::Additive => 1,
+                nv_anim::BlendMode::Multiply => 2,
+                nv_anim::BlendMode::Screen => 3,
+            };
+            let count = it.tris.len() as u32;
+            match batches.last_mut() {
+                Some(b) if b.page == it.page as u32 && b.blend == blend => b.count += count,
+                _ => batches.push(nv_render::SpineBatch { page: it.page as u32, blend, first, count }),
+            }
+        }
+        if self.renderer.spine_draw(key, id, (win.0, win.1), bg, &verts, &indices, &batches).is_err() {
+            if let Some(p) = self.spine.player.as_mut() {
+                p.gpu_off = true;
+            }
+            return false;
+        }
+        if let Some(p) = self.spine.player.as_mut() {
+            p.dirty = false;
+            p.win = win;
+            p.settle = None;
+        }
+        self.renderer.show(id);
+        invalidate(self.hwnd);
+        true
+    }
+
     /// Draw the skeleton for the window as it is now. `rest`: the crisp version (the quality that fits a long budget).
     pub fn spine_render_with(&mut self, rest: bool) {
+        if self.spine_render_gpu() {
+            return;
+        }
         let win = self.renderer.size();
         let Some(p) = self.spine.player.as_mut() else { return };
         p.dirty = false;

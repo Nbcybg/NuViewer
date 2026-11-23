@@ -270,9 +270,10 @@ impl Pose {
         rot = wrap180(rot);
         let (mut sx, mut sy) = (b.scale_x, b.scale_y);
         if compress || stretch {
-            let (dx, dy) = (tx - self.bones[bone].wx, ty - self.bones[bone].wy);
+            // The distance to the target is measured in the parent's space (the same vector the rotation uses), not in the world: under a
+            // parent that is scaled the world distance would stretch the bone by the parent's scale on top.
             let len = rig.bones[bone].length * sx;
-            let dd = (dx * dx + dy * dy).sqrt();
+            let dd = (lx * lx + ly * ly).sqrt();
             if ((compress && dd < len) || (stretch && dd > len)) && len > 0.0001 {
                 let s = (dd / len - 1.0) * alpha + 1.0;
                 sx *= s;
@@ -397,19 +398,54 @@ impl Pose {
 
     fn transform_constraint(&mut self, rig: &Rig, data: &TransformData, mix: [f32; 6]) {
         let t = self.bones[data.target].clone();
+        let [mr, mx, my, msx, msy, msh] = mix;
+        if data.local {
+            // Local modes work on the applied (local) values of the bone and its target, then rebuild the bone's world matrix.
+            for &bi in &data.bones {
+                let mut b = self.bones[bi].clone();
+                if data.relative {
+                    b.rotation += (t.rotation + data.rotation) * mr;
+                    b.x += (t.x + data.x) * mx;
+                    b.y += (t.y + data.y) * my;
+                    b.scale_x *= (t.scale_x - 1.0 + data.scale_x) * msx + 1.0;
+                    b.scale_y *= (t.scale_y - 1.0 + data.scale_y) * msy + 1.0;
+                    b.shear_y += (t.shear_y + data.shear_y) * msh;
+                } else {
+                    if mr != 0.0 {
+                        let r = wrap180(t.rotation - b.rotation + data.rotation);
+                        b.rotation += r * mr;
+                    }
+                    b.x += (t.x - b.x + data.x) * mx;
+                    b.y += (t.y - b.y + data.y) * my;
+                    if msx != 0.0 && b.scale_x != 0.0 {
+                        b.scale_x = (b.scale_x + (t.scale_x - b.scale_x + data.scale_x) * msx) / b.scale_x;
+                    }
+                    if msy != 0.0 && b.scale_y != 0.0 {
+                        b.scale_y = (b.scale_y + (t.scale_y - b.scale_y + data.scale_y) * msy) / b.scale_y;
+                    }
+                    if msh != 0.0 {
+                        let r = wrap180(t.shear_y - b.shear_y + data.shear_y);
+                        b.shear_y += r * msh;
+                    }
+                }
+                self.bones[bi] = b;
+                self.update_bone(rig, bi);
+            }
+            return;
+        }
         let (ta, tb, tc, td) = (t.a, t.b, t.c, t.d);
         let positive = ta * td - tb * tc > 0.0;
         let off_rot = data.rotation * if positive { DEG } else { -DEG };
         let off_shear = data.shear_y * if positive { DEG } else { -DEG };
-        let [mr, mx, my, msx, msy, msh] = mix;
+        let pi = std::f32::consts::PI;
         for &bi in &data.bones {
             let mut b = self.bones[bi].clone();
             if mr != 0.0 {
-                let mut r = tc.atan2(ta) - b.c.atan2(b.a) + off_rot;
-                if r > std::f32::consts::PI {
-                    r -= 2.0 * std::f32::consts::PI;
-                } else if r < -std::f32::consts::PI {
-                    r += 2.0 * std::f32::consts::PI;
+                let mut r = if data.relative { tc.atan2(ta) + off_rot } else { tc.atan2(ta) - b.c.atan2(b.a) + off_rot };
+                if r > pi {
+                    r -= 2.0 * pi;
+                } else if r < -pi {
+                    r += 2.0 * pi;
                 }
                 r *= mr;
                 let (cs, sn) = (r.cos(), r.sin());
@@ -421,35 +457,51 @@ impl Pose {
             }
             if mx != 0.0 || my != 0.0 {
                 let (tx, ty) = (data.x * ta + data.y * tb + t.wx, data.x * tc + data.y * td + t.wy);
-                b.wx += (tx - b.wx) * mx;
-                b.wy += (ty - b.wy) * my;
+                if data.relative {
+                    b.wx += tx * mx;
+                    b.wy += ty * my;
+                } else {
+                    b.wx += (tx - b.wx) * mx;
+                    b.wy += (ty - b.wy) * my;
+                }
             }
             if msx != 0.0 {
-                let mut s = (b.a * b.a + b.c * b.c).sqrt();
-                if s != 0.0 {
-                    s = (s + ((ta * ta + tc * tc).sqrt() - s + data.scale_x) * msx) / s;
+                let mut s;
+                if data.relative {
+                    s = ((ta * ta + tc * tc).sqrt() - 1.0 + data.scale_x) * msx + 1.0;
+                } else {
+                    s = (b.a * b.a + b.c * b.c).sqrt();
+                    if s != 0.0 {
+                        s = (s + ((ta * ta + tc * tc).sqrt() - s + data.scale_x) * msx) / s;
+                    }
                 }
                 b.a *= s;
                 b.c *= s;
             }
             if msy != 0.0 {
-                let mut s = (b.b * b.b + b.d * b.d).sqrt();
-                if s != 0.0 {
-                    s = (s + ((tb * tb + td * td).sqrt() - s + data.scale_y) * msy) / s;
+                let mut s;
+                if data.relative {
+                    s = ((tb * tb + td * td).sqrt() - 1.0 + data.scale_y) * msy + 1.0;
+                } else {
+                    s = (b.b * b.b + b.d * b.d).sqrt();
+                    if s != 0.0 {
+                        s = (s + ((tb * tb + td * td).sqrt() - s + data.scale_y) * msy) / s;
+                    }
                 }
                 b.b *= s;
                 b.d *= s;
             }
-            if msh != 0.0 {
-                let by = b.d.atan2(b.b);
-                let mut r = td.atan2(tb) - tc.atan2(ta) - (by - b.c.atan2(b.a));
-                if r > std::f32::consts::PI {
-                    r -= 2.0 * std::f32::consts::PI;
-                } else if r < -std::f32::consts::PI {
-                    r += 2.0 * std::f32::consts::PI;
+            if msh > 0.0 {
+                let (bb0, d0) = (b.b, b.d);
+                let by = d0.atan2(bb0);
+                let mut r = if data.relative { td.atan2(tb) - tc.atan2(ta) } else { td.atan2(tb) - tc.atan2(ta) - (by - b.c.atan2(b.a)) };
+                if r > pi {
+                    r -= 2.0 * pi;
+                } else if r < -pi {
+                    r += 2.0 * pi;
                 }
-                let r = by + (r + off_shear) * msh;
-                let s = (b.b * b.b + b.d * b.d).sqrt();
+                let r = if data.relative { by + (r - pi / 2.0 + off_shear) * msh } else { by + (r + off_shear) * msh };
+                let s = (bb0 * bb0 + d0 * d0).sqrt();
                 b.b = r.cos() * s;
                 b.d = r.sin() * s;
             }
@@ -502,11 +554,11 @@ impl Rig {
             slider: self.slider.iter().map(|c| [c.time, c.mix]).collect(),
         };
         let from_anim = from.and_then(|(a, t)| self.animations.get(a).map(|an| (an, t))).filter(|_| alpha < 1.0);
-        if let Some((old, ot)) = from_anim {
-            self.apply_animation(old, ot, &mut pose, &mut dynamic, 1.0);
+        if let Some((old, ot)) = from.filter(|_| from_anim.is_some()) {
+            self.apply_with_base(old, ot, &mut pose, &mut dynamic, 1.0);
         }
-        if let Some(anim) = animation.and_then(|i| self.animations.get(i)) {
-            self.apply_animation(anim, time, &mut pose, &mut dynamic, if from_anim.is_some() { alpha.clamp(0.0, 1.0) } else { 1.0 });
+        if let Some(i) = animation.filter(|i| self.animations.get(*i).is_some()) {
+            self.apply_with_base(i, time, &mut pose, &mut dynamic, if from_anim.is_some() { alpha.clamp(0.0, 1.0) } else { 1.0 });
         }
         pose.update_world(self);
         // Constraints in their order.
@@ -602,6 +654,29 @@ impl Rig {
             }
         }
         pose
+    }
+
+    /// The animation that plays underneath `anim` (by number): the dating scenes of some games ship `idleN` (the body breathing, looping)
+    /// and `mixN_x_y` (only the parts that change), which are meant to run on top of each other, idle on track 0 and the mix on track 1.
+    pub fn base_layer(&self, anim: usize) -> Option<usize> {
+        let name = &self.animations.get(anim)?.name;
+        let digits = name.strip_prefix("mix").or_else(|| name.strip_prefix("Mix"))?;
+        let n: String = digits.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if n.is_empty() {
+            return None;
+        }
+        let want = format!("idle{n}");
+        self.animations.iter().position(|a| a.name == want).filter(|i| *i != anim)
+    }
+
+    /// `anim` applied over its base layer (if it has one; the base loops).
+    fn apply_with_base(&self, anim: usize, t: f32, pose: &mut Pose, dynamic: &mut Dynamic, bone_alpha: f32) {
+        if let Some(b) = self.base_layer(anim) {
+            let base = &self.animations[b];
+            let bt = if base.duration > 0.0 { t.rem_euclid(base.duration) } else { 0.0 };
+            self.apply_animation(base, bt, pose, dynamic, bone_alpha);
+        }
+        self.apply_animation(&self.animations[anim], t, pose, dynamic, bone_alpha);
     }
 
     fn apply_animation(&self, anim: &Animation, t: f32, pose: &mut Pose, dynamic: &mut Dynamic, bone_alpha: f32) {
@@ -923,6 +998,12 @@ impl Rig {
 
     /// Everything to draw for `pose`, back to front.
     pub fn geometry(&self, pose: &Pose) -> Vec<DrawItem> {
+        self.geometry_opts(pose, false)
+    }
+
+    /// `geometry`; with `hidden` the items whose colour is fully transparent are listed too (what a bounding box wants: it measures every
+    /// attachment, seen or not).
+    pub fn geometry_opts(&self, pose: &Pose, hidden: bool) -> Vec<DrawItem> {
         let mut out = Vec::new();
         let mut clip: Option<(usize, std::sync::Arc<Vec<[f32; 2]>>)> = None;
         for &si in &pose.draw_order {
@@ -947,14 +1028,14 @@ impl Rig {
                     continue;
                 }
                 Attachment::Region(r) => {
-                    if slot_color[3] * r.color[3] > 0.0 {
+                    if hidden || slot_color[3] * r.color[3] > 0.0 {
                         if let Some(item) = self.region_item(pose, si, slot.bone, r, slot_color, slot.blend, state.seq) {
                             out.push(DrawItem { clip: clip.as_ref().map(|c| c.1.clone()), dark: state.dark, ..item });
                         }
                     }
                 }
                 Attachment::Mesh(m) => {
-                    if slot_color[3] * m.color[3] > 0.0 {
+                    if hidden || slot_color[3] * m.color[3] > 0.0 {
                         let deform = state.deform.iter().find(|d| d.0 == m.deform_skin && d.1 == m.deform_name).map(|d| &d.2);
                         if let Some(item) = self.mesh_item(pose, si, slot.bone, m, slot_color, slot.blend, deform, state.seq) {
                             out.push(DrawItem { clip: clip.as_ref().map(|c| c.1.clone()), dark: state.dark, ..item });
@@ -1115,6 +1196,56 @@ impl Rig {
             }
         }
         bb
+    }
+
+    /// The box the camera shows, the way the BD2 viewer finds it: the setup pose, every attachment counted (seen or not, clipping
+    /// ignored) is the whole; the same without background slots (`bg…`, `bk…`, `… bg`, `…_bg…`, `…background…`) is the trimmed one. The
+    /// trimmed box (50 units of air round it) wins when the whole is more than ten times wider or taller than it. The result has 50
+    /// more units above and below, as the viewer's camera does. `None` when the setup pose shows nothing.
+    pub fn camera_bounds(&self, skin: usize) -> Option<[f32; 4]> {
+        let pose = self.pose(skin, None, 0.0);
+        let items = self.geometry_opts(&pose, true);
+        let is_bg = |name: &str| {
+            let n = name.to_lowercase();
+            n.starts_with("bg") || n.starts_with("bk") || n.contains(" bg") || n.contains("_bg") || n.contains("background")
+        };
+        let mut all: Option<[f32; 4]> = None;
+        let mut trim: Option<[f32; 4]> = None;
+        let grow = |b: &mut Option<[f32; 4]>, v: [f32; 2]| {
+            let o = b.get_or_insert([v[0], v[1], v[0], v[1]]);
+            o[0] = o[0].min(v[0]);
+            o[1] = o[1].min(v[1]);
+            o[2] = o[2].max(v[0]);
+            o[3] = o[3].max(v[1]);
+        };
+        for it in &items {
+            let bg = self.slots.get(it.slot).map(|s| is_bg(&s.name)).unwrap_or(false);
+            for v in &it.verts {
+                if !v[0].is_finite() || !v[1].is_finite() {
+                    continue;
+                }
+                grow(&mut all, *v);
+                if !bg {
+                    grow(&mut trim, *v);
+                }
+            }
+        }
+        let all = all?;
+        let (fw, fh) = (all[2] - all[0], all[3] - all[1]);
+        let mut pick = all;
+        if let Some(t) = trim {
+            let (tw, th) = (t[2] - t[0], t[3] - t[1]);
+            if tw > 0.0 && th > 0.0 {
+                let padded = [t[0] - 50.0, t[1] - 50.0, t[2] + 50.0, t[3] + 50.0];
+                if fw / (tw + 100.0).max(1.0) > 10.0 || fh / (th + 100.0).max(1.0) > 10.0 {
+                    pick = padded;
+                }
+            }
+        }
+        if !(pick[2] - pick[0] > 0.0 && pick[3] - pick[1] > 0.0) {
+            return None;
+        }
+        Some([pick[0], pick[1] - 50.0, pick[2], pick[3] + 50.0])
     }
 
     /// Is what this item shows (the texels under its texture coordinates) black or empty? Sampled on a small grid.

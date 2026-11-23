@@ -2,6 +2,16 @@
 
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
+## 0.7.2 - 2026-11-23
+
+### Fixed
+- **Spine drew some skeletons wrongly** (checked against spine-core 4.1.55 and spine-player, the runtime the BD2-L2D-Viewer uses, on the Bright Moon dating scene `illust_dating20.skel`, animation `mix7_22_4`): the bone positions of all 2218 bones now agree with the runtime.
+  - A one-bone IK with *stretch* / *compress* measured the distance to its target in the world instead of in its parent's space, so a bone under a scaled parent stretched too much (legs and arms too long and thick).
+  - Transform constraints in **local** and **relative** mode were not implemented at all (all were done as absolute world): the four modes now follow spine-core.
+  - `mixN_x_y` animations are played over the looping `idleN`, the way those games do it (idle on track 0, the mix on track 1).
+  - The camera fit follows the BD2 viewer: the setup pose, every attachment counted, background slots (`bg…`, `…_bg…`, `bk…`) left out only when they would dwarf the picture.
+- **Spine was jerky and soft**: it is now drawn **on the graphics card** (Direct3D 11, 4x multisampling, mip-mapped atlas pages, the four blend modes and two-colour tint in the shader) into a texture of the window's size: about 2 ms per frame instead of 25 - 35 ms on the CPU for this skeleton, and ~64 frames per second with timers at 1 ms precision. Skeletons that use clipping masks are still drawn by the CPU rasteriser; snapshots, PNG sequences and WebM keep using the CPU path (transparent background).
+
 ## 0.7.1 - 2026-11-23
 
 ### Fixed

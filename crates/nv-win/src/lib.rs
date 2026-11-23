@@ -511,6 +511,18 @@ pub fn set_timer(hwnd: HWND, id: u32, ms: u32) {
     }
 }
 
+/// Ask Windows for 1 ms timer precision (`on`) or give it back; calls must be paired. Without it `WM_TIMER` only fires every ~15.6 ms,
+/// which makes a 60 fps animation judder.
+pub fn timer_resolution(on: bool) {
+    unsafe {
+        if on {
+            windows::Win32::Media::timeBeginPeriod(1);
+        } else {
+            windows::Win32::Media::timeEndPeriod(1);
+        }
+    }
+}
+
 pub fn kill_timer(hwnd: HWND, id: u32) {
     unsafe {
         let _ = KillTimer(Some(hwnd), id as usize);

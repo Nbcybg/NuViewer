@@ -90,7 +90,9 @@ pub fn canvas_for(rig: &Rig, skin: usize, anim: Option<usize>, max: usize) -> (u
 /// The box (x0, y0, x1, y1 in skeleton units) that holds the whole of an animation's motion (the skeleton's own box when it has no
 /// geometry): what a view fits to the window.
 pub fn bounds_for(rig: &Rig, skin: usize, anim: Option<usize>) -> [f32; 4] {
-    rig.bounds(skin, anim, 16).or_else(|| (rig.width > 0.0 && rig.height > 0.0).then(|| [rig.x, rig.y, rig.x + rig.width, rig.y + rig.height])).unwrap_or([-100.0, -100.0, 100.0, 100.0])
+    // The camera of the BD2 viewer first (the setup pose, background slots left out when they would dwarf the picture); a skeleton that
+    // shows nothing in its setup pose is measured over its animation instead.
+    rig.camera_bounds(skin).or_else(|| rig.bounds(skin, anim, 16)).or_else(|| (rig.width > 0.0 && rig.height > 0.0).then(|| [rig.x, rig.y, rig.x + rig.width, rig.y + rig.height])).unwrap_or([-100.0, -100.0, 100.0, 100.0])
 }
 
 pub fn decode(path: &Path, first_only: bool) -> Result<Image, String> {
