@@ -548,46 +548,34 @@ impl Track {
 
 /// The value of the cubic (t0, v0) (c0, c1) (c2, c3) (t1, v1) at time `t` (4.x curves: the control points are absolute).
 pub fn bezier_abs(t0: f32, v0: f32, c: [f32; 4], t1: f32, v1: f32, t: f32) -> f32 {
-    let (mut lo, mut hi) = (0.0f32, 1.0f32);
-    let mut u = if t1 > t0 { (t - t0) / (t1 - t0) } else { 1.0 };
-    for _ in 0..24 {
-        let w = 1.0 - u;
-        let x = w * w * w * t0 + 3.0 * w * w * u * c[0] + 3.0 * w * u * u * c[2] + u * u * u * t1;
-        if (x - t).abs() < 1e-6 {
-            break;
-        }
-        if x < t {
-            lo = u;
-        } else {
-            hi = u;
-        }
-        u = (lo + hi) * 0.5;
-    }
-    let w = 1.0 - u;
-    w * w * w * v0 + 3.0 * w * w * u * c[1] + 3.0 * w * u * u * c[3] + u * u * u * v1
+    bezier_poly((t0, v0), (c[0], c[1]), (c[2], c[3]), (t1, v1), t)
 }
 
 /// y of the cubic (0,0) (cx1,cy1) (cx2,cy2) (1,1) at the point where its x is `x`.
 pub fn bezier_y(c: [f32; 4], x: f32) -> f32 {
-    let [cx1, cy1, cx2, cy2] = c;
-    // Solve x(t) = x by bisection (x(t) is monotonic for sane control points; a few steps are plenty for animation).
-    let (mut lo, mut hi) = (0.0f32, 1.0f32);
-    let mut t = x;
-    for _ in 0..24 {
-        let u = 1.0 - t;
-        let xt = 3.0 * u * u * t * cx1 + 3.0 * u * t * t * cx2 + t * t * t;
-        if (xt - x).abs() < 1e-5 {
-            break;
-        }
-        if xt < x {
-            lo = t;
+    bezier_poly((0.0, 0.0), (c[0], c[1]), (c[2], c[3]), (1.0, 1.0), x)
+}
+
+/// The value of a cubic at the time `x`, the way the Spine runtimes read it: the curve is tabulated at nine points (t = 0.1 ... 0.9) and
+/// the value between two of them is a straight line. That is not the exact curve (an ease-in-out is off by a few percent), and the
+/// players (BD2-L2D-Viewer included) show exactly this, so this does too.
+fn bezier_poly(p0: (f32, f32), c1: (f32, f32), c2: (f32, f32), p1: (f32, f32), x: f32) -> f32 {
+    let (mut px, mut py) = p0;
+    for k in 1..=10 {
+        let (qx, qy) = if k == 10 {
+            p1
         } else {
-            hi = t;
+            let t = k as f32 / 10.0;
+            let u = 1.0 - t;
+            (u * u * u * p0.0 + 3.0 * u * u * t * c1.0 + 3.0 * u * t * t * c2.0 + t * t * t * p1.0, u * u * u * p0.1 + 3.0 * u * u * t * c1.1 + 3.0 * u * t * t * c2.1 + t * t * t * p1.1)
+        };
+        if qx >= x {
+            return if qx > px { py + (x - px) / (qx - px) * (qy - py) } else { qy };
         }
-        t = (lo + hi) * 0.5;
+        px = qx;
+        py = qy;
     }
-    let u = 1.0 - t;
-    3.0 * u * u * t * cy1 + 3.0 * u * t * t * cy2 + t * t * t
+    p1.1
 }
 
 #[derive(Clone, Debug)]

@@ -13,11 +13,12 @@ fn main() {
         for c in &rig.ik {
             println!("ik {:<28} order {} bones {:?} target {} mix {} soft {} bend+ {} compress {} stretch {} uniform {} skinreq {}", c.name, c.order, c.bones.iter().map(|b| rig.bones[*b].name.clone()).collect::<Vec<_>>(), rig.bones[c.target].name, c.mix, c.softness, c.bend_positive, c.compress, c.stretch, c.uniform, c.skin_required);
         }
-        for c in rig.transform.iter().take(30) {
-            println!("tf {:<28} order {} bones {} target {}", c.name, c.order, c.bones.len(), rig.bones[c.target].name);
+        let want = std::env::var("NV_TF").unwrap_or_default();
+        for c in rig.transform.iter().filter(|c| want.is_empty() || c.name.contains(&want)).take(30) {
+            println!("tf {:<20} order {} bones {:?} target {} mix r{} x{} y{} sx{} sy{} sh{} off r{} x{} y{} sx{} sy{} sh{} local {} relative {}", c.name, c.order, c.bones.iter().map(|b| rig.bones[*b].name.clone()).collect::<Vec<_>>(), rig.bones[c.target].name, c.mix_rotate, c.mix_x, c.mix_y, c.mix_scale_x, c.mix_scale_y, c.mix_shear_y, c.rotation, c.x, c.y, c.scale_x, c.scale_y, c.shear_y, c.local, c.relative);
         }
         for name in ["idle7", "mix7_22_4"] {
-            let a = rig.animations.iter().find(|a| a.name == name).unwrap();
+            let Some(a) = rig.animations.iter().find(|a| a.name == name) else { continue };
             println!("{name}: bones {} slots {} ik {} transform {} deform {} path {}", a.bones.len(), a.slots.len(), a.ik.len(), a.transform.len(), a.deform.len(), a.path.len());
             for (ci, _) in &a.ik {
                 println!("   ik timeline for {}", rig.ik[*ci].name);
@@ -45,6 +46,45 @@ fn main() {
             let p = &pose.bones[i];
             s.push_str(&format!("{}	{}	{}	{}	{}	{}	{}
 ", b.name, p.wx, p.wy, p.a, p.b, p.c, p.d));
+        }
+        std::fs::write(out, s).unwrap();
+        return;
+    }
+    // --batch out.txt [--fracs 0.15,0.6]: every animation at those fractions of its length, in the format of tools/bench/refdump.mjs
+    if let Some(out) = args.iter().position(|a| a == "--batch").and_then(|i| args.get(i + 1)) {
+        let fracs: Vec<f32> = args.iter().position(|a| a == "--fracs").and_then(|i| args.get(i + 1)).map(|v| v.split(',').filter_map(|n| n.parse().ok()).collect()).unwrap_or_else(|| vec![0.137, 0.613]);
+        let skin = rig.default_skin();
+        let mut s = format!("#	{skin}
+");
+        for (ai, an) in rig.animations.iter().enumerate() {
+            for f in &fracs {
+                let t = an.duration * f;
+                let pose = rig.pose(skin, Some(ai), t);
+                s.push_str(&format!("@\t{}\t{:.4}\n", an.name, t));
+                for (i, p) in pose.bones.iter().enumerate() {
+                    s.push_str(&format!("B\t{i}\t{:.3}\t{:.3}\t{:.4}\t{:.4}\t{:.4}\t{:.4}\n", p.wx, p.wy, p.a, p.b, p.c, p.d));
+                }
+                for (i, sl) in pose.slots.iter().enumerate() {
+                    // (the name only counts when the skin, or the default skin, has that attachment: spine-core shows nothing otherwise)
+                    let shown = sl.attachment.as_deref().filter(|n| rig.find_attachment(skin, i, n).is_some()).unwrap_or("-");
+                    s.push_str(&format!("S\t{i}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\n", shown, sl.color[0], sl.color[1], sl.color[2], sl.color[3]));
+                }
+                // the box of the vertices each slot draws (weights and deform included): what the picture is made of
+                for it in rig.geometry_opts(&pose, true) {
+                    if it.verts.is_empty() || it.color[3] <= 0.01 {
+                        continue;
+                    }
+                    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+                    for v in &it.verts {
+                        x0 = x0.min(v[0]);
+                        y0 = y0.min(v[1]);
+                        x1 = x1.max(v[0]);
+                        y1 = y1.max(v[1]);
+                    }
+                    s.push_str(&format!("V\t{}\t{:.2}\t{:.2}\t{:.2}\t{:.2}\n", it.slot, x0, y0, x1, y1));
+                }
+                s.push_str(&format!("O\t{}\n", pose.draw_order.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",")));
+            }
         }
         std::fs::write(out, s).unwrap();
         return;

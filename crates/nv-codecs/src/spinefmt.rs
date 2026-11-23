@@ -98,8 +98,9 @@ pub fn bounds_for(rig: &Rig, skin: usize, anim: Option<usize>) -> [f32; 4] {
 pub fn decode(path: &Path, first_only: bool) -> Result<Image, String> {
     let rig = load(path)?;
     let anim = if rig.animations.is_empty() { None } else { Some(0) };
-    let (w, h, view) = canvas_for(&rig, 0, anim, if first_only { 512 } else { 1024 });
-    let pose = rig.pose(0, None, 0.0);
+    let skin = rig.default_skin();
+    let (w, h, view) = canvas_for(&rig, skin, anim, if first_only { 512 } else { 1024 });
+    let pose = rig.pose(skin, None, 0.0);
     let rgba = rig.draw(&pose, w, h, view, 1, None);
     let mut img = Image::new(w as u32, h as u32, rgba);
     img.profile_assumable = false;

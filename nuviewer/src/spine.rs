@@ -164,7 +164,7 @@ impl App {
             if let (Some(id), Some(path)) = (cur, self.folder.files.get(self.folder.index).cloned()) {
                 if let Some(rig) = self.spine.rigs.get(&id).cloned() {
                     if self.renderer.has(id) && self.renderer.current() == Some(id) {
-                        let skin = 0;
+                        let skin = rig.default_skin();
                         let anim = if rig.animations.is_empty() { None } else { Some(rig.animation_index("idle").or_else(|| rig.animation_index("Idle")).unwrap_or(0)) };
                         // (Testing: NV_SPINE_ANIM names the animation to start with.)
                         let anim = std::env::var("NV_SPINE_ANIM").ok().and_then(|n| rig.animation_index(&n)).or(anim);

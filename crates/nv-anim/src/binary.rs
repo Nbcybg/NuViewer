@@ -442,7 +442,8 @@ fn body(bytes: &[u8], at: usize, version: &str, ver: &Ver, table: bool, atlas: A
     }
     let nsk = r.count(2)?;
     for _ in 0..nsk {
-        let name = if ver.legacy { r.sref()? } else { r.string()? }.unwrap_or_default();
+        // 3.8 - 4.1 write the skin's name as a string-table reference; 4.2 writes it inline.
+        let name = if ver.v42 { r.string()? } else { r.sref()? }.unwrap_or_default();
         let mut skin = Skin { name, slots: vec![HashMap::new(); slots.len()], ..Default::default() };
         if ver.v42 && nonessential {
             r.int()?; // the skin's colour
@@ -481,9 +482,10 @@ fn body(bytes: &[u8], at: usize, version: &str, ver: &Ver, table: bool, atlas: A
     resolve_linked(&mut skins, linked);
     // Event definitions (read to stay in step).
     let ne = r.count(3)?;
+    trace(&r, &format!("events {ne}"));
     let mut event_audio: Vec<bool> = Vec::new();
     for _ in 0..ne {
-        let _name = if ver.legacy { r.sref()? } else { r.string()? };
+        let _name = if ver.v42 { r.string()? } else { r.sref()? };
         let _int = r.zig()?;
         let _float = r.float()?;
         let _string = r.string()?;
@@ -499,6 +501,7 @@ fn body(bytes: &[u8], at: usize, version: &str, ver: &Ver, table: bool, atlas: A
     let mut animations = Vec::with_capacity(na);
     for _ in 0..na {
         let name = r.string()?.unwrap_or_default();
+        trace(&r, &format!("animation {name}"));
         animations.push(read_animation(&mut r, name, ver, &bones, &slots, &skins, &ik, &transform, &paths, &physics, &event_audio)?);
     }
     if r.p != bytes.len() {
@@ -700,9 +703,10 @@ fn read_skin_slots(r: &mut R, sequences: bool, v42: bool, skins: &mut [Skin], si
             let att = match ty {
                 0 => {
                     let path = r.sref()?.unwrap_or_else(|| name.clone());
-                    let seq = if sequences { read_seq41(r)? } else { None };
+                    // 4.1 writes the sequence AFTER the colour (checked on a real 4.1.11 file with plain regions).
                     let (rotation, x, y, sx, sy, width, height) = (r.float()?, r.float()?, r.float()?, r.float()?, r.float()?, r.float()?, r.float()?);
                     let color = r.rgba()?;
+                    let seq = if sequences { read_seq41(r)? } else { None };
                     Attachment::Region(Region { path, seq, x, y, rotation, scale_x: sx, scale_y: sy, width, height, color })
                 }
                 1 => {
@@ -1437,16 +1441,36 @@ mod tests {
             sref(&mut w, None);
             w.b(0);
             sref(&mut w, Some("box"));
-            if version.starts_with("4.1") {
-                w.b(0); // no image sequence
-            }
             for v in [0.0, 0.0, 0.0, 1.0, 1.0, 40.0, 40.0] {
                 w.f(v);
             }
             w.i(-1);
+            if version.starts_with("4.1") {
+                w.b(0); // no image sequence (after the colour, as in real 4.1 files)
+            }
         }
-        w.var(0); // other skins
-        w.var(0); // events
+        // a second, empty skin: its name is a string-table reference up to 4.1, inline in 4.2
+        w.var(1);
+        if version.starts_with("4.2") {
+            w.string(Some("alt"));
+        } else {
+            sref(&mut w, Some("box"));
+        }
+        for _ in 0..if version.starts_with("4.2") { 5 } else if v4 { 4 } else { 0 } {
+            w.var(0); // bones, ik, transform, path (, physics)
+        }
+        w.var(0); // its slots
+        // one event: its name follows the same rule
+        w.var(1);
+        if version.starts_with("4.2") {
+            w.string(Some("ev"));
+        } else {
+            sref(&mut w, Some("box"));
+        }
+        w.var(0); // int (zig-zag)
+        w.f(0.0);
+        w.string(None);
+        w.string(None);
         // one animation
         w.var(1);
         w.string(Some("a"));
@@ -1494,6 +1518,8 @@ mod tests {
     fn check(rig: &Rig) {
         assert_eq!((rig.bones.len(), rig.slots.len(), rig.animations.len()), (1, 1, 1));
         assert_eq!(rig.slots[0].attachment.as_deref(), Some("box"));
+        assert_eq!(rig.skins.len(), 2, "default skin + one more");
+        assert!(rig.skins[1].name == "box" || rig.skins[1].name == "alt");
         let Some((Attachment::Region(r), _)) = rig.find_attachment(0, 0, "box") else { panic!("no region") };
         assert_eq!((r.width, r.height), (40.0, 40.0));
         assert!((rig.animations[0].duration - 1.0).abs() < 1e-6);

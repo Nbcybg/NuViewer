@@ -221,7 +221,10 @@ impl Pose {
             let (dx, dy) = (wx - par.wx, wy - par.wy);
             lx = dx * ia - dy * ib;
             ly = dy * id - dx * ic;
-            if data.inherit != Inherit::OnlyTranslation {
+            // (spine-core 4.0/4.1 `updateAppliedTransform` has no exception for OnlyTranslation: the applied values are relative to the parent
+            // even then, and the bone is later rebuilt from them. BD2-L2D-Viewer runs 4.1.55, so that is what the picture shows.)
+            let quirk41 = rig.version.starts_with("4.1") || rig.version.starts_with("4.0");
+            if data.inherit != Inherit::OnlyTranslation || quirk41 {
                 ra = ia * a - ib * c;
                 rb = ia * b - ib * d;
                 rc = id * c - ic * a;
@@ -257,13 +260,32 @@ impl Pose {
             None => (0.0, 0.0, 1.0, 0.0, 0.0, 1.0),
         };
         let b = self.bones[bone].clone();
-        let det = pa * pd - pb * pc;
-        if det.abs() < 1e-9 {
-            return;
+        // The bone's inherit mode changes what "the parent's space" is (spine-core IkConstraint.apply1).
+        let mode = rig.bones[bone].inherit;
+        let mut rot_ik = -b.shear_x - b.rotation;
+        let (mut pb, mut pd) = (pb, pd);
+        let (lx, ly);
+        if mode == Inherit::OnlyTranslation {
+            lx = tx - b.wx;
+            ly = ty - b.wy;
+        } else {
+            if mode == Inherit::NoRotationOrReflection {
+                let s = (pa * pd - pb * pc).abs() / (pa * pa + pc * pc).max(0.0001);
+                pb = -pc * s;
+                pd = pa * s;
+                rot_ik += pc.atan2(pa) * RAD;
+            }
+            let det = pa * pd - pb * pc;
+            if det.abs() <= 0.0001 {
+                lx = 0.0;
+                ly = 0.0;
+            } else {
+                let (x, y) = (tx - px, ty - py);
+                lx = (x * pd - y * pb) / det - b.x;
+                ly = (y * pa - x * pc) / det - b.y;
+            }
         }
-        let (x, y) = (tx - px, ty - py);
-        let (lx, ly) = ((x * pd - y * pb) / det - b.x, (y * pa - x * pc) / det - b.y);
-        let mut rot = ly.atan2(lx) * RAD - b.shear_x - b.rotation;
+        let mut rot = ly.atan2(lx) * RAD + rot_ik;
         if b.scale_x < 0.0 {
             rot += 180.0;
         }
@@ -273,8 +295,11 @@ impl Pose {
             // The distance to the target is measured in the parent's space (the same vector the rotation uses), not in the world: under a
             // parent that is scaled the world distance would stretch the bone by the parent's scale on top.
             let len = rig.bones[bone].length * sx;
-            let dd = (lx * lx + ly * ly).sqrt();
-            if ((compress && dd < len) || (stretch && dd > len)) && len > 0.0001 {
+            // (the no-scale modes measure in the world, as spine-core does)
+            let (dx, dy) = if matches!(mode, Inherit::NoScale | Inherit::NoScaleOrReflection) { (tx - b.wx, ty - b.wy) } else { (lx, ly) };
+            let dd = (dx * dx + dy * dy).sqrt();
+            // (operator precedence as in the runtime: the length test only guards "stretch")
+            if (compress && dd < len) || (stretch && dd > len && len > 0.0001) {
                 let s = (dd / len - 1.0) * alpha + 1.0;
                 sx *= s;
                 if uniform {
@@ -293,6 +318,8 @@ impl Pose {
         let c = self.bones[child].clone();
         let (px, py) = (p.x, p.y);
         let (mut psx, mut psy, mut csx) = (p.scale_x, p.scale_y, c.scale_x);
+        // (the scale the parent ends with starts as it was, sign included; the working copies below are the absolute values)
+        let (mut sx, mut sy) = (p.scale_x, p.scale_y);
         let (os1, mut s2, os2);
         if psx < 0.0 {
             psx = -psx;
@@ -340,7 +367,9 @@ impl Pose {
         if l1 < 0.0001 {
             self.ik_one(rig, parent, tx, ty, false, stretch, false, alpha);
             let ch = &mut self.bones[child];
+            ch.x = cx;
             ch.y = cy;
+            ch.rotation = 0.0;
             return;
         }
         let (x, y) = (tx - pp_x, ty - pp_y);
@@ -358,29 +387,86 @@ impl Pose {
                 dd = ttx * ttx + tty * tty;
             }
         }
-        // (The non-uniform scale case uses the same law of cosines: exact only for equal parent scales.)
-        l2 *= psx;
-        let mut cos = (dd - l1 * l1 - l2 * l2) / (2.0 * l1 * l2);
-        let a2;
-        if cos < -1.0 {
-            cos = -1.0;
-            a2 = std::f32::consts::PI * bend;
-        } else if cos > 1.0 {
-            cos = 1.0;
-            a2 = 0.0;
-            if stretch {
-                let a = (dd.sqrt() / (l1 + l2) - 1.0) * alpha + 1.0;
-                psx *= a;
-                if uniform {
-                    psy *= a;
+        let pi = std::f32::consts::PI;
+        let (a1, a2);
+        if u {
+            // Both scales equal: the law of cosines.
+            l2 *= psx;
+            let mut cos = (dd - l1 * l1 - l2 * l2) / (2.0 * l1 * l2);
+            if cos < -1.0 {
+                cos = -1.0;
+                a2 = pi * bend;
+            } else if cos > 1.0 {
+                cos = 1.0;
+                a2 = 0.0;
+                if stretch {
+                    let a = (dd.sqrt() / (l1 + l2) - 1.0) * alpha + 1.0;
+                    sx *= a;
+                    if uniform {
+                        sy *= a;
+                    }
+                }
+            } else {
+                a2 = cos.acos() * bend;
+            }
+            let aa = l1 + l2 * cos;
+            let bb = l2 * a2.sin();
+            a1 = (tty * aa - ttx * bb).atan2(ttx * aa + tty * bb);
+        } else {
+            // Different scales along the two axes: the child's tip moves on an ellipse (spine-core IkConstraint.apply2).
+            let (a, b) = (psx * l2, psy * l2);
+            let (aa, bb) = (a * a, b * b);
+            let ta = tty.atan2(ttx);
+            let c = bb * l1 * l1 + aa * dd - aa * bb;
+            let c1 = -2.0 * bb * l1;
+            let c2 = bb - aa;
+            let d = c1 * c1 - 4.0 * c2 * c;
+            let mut solved = None;
+            if d >= 0.0 {
+                let mut q = d.sqrt();
+                if c1 < 0.0 {
+                    q = -q;
+                }
+                q = -(c1 + q) * 0.5;
+                let (r0, r1) = (q / c2, c / q);
+                let r = if r0.abs() < r1.abs() { r0 } else { r1 };
+                if r * r <= dd {
+                    let y = (dd - r * r).sqrt() * bend;
+                    solved = Some((ta - y.atan2(r), (y / psy).atan2((r - l1) / psx)));
                 }
             }
-        } else {
-            a2 = cos.acos() * bend;
+            let (s1, s2v) = solved.unwrap_or_else(|| {
+                let (mut min_angle, mut min_x, mut min_y) = (pi, l1 - a, 0.0f32);
+                let mut min_dist = min_x * min_x;
+                let (mut max_angle, mut max_x, mut max_y) = (0.0f32, l1 + a, 0.0f32);
+                let mut max_dist = max_x * max_x;
+                let c = -a * l1 / (aa - bb);
+                if (-1.0..=1.0).contains(&c) {
+                    let c = c.acos();
+                    let (x, y) = (a * c.cos() + l1, b * c.sin());
+                    let d = x * x + y * y;
+                    if d < min_dist {
+                        min_angle = c;
+                        min_dist = d;
+                        min_x = x;
+                        min_y = y;
+                    }
+                    if d > max_dist {
+                        max_angle = c;
+                        max_dist = d;
+                        max_x = x;
+                        max_y = y;
+                    }
+                }
+                if dd <= (min_dist + max_dist) * 0.5 {
+                    (ta - (min_y * bend).atan2(min_x), min_angle * bend)
+                } else {
+                    (ta - (max_y * bend).atan2(max_x), max_angle * bend)
+                }
+            });
+            a1 = s1;
+            a2 = s2v;
         }
-        let aa = l1 + l2 * cos;
-        let bb = l2 * a2.sin();
-        let a1 = (tty * aa - ttx * bb).atan2(ttx * aa + tty * bb);
         let os = cy.atan2(cx) * s2;
         let mut a1d = (a1 - os) * RAD + os1 - p.rotation;
         a1d = wrap180(a1d);
@@ -388,8 +474,11 @@ impl Pose {
         a2d = wrap180(a2d);
         let ps = &mut self.bones[parent];
         ps.rotation = p.rotation + a1d * alpha;
-        ps.scale_x = psx;
-        ps.scale_y = psy;
+        ps.scale_x = sx;
+        ps.scale_y = sy;
+        // (spine-core rebuilds the parent with no shear)
+        ps.shear_x = 0.0;
+        ps.shear_y = 0.0;
         let cs = &mut self.bones[child];
         cs.x = cx;
         cs.y = cy;
@@ -573,7 +662,16 @@ impl Rig {
         if let Some(s) = sim.as_deref_mut() {
             s.ensure_for(self.physics.len());
         }
-        for (_, kind, i) in order {
+        let trace = std::env::var_os("NV_CONSTRAINT_TRACE").is_some();
+        for (ord, kind, i) in order {
+            if trace {
+                let (name, mixes, bones): (&str, Vec<f32>, Vec<usize>) = match kind {
+                    CKind::Ik => (&self.ik[i].name, dynamic.ik[i].to_vec(), self.ik[i].bones.clone()),
+                    CKind::Transform => (&self.transform[i].name, dynamic.tf[i].to_vec(), self.transform[i].bones.clone()),
+                    _ => ("", Vec::new(), Vec::new()),
+                };
+                eprintln!("constraint {ord} {kind:?} {name} bones {:?} mix {mixes:?}", bones.iter().map(|b| self.bones[*b].name.as_str()).collect::<Vec<_>>());
+            }
             match kind {
                 CKind::Ik => {
                     let c = &self.ik[i];
@@ -602,7 +700,11 @@ impl Rig {
                         Some(v) => pose.transform43(self, c, v, st),
                         None => {
                             pose.transform_constraint(self, c, st);
-                            pose.update_subtrees(self, &c.bones);
+                            if c.local {
+                                pose.update_subtrees(self, &c.bones);
+                            } else {
+                                pose.update_below(self, &c.bones);
+                            }
                         }
                     }
                 }
@@ -755,6 +857,11 @@ impl Rig {
             }
         }
         for d in &anim.deform {
+            // A deform timeline only works while its attachment is the one the slot shows right now (spine-core DeformTimeline.apply).
+            let shown = pose.slots[d.slot].attachment.as_deref().and_then(|n| self.deform_id(pose.skin, d.slot, n));
+            if shown.as_ref().map(|(s, n)| (*s, n.as_str())) != Some((d.skin, d.attachment.as_str())) {
+                continue;
+            }
             let Some(i) = d.times.partition_point(|&k| k <= t).checked_sub(1) else { continue };
             let vals: Vec<f32> = if i + 1 >= d.times.len() {
                 d.frames[i].clone()
@@ -769,10 +876,25 @@ impl Rig {
                 };
                 d.frames[i].iter().zip(&d.frames[i + 1]).map(|(a, b)| a + (b - a) * p).collect()
             };
-            pose.slots[d.slot].deform.push((d.skin, d.attachment.clone(), vals));
+            // The animation applied last wins (a mix animation over its idle: the runtime replaces the slot's deform, it does not stack them).
+            let list = &mut pose.slots[d.slot].deform;
+            match list.iter_mut().find(|e| e.0 == d.skin && e.1 == d.attachment) {
+                Some(e) => e.2 = vals,
+                None => list.push((d.skin, d.attachment.clone(), vals)),
+            }
         }
         if let Some(i) = anim.draw_order.partition_point(|k| k.0 <= t).checked_sub(1) {
             pose.draw_order = apply_draw_order(self.slots.len(), &anim.draw_order[i].1);
+        }
+    }
+
+    /// Which deform a mesh in `slot` named `name` (as `skin` sees it) takes: (skin, attachment) of the mesh whose deform timelines it follows.
+    fn deform_id(&self, skin: usize, slot: usize, name: &str) -> Option<(usize, String)> {
+        match self.find_attachment(skin, slot, name) {
+            Some((Attachment::Mesh(m), _)) => Some((m.deform_skin, m.deform_name.clone())),
+            // paths and clipping polygons are deformed under their own name, in the skin they were found in
+            Some((Attachment::Path(_) | Attachment::Clip(_), found_in)) => Some((found_in, name.to_string())),
+            _ => None,
         }
     }
 
@@ -780,14 +902,25 @@ impl Rig {
     /// once it is at least half.
     pub(crate) fn apply_slot_timelines(&self, anim: &Animation, t: f32, pose: &mut Pose, alpha: f32) {
         let alpha = alpha.clamp(0.0, 1.0);
-        let ease = |cur: f32, new: f32| if alpha >= 1.0 { new } else { cur + (new - cur) * alpha };
+        let skin = pose.skin;
+        // (the runtime's Color.set clamps every channel to 0..1: a curve that overshoots must not leave a negative alpha behind)
+        let ease = |cur: f32, new: f32| (if alpha >= 1.0 { new } else { cur + (new - cur) * alpha }).clamp(0.0, 1.0);
         for (si, tl) in &anim.slots {
             let s = &mut pose.slots[*si];
             match tl {
                 SlotTl::Attachment(keys) => {
                     if alpha >= 0.5 {
                         if let Some(i) = keys.partition_point(|k| k.0 <= t).checked_sub(1) {
-                            s.attachment = keys[i].1.clone();
+                            let new = keys[i].1.clone();
+                            if new != s.attachment {
+                                // Showing another attachment drops the slot's deform, unless the two share it (Slot.setAttachment).
+                                let id = |n: &Option<String>| n.as_deref().and_then(|n| self.deform_id(skin, *si, n));
+                                let keep = id(&new).is_some() && id(&new) == id(&s.attachment);
+                                if !keep {
+                                    s.deform.clear();
+                                }
+                                s.attachment = new;
+                            }
                         }
                     }
                 }
@@ -1202,6 +1335,18 @@ impl Rig {
     /// ignored) is the whole; the same without background slots (`bg…`, `bk…`, `… bg`, `…_bg…`, `…background…`) is the trimmed one. The
     /// trimmed box (50 units of air round it) wins when the whole is more than ten times wider or taller than it. The result has 50
     /// more units above and below, as the viewer's camera does. `None` when the setup pose shows nothing.
+    /// The skin the viewer starts with: BD2-L2D-Viewer tries the skins in order and keeps the first whose bounds are usable (finite, more
+    /// than nothing, under 50000 units each way), so a file whose default skin is empty (Angelica: Neon Savior) still shows something.
+    pub fn default_skin(&self) -> usize {
+        let usable = |b: Option<[f32; 4]>| {
+            b.is_some_and(|b| {
+                let (w, h) = (b[2] - b[0], b[3] - b[1] - 100.0);
+                w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0 && w < 50000.0 && h < 50000.0
+            })
+        };
+        (0..self.skins.len()).find(|&s| usable(self.camera_bounds(s))).unwrap_or(0)
+    }
+
     pub fn camera_bounds(&self, skin: usize) -> Option<[f32; 4]> {
         let pose = self.pose(skin, None, 0.0);
         let items = self.geometry_opts(&pose, true);
