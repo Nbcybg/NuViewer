@@ -2,6 +2,15 @@
 
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
+## 0.7.3 - 2026-11-23
+
+### Added
+- **A Layers button** in the viewer controls (the bar on the left edge, between NuEditor / Gallery and Settings): it opens and closes the layer panel for PSD / XCF / OpenRaster files and the Spine and Live2D players, so it no longer needs `Ctrl+L`.
+- **Spine: the layer under the pointer gets an outline.** Resting the pointer on a slot in the layer panel draws its silhouette on the picture (a bright line over a dark one, so it shows on any colour) besides dimming the rest, even when the slot is switched off.
+
+### Changed
+- **The Spine camera stays put** while you change animation or skin (before, every change fitted the view again and lost your zoom and pan). It is set when the file opens; the zoom keys and a double click reset it.
+
 ## 0.7.2 - 2026-11-23
 
 ### Fixed

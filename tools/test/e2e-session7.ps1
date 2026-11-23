@@ -24,12 +24,13 @@ function Key-Mods([int]$vk, [int]$mods) { [void][In]::PostMessage($script:win, 0
 function Hover([int]$x, [int]$y) { [void][In]::PostMessage($script:win, 0x0200, [IntPtr]0, (Pack $x $y)); Start-Sleep -Milliseconds 250 }
 function Signature { $b = Grab; $s = New-Object System.Text.StringBuilder; for ($y = 20; $y -lt $b.Height; $y += [int]($b.Height / 24)) { for ($x = 20; $x -lt $b.Width; $x += [int]($b.Width / 40)) { $c = $b.GetPixel($x, $y); [void]$s.Append("$($c.R / 8)$($c.G / 8)$($c.B / 8),") } }; $b.Dispose(); $s.ToString() }
 function Img-Size([string]$path) { $i = [System.Drawing.Image]::FromFile($path); $r = @($i.Width, $i.Height); $i.Dispose(); $r }
-# Centre of button $i of the left-edge bar (15 buttons: fit and 100% are one toggle), mirroring sidebar.rs.
+# Centre of button $i of the left-edge bar (17 buttons: fit and 100% are one toggle), mirroring sidebar.rs.
 function Bar-Button([int]$i) {
     $d = [In]::GetDpiForWindow($script:win) / 96.0
     $h = $scr.Height
-    $btn = [math]::Min(44 * $d, ($h - 16 * $d - 12 * $d - 14 * 3 * $d) / 15)
-    $total = 15 * $btn + 14 * 3 * $d + 12 * $d
+    $n = 17   # the number of buttons in sidebar.rs (ITEMS)
+    $btn = [math]::Min(44 * $d, ($h - 16 * $d - 12 * $d - ($n - 1) * 3 * $d) / $n)
+    $total = $n * $btn + ($n - 1) * 3 * $d + 12 * $d
     $y0 = ($h - $total) / 2
     @([int](6 * $d + 6 * $d + $btn / 2), [int]($y0 + 6 * $d + $i * ($btn + 3 * $d) + $btn / 2))
 }

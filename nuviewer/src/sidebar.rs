@@ -14,7 +14,7 @@ struct Item {
 }
 
 /// In the order the bar shows them, top to bottom.
-const ITEMS: [Item; 16] = [
+const ITEMS: [Item; 17] = [
     Item { action: Action::Next, glyph: "\u{276F}", label: "Next picture" },
     Item { action: Action::Prev, glyph: "\u{276E}", label: "Previous picture" },
     // One button for both views: it shows (and does) the one that is not on now; `fit_toggle` gives the glyph and the words.
@@ -29,6 +29,7 @@ const ITEMS: [Item; 16] = [
     Item { action: Action::Gallery, glyph: "\u{25A6}", label: "Gallery" },
     Item { action: Action::FilmStrip, glyph: "\u{25A5}", label: "Film strip (also: pointer at the right edge)" },
     Item { action: Action::ReadMode, glyph: "\u{25EB}", label: "Read mode: two pages, no gap" },
+    Item { action: Action::Layers, glyph: "\u{2630}", label: "Layers: on / off, opacity, highlight (PSD, Spine, Live2D)" },
     Item { action: Action::Settings, glyph: "\u{2699}", label: "Settings" },
     Item { action: Action::Help, glyph: "?", label: "Help" },
     Item { action: Action::Quit, glyph: "\u{2715}", label: "Close the viewer" },
@@ -132,6 +133,12 @@ impl App {
         match a {
             Action::Next | Action::Prev | Action::Slideshow | Action::FilmStrip | Action::ReadMode => many,
             Action::FitReset | Action::RotatePlus45 | Action::RotateMinus45 | Action::Edit => !self.is_model() || a == Action::FitReset,
+            // Pictures with layers (PSD, XCF, OpenRaster) and the Spine / Live2D players; the button also closes the panel.
+            Action::Layers => {
+                self.layers.open
+                    || self.anim_active()
+                    || self.folder.files.get(self.folder.index).and_then(|p| p.extension()).map(|e| nv_codecs::layerdoc::is_layered_ext(&e.to_string_lossy().to_ascii_lowercase())).unwrap_or(false)
+            }
             _ => true,
         }
     }
@@ -153,6 +160,7 @@ impl App {
             Action::ToggleSequences => self.settings.sequences,
             Action::TogglePairs => self.settings.pair_group,
             Action::Edit => self.editor.open,
+            Action::Layers => self.layers.open,
             Action::FilmStrip => self.strip.pinned,
             Action::ReadMode => self.read.on,
             _ => false,

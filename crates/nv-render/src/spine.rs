@@ -14,7 +14,7 @@ static SPINE_VS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/spine_vs.cso"
 static SPINE_PS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/spine_ps.cso"));
 
 /// One vertex: position in target pixels (y down), texture coordinates, the light colour (straight RGBA as Spine has it), and the dark
-/// colour with the mode in `w` (0 one colour, 1 two colours on a premultiplied page, 2 two colours on a straight page).
+/// colour with the mode in `w` (0 one colour, 1 two colours on a premultiplied page, 2 two colours on a straight page, 3 a flat colour).
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct SpineVertex {
@@ -24,7 +24,7 @@ pub struct SpineVertex {
     pub dark: [f32; 4],
 }
 
-/// A run of indices drawn with one page and one blend mode (0 normal, 1 additive, 2 multiply, 3 screen).
+/// A run of indices drawn with one page (`u32::MAX`: none, for flat colours) and one blend mode (0 normal, 1 additive, 2 multiply, 3 screen).
 #[derive(Clone, Copy, Debug)]
 pub struct SpineBatch {
     pub page: u32,
@@ -331,9 +331,17 @@ impl Renderer {
                 if b.count == 0 {
                     continue;
                 }
-                let Some(Some(page)) = pages.get(b.page as usize) else { continue };
+                // (page u32::MAX: flat colours, nothing to sample)
+                let page = if b.page == u32::MAX {
+                    None
+                } else {
+                    match pages.get(b.page as usize) {
+                        Some(Some(page)) => Some(page.clone()),
+                        _ => continue,
+                    }
+                };
                 if last.0 != b.page as i64 {
-                    ctx.PSSetShaderResources(0, Some(&[Some(page.clone())]));
+                    ctx.PSSetShaderResources(0, Some(&[page]));
                     last.0 = b.page as i64;
                 }
                 if last.1 != b.blend as i64 {

@@ -1,4 +1,5 @@
 // Spine skeletons drawn on the GPU: textured triangles with a light colour and (optionally) a dark colour per vertex.
+// Mode 3 draws a flat premultiplied colour (the outline of a highlighted layer).
 // The pages are uploaded premultiplied; the pixel shader gives a premultiplied colour, the blend states do the four Spine blend modes.
 cbuffer C : register(b0) {
     float4 vp; // x, y: size of the target in pixels
@@ -25,7 +26,10 @@ float4 ps(VO i) : SV_Target {
     int mode = (int)(i.dark.w + 0.5); // 0: one colour, 1: two colours on a premultiplied page, 2: two colours on a straight page
     float4 s;
     s.a = T.a * ca;
-    if (mode == 0) {
+    if (mode == 3) {
+        // a flat colour (outlines): no texture at all
+        s = float4(c * ca, ca);
+    } else if (mode == 0) {
         s.rgb = T.rgb * c * ca;
     } else if (mode == 1) {
         s.rgb = (T.rgb * c + (T.a - T.rgb) * i.dark.rgb) * ca;

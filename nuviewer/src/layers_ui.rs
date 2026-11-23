@@ -194,6 +194,7 @@ impl App {
         self.layers.open = false;
         self.layers.filter_focus = false;
         self.layers.set.hover = None;
+        self.spine_set_highlight(None);
         self.layers_leave_file();
         self.layers.state = State::Idle;
         self.layers.path = None;
@@ -310,6 +311,8 @@ impl App {
     /// The choice changed (or the highlight moved): put the picture together again, once the previous job is done.
     pub fn layers_changed(&mut self) {
         if self.layers.rig_mode {
+            let hover = self.layers.set.hover;
+            self.spine_set_highlight(hover);
             let eff: Vec<_> = self.layers.set.eff(true).into_iter().rev().collect();
             self.anim_apply(&eff);
             invalidate(self.hwnd);

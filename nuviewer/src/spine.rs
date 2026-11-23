@@ -40,6 +40,8 @@ pub struct Player {
     pub settle: Option<Instant>,
     /// The window size the last frame was drawn for.
     pub win: (u32, u32),
+    /// The slot the pointer rests on in the layer panel: it gets an outline on the picture.
+    pub highlight: Option<usize>,
     /// The graphics card could not draw this skeleton (clipping masks, a failure): the CPU rasteriser does it.
     pub gpu_off: bool,
     /// What the layer panel says per slot (0 = off, 1 = as the file has it).
@@ -93,7 +95,7 @@ impl Player {
         self.anim.and_then(|a| self.rig.animations.get(a)).map(|a| a.name.clone()).unwrap_or_else(|| "(setup pose)".into())
     }
 
-    /// Choose an animation (None = the setup pose) and fit the canvas to the whole of its motion.
+    /// Choose an animation (None = the setup pose); the camera is left alone.
     pub fn set_anim(&mut self, anim: Option<usize>) {
         // Ease out of the animation that was playing (a single bone pose swaps in 0.25 s instead of jumping).
         self.fade = self.anim.filter(|_| self.rig.animations.len() > 1 && anim != self.anim).map(|a| (a, self.time, 0.0));
@@ -101,9 +103,7 @@ impl Player {
         self.time = 0.0;
         self.dir = 1.0;
         self.sim.reset();
-        self.bounds = spinefmt::bounds_for(&self.rig, self.skin, anim);
-        self.zoom = 1.0;
-        self.pan = (0.0, 0.0);
+        // The camera (fit, zoom, pan) stays where it is: it changes only with the picture or when asked (the zoom keys, double click).
         self.dirty = true;
     }
 
@@ -171,7 +171,7 @@ impl App {
                         let bounds = spinefmt::bounds_for(&rig, skin, anim);
                         let n = rig.slots.len();
                         self.view = self.view.fresh();
-                        self.spine.player = Some(Player { id, path, rig, skin, anim, time: 0.0, playing: true, dir: 1.0, bounds, zoom: 1.0, pan: (0.0, 0.0), cost: 0.0, settle: None, win: (0, 0), gpu_off: false, slot_alpha: vec![1.0; n], last: Instant::now(), dirty: true, sim: nv_anim::PhysicsSim::new(), fade: None });
+                        self.spine.player = Some(Player { id, path, rig, skin, anim, time: 0.0, playing: true, dir: 1.0, bounds, zoom: 1.0, pan: (0.0, 0.0), cost: 0.0, settle: None, win: (0, 0), highlight: None, gpu_off: false, slot_alpha: vec![1.0; n], last: Instant::now(), dirty: true, sim: nv_anim::PhysicsSim::new(), fade: None });
                         // (Testing: NV_SPINE_VIEW = zoom,world x,world y starts zoomed on that point of the skeleton.)
                         if let Some(v) = std::env::var("NV_SPINE_VIEW").ok().map(|v| v.split(',').filter_map(|n| n.trim().parse::<f32>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 3) {
                             let win = self.renderer.size();
@@ -249,6 +249,18 @@ impl App {
         self.spine_render_with(false);
     }
 
+    /// The layer panel's pointer rests on row `node` (None: nothing): that slot is outlined on the picture. Rows list the slots top first.
+    pub fn spine_set_highlight(&mut self, node: Option<usize>) {
+        if let Some(p) = self.spine.player.as_mut() {
+            let n = p.rig.slots.len();
+            let slot = node.filter(|h| *h < n).map(|h| n - 1 - h);
+            if p.highlight != slot {
+                p.highlight = slot;
+                p.dirty = true;
+            }
+        }
+    }
+
     fn spine_precision(&mut self, on: bool) {
         if self.spine.precise != on {
             self.spine.precise = on;
@@ -305,6 +317,7 @@ impl App {
         let key = Arc::as_ptr(&p.rig) as usize as u64;
         let rig = p.rig.clone();
         let id = p.id;
+        let highlight = p.highlight;
         let view = p.rig_view(win, (win.0 as usize, win.1 as usize));
         if !self.renderer.spine_has_atlas(key) {
             let pages: Vec<Option<nv_render::SpinePage>> = rig
@@ -349,6 +362,49 @@ impl App {
             match batches.last_mut() {
                 Some(b) if b.page == it.page as u32 && b.blend == blend => b.count += count,
                 _ => batches.push(nv_render::SpineBatch { page: it.page as u32, blend, first, count }),
+            }
+        }
+        // The outline of the slot the pointer rests on in the layer panel: the edges that belong to one triangle only (the silhouette of
+        // every region / mesh of the slot, even a switched-off one), as a dark line under a bright one so it shows on any picture.
+        if let Some(slot) = highlight {
+            let dpi = self.gallery.dpi.max(1.0);
+            let mut edges: Vec<([f32; 2], [f32; 2])> = Vec::new();
+            for it in rig.geometry_opts(&pose, true).iter().filter(|i| i.slot == slot) {
+                let mut count: std::collections::HashMap<(u16, u16), u32> = std::collections::HashMap::new();
+                for tri in it.tris.chunks_exact(3) {
+                    for (a, b) in [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
+                        *count.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+                    }
+                }
+                for ((a, b), n) in count {
+                    if n == 1 && (a as usize) < it.verts.len() && (b as usize) < it.verts.len() {
+                        edges.push((view.to_canvas(w, h, it.verts[a as usize]), view.to_canvas(w, h, it.verts[b as usize])));
+                    }
+                }
+            }
+            edges.truncate(40_000);
+            for (half, col) in [(2.6 * dpi, [0.0, 0.0, 0.0, 0.75]), (1.3 * dpi, [0.21, 0.82, 1.0, 1.0])] {
+                let first = indices.len() as u32;
+                for (p, q) in &edges {
+                    let (dx, dy) = (q[0] - p[0], q[1] - p[1]);
+                    let len = (dx * dx + dy * dy).sqrt();
+                    if !(len > 1e-3) {
+                        continue;
+                    }
+                    let (ux, uy) = (dx / len * half, dy / len * half);
+                    let (nx, ny) = (-uy, ux);
+                    let base = verts.len() as u32;
+                    let flat = |x: f32, y: f32| nv_render::SpineVertex { pos: [x, y], uv: [0.0, 0.0], light: col, dark: [0.0, 0.0, 0.0, 3.0] };
+                    verts.push(flat(p[0] - ux + nx, p[1] - uy + ny));
+                    verts.push(flat(p[0] - ux - nx, p[1] - uy - ny));
+                    verts.push(flat(q[0] + ux + nx, q[1] + uy + ny));
+                    verts.push(flat(q[0] + ux - nx, q[1] + uy - ny));
+                    indices.extend([base, base + 1, base + 2, base + 2, base + 1, base + 3]);
+                }
+                let count = indices.len() as u32 - first;
+                if count > 0 {
+                    batches.push(nv_render::SpineBatch { page: u32::MAX, blend: 0, first, count });
+                }
             }
         }
         if self.renderer.spine_draw(key, id, (win.0, win.1), bg, &verts, &indices, &batches).is_err() {
@@ -435,7 +491,6 @@ impl App {
         let cur = p.anim.map(|a| a as i32).unwrap_or(n - 1);
         let next = (cur + d).rem_euclid(n);
         p.set_anim(if next == n - 1 { None } else { Some(next as usize) });
-        self.view = self.view.fresh();
         self.spine_render();
     }
 
@@ -443,7 +498,6 @@ impl App {
         let Some(p) = self.spine.player.as_mut() else { return };
         let n = p.rig.skins.len();
         p.skin = (p.skin + 1) % n.max(1);
-        p.bounds = spinefmt::bounds_for(&p.rig, p.skin, p.anim);
         p.dirty = true;
         self.spine_render();
     }
