@@ -1351,7 +1351,7 @@ impl App {
         let (full_dims, angle, mode) = (self.full.as_ref().map(|f| (f.w, f.h)).unwrap_or((1, 1)), self.recipe.get(P::Angle), self.tools.mode);
         let (zoom, region, centre, split, split_at, scope, clipped) = (self.view.zoom, self.view.region, self.view.center, self.view.split, self.view.split_at, self.view.scope, self.view.clipped);
         let px = |n: f32| (n * d).round() as i32;
-        let (text_c, dim_c, accent) = (rgb(pal::TEXT, 1.0), rgb(pal::DIM, 1.0), rgb(pal::ACCENT, 1.0));
+        let (text_c, dim_c, accent) = (rgb(pal::text(), 1.0), rgb(pal::dim(), 1.0), rgb(pal::accent(), 1.0));
         // Everything that needs `&self` is worked out before the renderer is borrowed.
         let status = if self.dirty() { format!("edited · {:.1} ms per change", self.edit_ms) } else { format!("unchanged · {:.1} ms per change", self.edit_ms) };
         // A RAW file: what the camera recorded (the as-shot balance the sliders are relative to), without the model name.
@@ -1387,7 +1387,7 @@ impl App {
         let show_help = self.help;
         let entry_box = self.entry_box();
         let Some(r) = self.renderer.as_mut() else { return };
-        if !r.begin(rgb(pal::BG, 1.0)) {
+        if !r.begin(rgb(pal::bg(), 1.0)) {
             return;
         }
         self.text.begin_frame();
@@ -1472,7 +1472,7 @@ impl App {
         }
         if let Some(e) = &self.error {
             let msg = self.text.fit(e, px(13.0), (l.area[2] - 40.0 * d) as i32);
-            self.text.draw_centered(r, &msg, px(13.0), l.area[2] / 2.0, l.area[3] / 2.0, rgb(pal::ERROR, 1.0));
+            self.text.draw_centered(r, &msg, px(13.0), l.area[2] / 2.0, l.area[3] / 2.0, rgb(pal::error(), 1.0));
         }
         if self.show_original {
             let _ = r.fill_rect([12.0 * d, 12.0 * d, 112.0 * d, 36.0 * d], rgb(0x000000, 0.6));
@@ -1487,8 +1487,8 @@ impl App {
         }
 
         if self.panel {
-            let _ = r.fill_rect(l.panel, rgb(pal::PANEL, 1.0));
-            let _ = r.fill_rect([l.panel[0], 0.0, l.panel[0] + 1.0, l.panel[3]], rgb(pal::PANEL_EDGE, 1.0));
+            let _ = r.fill_rect(l.panel, rgb(pal::panel(), 1.0));
+            let _ = r.fill_rect([l.panel[0], 0.0, l.panel[0] + 1.0, l.panel[3]], rgb(pal::edge(), 1.0));
             let name = self.text.fit(&flow::file_name(&self.path), px(14.0), (270.0 * d) as i32);
             self.text.draw(r, &name, px(14.0), l.panel[0] + 14.0 * d, 10.0 * d, text_c);
             self.text.draw(r, &status, px(11.0), l.panel[0] + 14.0 * d, 32.0 * d, dim_c);
@@ -1496,13 +1496,13 @@ impl App {
             // The graph dock: tabs, and the graph under them. Always there, so nobody has to know a key to see the levels.
             for (k, (rect, name)) in l.scope_tabs.iter().zip(["Histogram", "Parade", "Vector", "Off"]).enumerate() {
                 let on = matches!((k, scope_now), (0, view::Scope::Histogram) | (1, view::Scope::Parade) | (2, view::Scope::Vector) | (3, view::Scope::Off));
-                let fill = if on { accent } else if self.hot == Some(Hit::Scope(k)) { rgb(pal::TILE_HOVER, 1.0) } else { rgb(pal::TILE, 1.0) };
+                let fill = if on { accent } else if self.hot == Some(Hit::Scope(k)) { rgb(pal::hover(), 1.0) } else { rgb(pal::tile(), 1.0) };
                 let _ = r.fill_rect(*rect, fill);
                 self.text.draw_centered(r, name, px(11.0), (rect[0] + rect[2]) / 2.0, rect[1] + 4.0 * d, text_c);
             }
             if scope_now != view::Scope::Off && l.dock[3] > l.dock[1] {
                 let g = [l.dock[0] + 14.0 * d, l.dock[1] + 30.0 * d, l.dock[2] - 14.0 * d, l.dock[1] + 30.0 * d + 134.0 * d];
-                let _ = r.fill_rect(g, rgb(pal::FIELD, 1.0));
+                let _ = r.fill_rect(g, rgb(pal::field(), 1.0));
                 if let Some((sw, sh)) = r.image_size_of(ID_SCOPE) {
                     let (x, y) = (((g[0] + g[2]) / 2.0 - sw as f32 / 2.0).round(), (g[1] + (g[3] - g[1]) / 2.0 - sh as f32 / 2.0).round());
                     let _ = r.draw_image(ID_SCOPE, [x, y, x + sw as f32, y + sh as f32], true);
@@ -1518,7 +1518,7 @@ impl App {
             r.set_clip(Some(l.view));
             for (gi, rect) in &l.headers {
                 if self.hot == Some(Hit::Header(*gi)) {
-                    let _ = r.fill_rect(*rect, rgb(pal::TILE_HOVER, 1.0));
+                    let _ = r.fill_rect(*rect, rgb(pal::hover(), 1.0));
                 }
                 let open = *gi == self.open_group;
                 let arrow = if open { "▾" } else { "▸" };
@@ -1574,7 +1574,7 @@ impl App {
             panel::draw_item_list(r, &mut self.text, &item_list, hot_item, d);
             r.set_clip(None);
             for (rect, label, hit) in [(l.reset_all, "Reset all", Hit::ResetAll), (l.save, "Save…", Hit::Save)] {
-                let fill = if self.hot == Some(hit) { rgb(pal::TILE_HOVER, 1.0) } else { rgb(pal::TILE, 1.0) };
+                let fill = if self.hot == Some(hit) { rgb(pal::hover(), 1.0) } else { rgb(pal::tile(), 1.0) };
                 let _ = r.fill_rect(rect, fill);
                 self.text.draw_centered(r, label, px(13.0), (rect[0] + rect[2]) / 2.0, rect[1] + 8.0 * d, text_c);
             }
@@ -1593,7 +1593,7 @@ impl App {
                 let _ = r.fill_rect([rect[0] + 4.0 * d, rect[1] + 6.0 * d, rect[0] + 5.0 * d, rect[3] - 6.0 * d], rgb(0xFFFFFF, 0.25));
                 continue;
             }
-            let fill = if *on { rgb(pal::ACCENT, 0.92) } else { rgb(0x15171A, 0.86) };
+            let fill = if *on { rgb(pal::accent(), 0.92) } else { rgb(0x15171A, 0.86) };
             let _ = r.fill_rect(*rect, fill);
             self.text.draw_centered(r, label, px(12.0), (rect[0] + rect[2]) / 2.0, rect[1] + 7.0 * d, text_c);
         }

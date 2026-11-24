@@ -214,13 +214,13 @@ impl App {
         let bar = self.bar_layout(Some(&c));
         let d = self.gallery.dpi;
         let (mx, my) = (self.last_mouse.0 as f32, self.last_mouse.1 as f32);
-        let (text_c, dim_c, accent) = (srgb(0xF2F2F2, 1.0), srgb(0x9AA0A6, 1.0), srgb(0x3D8BFF, 1.0));
-        let _ = self.renderer.fill_rect(bar.rect, srgb(0x0E0E0E, 0.88));
+        let (text_c, dim_c, accent) = (ui::text(1.0), ui::dim(1.0), ui::accent(1.0));
+        let _ = self.renderer.fill_rect(bar.rect, ui::panel(0.88));
         let glyph = |this: &mut App, r: [f32; 4], text: &str, enabled: bool, on: bool| {
             if on {
-                let _ = this.renderer.fill_rect(r, srgb(0x3D8BFF, 0.35));
+                let _ = this.renderer.fill_rect(r, ui::accent(0.35));
             } else if inside(&r, mx, my) && enabled {
-                let _ = this.renderer.fill_rect(r, srgb(0x3A3F4A, 0.9));
+                let _ = this.renderer.fill_rect(r, ui::hover(0.9));
             }
             if let Some((key, tw, th)) = this.overlay_small(&[text.to_string()]) {
                 let _ = this.renderer.draw_overlay(key, r[0] + (r[2] - r[0] - tw) / 2.0, r[1] + (r[3] - r[1] - th) / 2.0, if enabled { text_c } else { dim_c });
@@ -246,7 +246,7 @@ impl App {
         }
         // Seek track: grey, with the played part in the accent colour and a knob.
         let s = bar.seek;
-        let _ = self.renderer.fill_rect(s, srgb(0x3A3F4A, 1.0));
+        let _ = self.renderer.fill_rect(s, ui::hover(1.0));
         let x = s[0] + (s[2] - s[0]) * c.progress;
         let _ = self.renderer.fill_rect([s[0], s[1], x, s[3]], accent);
         if c.seekable {
@@ -256,11 +256,11 @@ impl App {
         // Slideshow: the time left on this picture, as a thin line under the track.
         if c.kind == MediaKind::Slideshow {
             let left = (self.slide.since.elapsed().as_secs_f32() * self.anim_speed / self.slide.secs).clamp(0.0, 1.0);
-            let _ = self.renderer.fill_rect([s[0], s[3] + 3.0 * d, s[0] + (s[2] - s[0]) * left, s[3] + 5.0 * d], srgb(0x7DB4FF, 0.8));
+            let _ = self.renderer.fill_rect([s[0], s[3] + 3.0 * d, s[0] + (s[2] - s[0]) * left, s[3] + 5.0 * d], ui::link(0.8));
         }
         if let Some(v) = bar.vol {
             let (level, muted) = c.volume.unwrap_or((0.0, false));
-            let _ = self.renderer.fill_rect(v, srgb(0x3A3F4A, 1.0));
+            let _ = self.renderer.fill_rect(v, ui::hover(1.0));
             let vx = v[0] + (v[2] - v[0]) * if muted { 0.0 } else { level };
             let _ = self.renderer.fill_rect([v[0], v[1], vx, v[3]], if muted { dim_c } else { accent });
             let k = 6.0 * d;
@@ -353,16 +353,16 @@ impl App {
         let box_h = ph + lh + 8.0 * d;
         let left = (mx - box_w / 2.0).clamp(4.0, win_w as f32 - box_w - 4.0);
         let top = bar.rect[1] - box_h - 8.0 * d;
-        let _ = self.renderer.fill_rect([left, top, left + box_w, top + box_h], srgb(0x0E0E0E, 0.92));
+        let _ = self.renderer.fill_rect([left, top, left + box_w, top + box_h], ui::panel(0.92));
         if pw > 0.0 {
             let px = left + (box_w - pw) / 2.0;
             draw(self, [px.round(), (top + 4.0 * d).round(), (px + pw).round(), (top + 4.0 * d + ph).round()]);
         }
         if let Some((key, tw, _)) = label_img {
-            let _ = self.renderer.draw_overlay(key, left + (box_w - tw) / 2.0, top + 4.0 * d + ph, srgb(0xF2F2F2, 1.0));
+            let _ = self.renderer.draw_overlay(key, left + (box_w - tw) / 2.0, top + 4.0 * d + ph, ui::text(1.0));
         }
         // The pointer's own spot on the track.
-        let _ = self.renderer.fill_rect([mx - 1.0, s[1] - 3.0 * d, mx + 1.0, s[3] + 3.0 * d], srgb(0xF2F2F2, 0.9));
+        let _ = self.renderer.fill_rect([mx - 1.0, s[1] - 3.0 * d, mx + 1.0, s[3] + 3.0 * d], ui::text(0.9));
     }
 
     /// A left-button press at (x, y): true if the bar took it (so no zoom / drag / page turn starts under it).

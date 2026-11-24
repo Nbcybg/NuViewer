@@ -35,7 +35,7 @@ public static class In {
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
-    public static string MenuText(IntPtr m, int i) { var s = new StringBuilder(128); GetMenuString(m, (uint)i, s, 128, 0x400); return s.ToString(); }
+    public static string MenuText(IntPtr m, int i) { var s = new StringBuilder(128); GetMenuString(m, (uint)i, s, 128, 0x400); return s.ToString().Replace("&&", "&"); }   // a real & is stored doubled
 }
 '@
 [void][In]::SetProcessDPIAware()
@@ -247,12 +247,12 @@ try {
         $hm = [In]::SendMessage($menu, 0x01E1, [IntPtr]::Zero, [IntPtr]::Zero)   # MN_GETHMENU
         $n = [In]::GetMenuItemCount($hm)
         $texts = @(0..($n - 1) | ForEach-Object { [In]::MenuText($hm, $_) })
-        Check "menu has the expected 43 entries  [count $n]" ($n -eq 43)
-        $want = 'Previous picture*', 'Next picture*', 'Actual size*', 'Open with*', 'Properties*', 'Gallery*', 'Fullscreen*', 'Slideshow*', 'Info*', 'Rename*', 'Copy to*', 'Move to*', 'Copy picture*', 'Copy file path*', 'Show in Explorer*', 'Delete*', 'Undo*', 'Edit in NuEditor*', 'Edit with*', 'File types*', 'Help*', 'Close*'
+        Check "menu has the expected 27 entries (22 lines + 5 separators)  [count $n]" ($n -eq 27)
+        $want = 'Open*', 'Open with*', 'Refresh*', 'Save as*', 'Gallery*', 'Slideshow*', 'Go to*', 'Zoom*', 'Rotate & flip*', 'View*', 'Sort & group*', 'Rating & labels*', 'Copy picture*', 'Rename*', 'File*', 'Delete*', 'Edit in NuEditor*', 'Edit with*', 'Tools*', 'Settings*', 'Help*', 'Close*'
         $missing = @($want | Where-Object { $w = $_; -not ($texts | Where-Object { $_ -like $w }) })
-        Check "menu lists every action  [missing: $($missing -join ', ')]" ($missing.Count -eq 0)
-        # Keyboard through the menu: Down, Down (first enabled = Previous, second = Next), Enter -> next picture.
-        foreach ($vk in 0x28, 0x28, 0x0D) { [void][In]::PostMessage($menu, 0x0100, [IntPtr]$vk, [IntPtr]::Zero); Start-Sleep -Milliseconds 150 }
+        Check "menu lists every group  [missing: $($missing -join ', ')]" ($missing.Count -eq 0)
+        # Keyboard through the menu: Down x7 = "Go to", Right opens it, Enter = its first line, Next picture.
+        foreach ($vk in 0x28, 0x28, 0x28, 0x28, 0x28, 0x28, 0x28, 0x27, 0x0D) { [void][In]::PostMessage($menu, 0x0100, [IntPtr]$vk, [IntPtr]::Zero); Start-Sleep -Milliseconds 200 }
         Start-Sleep -Milliseconds 500
         Check 'choosing "Next picture" in the menu goes to c.png' ((Title) -like 'c.png*') (Title)
         Check 'the menu closed' (([In]::FindWindow('#32768', $null)) -eq [IntPtr]::Zero)

@@ -310,56 +310,56 @@ pub fn draw(r: &mut Renderer, text: &mut Text, pv: &Preview, rect: [f32; 4], cli
         let _ = r.fill_rect(bar.strip, rgb(0x000000, 0.66));
         for (rc, glyph) in [(bar.prev, "◀"), (bar.play, if a.playing { "❚❚" } else { "▶" }), (bar.next, "▶")] {
             let _ = r.fill_rect(rc, rgb(0x2B2E33, 0.95));
-            text.draw_centered(r, glyph, (11.0 * d).round() as i32, (rc[0] + rc[2]) / 2.0, rc[1] + (rc[3] - rc[1] - line_h(small)) / 2.0, rgb(pal::TEXT, 1.0));
+            text.draw_centered(r, glyph, (11.0 * d).round() as i32, (rc[0] + rc[2]) / 2.0, rc[1] + (rc[3] - rc[1] - line_h(small)) / 2.0, rgb(pal::text(), 1.0));
         }
         let _ = r.fill_rect(bar.track, rgb(0xFFFFFF, 0.2));
         let frac = if a.total > 1 { a.index as f32 / (a.total - 1) as f32 } else { 0.0 };
         let knob = bar.track[0] + (bar.track[2] - bar.track[0]) * frac;
-        let _ = r.fill_rect([bar.track[0], bar.track[1], knob, bar.track[3]], rgb(pal::ACCENT, 1.0));
+        let _ = r.fill_rect([bar.track[0], bar.track[1], knob, bar.track[3]], rgb(pal::accent(), 1.0));
         let _ = r.fill_rect([knob - 4.0 * d, bar.track[1] - 5.0 * d, knob + 4.0 * d, bar.track[3] + 5.0 * d], rgb(0xE8E8E8, 1.0));
-        text.draw_right(r, &format!("{}/{}", a.index + 1, a.total), small, bar.label_right, bar.strip[1] + (bar.strip[3] - bar.strip[1] - line_h(small)) / 2.0, rgb(pal::DIM, 1.0));
+        text.draw_right(r, &format!("{}/{}", a.index + 1, a.total), small, bar.label_right, bar.strip[1] + (bar.strip[3] - bar.strip[1] - line_h(small)) / 2.0, rgb(pal::dim(), 1.0));
         let tag = text.width(&a.label, small) as f32 + 12.0 * d;
         let _ = r.fill_rect([rect[0] + 6.0 * d, rect[1] + 6.0 * d, rect[0] + 6.0 * d + tag, rect[1] + 6.0 * d + line_h(small) + 4.0 * d], rgb(0x000000, 0.7));
-        text.draw(r, &a.label, small, rect[0] + 12.0 * d, rect[1] + 8.0 * d, rgb(pal::TEXT, 1.0));
+        text.draw(r, &a.label, small, rect[0] + 12.0 * d, rect[1] + 8.0 * d, rgb(pal::text(), 1.0));
     } else if let (true, Some(m)) = (mine, pv.media.as_ref()) {
         let bar = media_bar(rect, d);
         let _ = r.fill_rect(bar.strip, rgb(0x000000, 0.7));
         let playing = m.player.as_ref().is_some_and(|p| p.is_playing());
         let glyph = if m.player.is_none() { "…" } else if playing { "❚❚" } else { "▶" };
         let _ = r.fill_rect(bar.play, rgb(0x2B2E33, 0.95));
-        text.draw_centered(r, glyph, small, (bar.play[0] + bar.play[2]) / 2.0, bar.play[1] + (bar.play[3] - bar.play[1] - line_h(small)) / 2.0, rgb(pal::TEXT, 1.0));
+        text.draw_centered(r, glyph, small, (bar.play[0] + bar.play[2]) / 2.0, bar.play[1] + (bar.play[3] - bar.play[1] - line_h(small)) / 2.0, rgb(pal::text(), 1.0));
         if let Some(e) = &m.error {
             let msg = text.fit(&format!("Can't play: {e}"), small, (bar.strip[2] - bar.play[2] - 20.0 * d) as i32);
-            text.draw(r, &msg, small, bar.play[2] + 8.0 * d, bar.strip[1] + (bar.strip[3] - bar.strip[1] - line_h(small)) / 2.0, rgb(pal::ERROR, 1.0));
+            text.draw(r, &msg, small, bar.play[2] + 8.0 * d, bar.strip[1] + (bar.strip[3] - bar.strip[1] - line_h(small)) / 2.0, rgb(pal::error(), 1.0));
         } else {
             let pos = m.player.as_ref().map(|p| p.position_ms()).unwrap_or(0);
             let frac = if m.duration > 0 { (pos as f32 / m.duration as f32).clamp(0.0, 1.0) } else { 0.0 };
             let _ = r.fill_rect(bar.track, rgb(0xFFFFFF, 0.2));
             let knob = bar.track[0] + (bar.track[2] - bar.track[0]) * frac;
-            let _ = r.fill_rect([bar.track[0], bar.track[1], knob, bar.track[3]], rgb(pal::ACCENT, 1.0));
+            let _ = r.fill_rect([bar.track[0], bar.track[1], knob, bar.track[3]], rgb(pal::accent(), 1.0));
             let _ = r.fill_rect([knob - 4.0 * d, bar.track[1] - 5.0 * d, knob + 4.0 * d, bar.track[3] + 5.0 * d], rgb(0xE8E8E8, 1.0));
             let label = if m.player.is_some() { format!("{} / {}", fmt_ms(pos), fmt_ms(m.duration)) } else { "opening…".to_string() };
-            text.draw_right(r, &label, small, bar.time_right, bar.strip[1] + (bar.strip[3] - bar.strip[1] - line_h(small)) / 2.0, rgb(pal::DIM, 1.0));
+            text.draw_right(r, &label, small, bar.time_right, bar.strip[1] + (bar.strip[3] - bar.strip[1] - line_h(small)) / 2.0, rgb(pal::dim(), 1.0));
         }
-        let (vl, vc) = if m.muted || m.volume <= 0.01 { ("Mute", pal::ERROR) } else { ("Vol", pal::TEXT) };
+        let (vl, vc) = if m.muted || m.volume <= 0.01 { ("Mute", pal::error()) } else { ("Vol", pal::text()) };
         let _ = r.fill_rect(bar.vol, rgb(0x2B2E33, 0.95));
         text.draw_centered(r, vl, (10.0 * d).round() as i32, (bar.vol[0] + bar.vol[2]) / 2.0, bar.vol[1] + (bar.vol[3] - bar.vol[1] - line_h((10.0 * d).round() as i32)) / 2.0, rgb(vc, 1.0));
         let tag = if m.has_video { "Video" } else { "Sound" };
         let tw = text.width(tag, small) as f32 + 12.0 * d;
         let _ = r.fill_rect([rect[0] + 6.0 * d, rect[1] + 6.0 * d, rect[0] + 6.0 * d + tw, rect[1] + 6.0 * d + line_h(small) + 4.0 * d], rgb(0x000000, 0.7));
-        text.draw(r, tag, small, rect[0] + 12.0 * d, rect[1] + 8.0 * d, rgb(pal::TEXT, 1.0));
+        text.draw(r, tag, small, rect[0] + 12.0 * d, rect[1] + 8.0 * d, rgb(pal::text(), 1.0));
     } else if mine && pv.mesh.is_some() {
         let hint = "drag: turn · wheel: zoom · double-click: reset";
         let w = text.width(hint, small) as f32 + 12.0 * d;
         let _ = r.fill_rect([rect[0] + 6.0 * d, rect[3] - line_h(small) - 10.0 * d, rect[0] + 6.0 * d + w, rect[3] - 6.0 * d], rgb(0x000000, 0.6));
-        text.draw(r, hint, small, rect[0] + 12.0 * d, rect[3] - line_h(small) - 8.0 * d, rgb(pal::DIM, 1.0));
+        text.draw(r, hint, small, rect[0] + 12.0 * d, rect[3] - line_h(small) - 8.0 * d, rgb(pal::dim(), 1.0));
     } else if mine && (pv.zoom - 1.0).abs() > 0.01 {
         let label = format!("×{:.1}", pv.zoom);
         let w = text.width(&label, small) as f32 + 12.0 * d;
         let _ = r.fill_rect([rect[2] - w - 6.0 * d, rect[1] + 6.0 * d, rect[2] - 6.0 * d, rect[1] + 6.0 * d + line_h(small) + 4.0 * d], rgb(0x000000, 0.7));
-        text.draw(r, &label, small, rect[2] - w, rect[1] + 8.0 * d, rgb(pal::TEXT, 1.0));
+        text.draw(r, &label, small, rect[2] - w, rect[1] + 8.0 * d, rgb(pal::text(), 1.0));
     }
-    outline(r, rect, 1.0, rgb(pal::PANEL_EDGE, 1.0));
+    outline(r, rect, 1.0, rgb(pal::edge(), 1.0));
     r.set_clip(Some(clip));
 }
 

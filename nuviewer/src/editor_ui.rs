@@ -206,13 +206,13 @@ impl App {
         }
         let l = self.editor_layout();
         let d = self.gallery.dpi;
-        let (text_c, dim_c, panel_c, accent) = (srgb(0xF2F2F2, 1.0), srgb(0x9AA0A6, 1.0), srgb(0x14161A, 0.93), srgb(0x3D8BFF, 0.9));
+        let (text_c, dim_c, panel_c, accent) = (ui::text(1.0), ui::dim(1.0), ui::panel(0.93), ui::accent(0.9));
         let hot = self.editor.hot;
         let button = |this: &mut App, r: [f32; 4], label: &str, on: bool, enabled: bool, hover: bool| {
-            let fill = if on { accent } else if hover && enabled { srgb(0x3A3F4A, 0.95) } else { srgb(0x24272D, 0.95) };
+            let fill = if on { accent } else if hover && enabled { ui::hover(0.95) } else { ui::tile(0.95) };
             let _ = this.renderer.fill_rect(r, fill);
             if let Some((key, tw, th)) = this.overlay_small(&[label.to_string()]) {
-                let _ = this.renderer.draw_overlay(key, r[0] + (r[2] - r[0] - tw) / 2.0, r[1] + (r[3] - r[1] - th) / 2.0, if enabled { text_c } else { srgb(0x6B7078, 1.0) });
+                let _ = this.renderer.draw_overlay(key, r[0] + (r[2] - r[0] - tw) / 2.0, r[1] + (r[3] - r[1] - th) / 2.0, if enabled { text_c } else { ui::off(1.0) });
             }
         };
 
@@ -222,7 +222,7 @@ impl App {
             let _ = self.renderer.draw_overlay(key, 12.0 * d, 12.0 * d, text_c);
         }
         if let Some((key, _, _)) = self.overlay_small(&["mock-up".to_string()]) {
-            let _ = self.renderer.draw_overlay(key, 12.0 * d, 40.0 * d, srgb(0xE2A33B, 1.0));
+            let _ = self.renderer.draw_overlay(key, 12.0 * d, 40.0 * d, ui::star(1.0));
         }
         for (i, tool) in TOOLS.iter().enumerate() {
             let r = l.tools[i];
@@ -230,7 +230,7 @@ impl App {
             if selected {
                 let _ = self.renderer.fill_rect(r, accent);
             } else if hot == Some(Hit::Tool(i)) {
-                let _ = self.renderer.fill_rect(r, srgb(0x3A3F4A, 0.95));
+                let _ = self.renderer.fill_rect(r, ui::hover(0.95));
             }
             let ready = tool.state == ToolState::Ready;
             let col = if ready || selected { text_c } else { dim_c };
@@ -282,12 +282,12 @@ impl App {
                     let _ = self.renderer.draw_overlay(key, x, y, dim_c);
                 }
                 let track = [x, y + 26.0 * d, l.inspector[2] - 14.0 * d, y + 30.0 * d];
-                let _ = self.renderer.fill_rect(track, srgb(0x2E3238, 1.0));
+                let _ = self.renderer.fill_rect(track, ui::tile(1.0));
                 let knob_x = track[0] + (track[2] - track[0]) * (0.35 + 0.2 * i as f32);
-                let _ = self.renderer.fill_rect([knob_x - 6.0 * d, y + 20.0 * d, knob_x + 6.0 * d, y + 36.0 * d], srgb(0x5A6068, 1.0));
+                let _ = self.renderer.fill_rect([knob_x - 6.0 * d, y + 20.0 * d, knob_x + 6.0 * d, y + 36.0 * d], ui::knob(1.0));
             }
             if let Some((key, _, _)) = self.overlay_small(&["Not built yet — this is the layout it will have.".to_string()]) {
-                let _ = self.renderer.draw_overlay(key, x, 300.0 * d, srgb(0xE2A33B, 1.0));
+                let _ = self.renderer.draw_overlay(key, x, 300.0 * d, ui::star(1.0));
             }
         }
     }

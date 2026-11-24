@@ -28,6 +28,7 @@ mod live2d;
 mod settings_ui;
 mod sidebar;
 mod strip;
+mod ui;
 mod turntable;
 
 use gallery::{Gallery, GALLERY_CELL, GALLERY_CELL_MAX, GALLERY_CELL_MIN, GALLERY_GAP};

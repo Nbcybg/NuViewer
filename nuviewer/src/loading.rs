@@ -201,12 +201,12 @@ impl App {
         let panel_w = tw.max(380.0 * d);
         let panel_h = th + gap + bar_h + gap;
         let (x, y) = (((w - panel_w) / 2.0).round(), ((h - panel_h) / 2.0).round());
-        let _ = self.renderer.fill_rect([x, y, x + panel_w, y + panel_h], srgb(0x0E0E0E, 0.93));
-        let _ = self.renderer.draw_overlay(key, x + (panel_w - tw) / 2.0, y, srgb(0xF2F2F2, 1.0));
+        let _ = self.renderer.fill_rect([x, y, x + panel_w, y + panel_h], ui::panel(0.93));
+        let _ = self.renderer.draw_overlay(key, x + (panel_w - tw) / 2.0, y, ui::text(1.0));
         // Progress bar: a filled track when we know how far along it is, a sweeping block when we don't.
         let (bx0, bx1, by) = (x + gap, x + panel_w - gap, y + th + gap * 0.5);
-        let accent = if disk_bound { srgb(0xFFA94D, 1.0) } else { srgb(0x3D8BFF, 1.0) };
-        let _ = self.renderer.fill_rect([bx0, by, bx1, by + bar_h], srgb(0x34383F, 1.0));
+        let accent = if disk_bound { srgb(0xFFA94D, 1.0) } else { ui::accent(1.0) };
+        let _ = self.renderer.fill_rect([bx0, by, bx1, by + bar_h], ui::tile(1.0));
         let span = bx1 - bx0;
         match fraction {
             Some(f) => {
@@ -255,9 +255,9 @@ impl App {
         let pad = 10.0 * d;
         let (pw, ph) = (tw.max(380.0 * d) + 2.0 * pad, th + 2.0 * pad);
         let (x, y) = (((w - pw) / 2.0).round(), ((h - ph) / 2.0).round());
-        let _ = self.renderer.fill_rect([x, y, x + pw, y + ph], srgb(0x0E0E0E, 0.94));
-        let _ = self.renderer.fill_rect([x, y, x + 4.0 * d, y + ph], srgb(0xFF6B6B, 1.0));
-        let _ = self.renderer.draw_overlay(key, x + pad, y + pad, srgb(0xF2F2F2, 1.0));
+        let _ = self.renderer.fill_rect([x, y, x + pw, y + ph], ui::panel(0.94));
+        let _ = self.renderer.fill_rect([x, y, x + 4.0 * d, y + ph], ui::error(1.0));
+        let _ = self.renderer.draw_overlay(key, x + pad, y + pad, ui::text(1.0));
     }
 
     /// Bottom-right readout of the drive's read / write speed (the setting / `D`). Called from `draw_hud`.
@@ -271,8 +271,8 @@ impl App {
         let d = self.gallery.dpi;
         if let Some((key, tw, th)) = self.overlay_small(&[text]) {
             let (x, y) = (w as f32 - tw - 14.0 * d, h as f32 - th - 36.0 * d); // above the row kept for the taskbar reveal
-            let hot = if ds.busy_pct >= BUSY_BOTTLENECK { srgb(0xFFA94D, 1.0) } else { srgb(0xF2F2F2, 1.0) };
-            let _ = self.renderer.fill_rect([x, y, x + tw, y + th], srgb(0x0E0E0E, 0.8));
+            let hot = if ds.busy_pct >= BUSY_BOTTLENECK { srgb(0xFFA94D, 1.0) } else { ui::text(1.0) };
+            let _ = self.renderer.fill_rect([x, y, x + tw, y + th], ui::panel(0.8));
             let _ = self.renderer.draw_overlay(key, x, y, hot);
         }
     }

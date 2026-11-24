@@ -281,6 +281,10 @@ pub enum Action {
     ConvertJpeg,
     Share,
     ExtractFrames,
+    OpenFile,
+    SaveAs,
+    Refresh,
+    NextSkin,
 }
 
 pub struct ActionInfo {
@@ -408,6 +412,10 @@ pub const ACTIONS: &[ActionInfo] = &[
     a!(ExtractFrames, "extract_frames", "Extract frames: a video / animation as numbered pictures, a PDF as one picture per page, a 3D model as its turntable from this view", ["Ctrl+Shift+F"]),
     a!(ConvertPng, "convert_png", "Convert to PNG next to the file (no questions)", ["Ctrl+Alt+P"]),
     a!(ConvertJpeg, "convert_jpeg", "Convert to JPEG next to the file (no questions)", ["Ctrl+Alt+J"]),
+    a!(OpenFile, "open_file", "Open a picture or a folder (the Windows Open dialog)", ["Ctrl+O"]),
+    a!(SaveAs, "save_as", "Save a copy of the picture under another name or in another format (PNG, JPEG, WebP, BMP, TIFF, TGA)", ["Ctrl+Alt+S"]),
+    a!(Refresh, "refresh", "Read the folder again (new, removed and changed files)", ["Ctrl+R", "Ctrl+F5"]),
+    a!(NextSkin, "next_skin", "Next skin (the colours of the menus and panels)", ["Ctrl+Alt+K"]),
 ];
 
 pub fn info(action: Action) -> &'static ActionInfo {

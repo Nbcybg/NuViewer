@@ -259,12 +259,12 @@ impl App {
         self.strip.scroll = self.strip.scroll.clamp(0.0, self.strip_max_scroll(&lay));
         self.strip_request_thumbs();
         let d = self.gallery.dpi;
-        let (text_c, dim_c) = (srgb(0xF2F2F2, 1.0), srgb(0x6B7078, 1.0));
-        let _ = self.renderer.fill_rect(lay.bar, srgb(0x0E0E0E, 0.9));
+        let (text_c, dim_c) = (ui::text(1.0), ui::off(1.0));
+        let _ = self.renderer.fill_rect(lay.bar, ui::panel(0.9));
 
         // The list.
         let (a, b) = self.strip_rows(&lay);
-        let accent = srgb(0x3D8BFF, 1.0);
+        let accent = ui::accent(1.0);
         for i in a..b {
             let r = self.item_rect(&lay, i);
             if r[3] < lay.header_h || r[1] > lay.bar[3] {
@@ -276,10 +276,10 @@ impl App {
                 let _ = self.renderer.fill_rect([r[0] - t, r[1] - t, r[2] + t, r[3] + t], accent);
             } else if self.strip.hot == Some(Hit::Item(i)) {
                 let t = 2.0 * d;
-                let _ = self.renderer.fill_rect([r[0] - t, r[1] - t, r[2] + t, r[3] + t], srgb(0x8A93A6, 1.0));
+                let _ = self.renderer.fill_rect([r[0] - t, r[1] - t, r[2] + t, r[3] + t], ui::dim(1.0));
             }
             let failed = self.gallery.failed.contains(&id);
-            let _ = self.renderer.fill_rect(r, if failed { srgb(0x4A2222, 1.0) } else { srgb(0x2A2A2A, 1.0) });
+            let _ = self.renderer.fill_rect(r, if failed { ui::failed(1.0) } else { ui::tile(1.0) });
             if let Some((tw, th)) = self.renderer.thumb_size(id) {
                 let (cw, ch) = (r[2] - r[0], r[3] - r[1]);
                 let s = (cw / tw as f32).min(ch / th as f32).min(1.0);
@@ -295,11 +295,11 @@ impl App {
             let total = max + lay.bar[3];
             let len = (track * lay.bar[3] / total).max(24.0 * d);
             let top = lay.header_h + (track - len) * (self.strip.scroll / max);
-            let _ = self.renderer.fill_rect([lay.bar[2] - 4.0 * d, top, lay.bar[2] - 1.0 * d, top + len], srgb(0xF2F2F2, 0.35));
+            let _ = self.renderer.fill_rect([lay.bar[2] - 4.0 * d, top, lay.bar[2] - 1.0 * d, top + len], ui::text(0.35));
         }
 
         // The header covers whatever scrolled under it.
-        let _ = self.renderer.fill_rect([lay.bar[0], 0.0, lay.bar[2], lay.header_h], srgb(0x0E0E0E, 1.0));
+        let _ = self.renderer.fill_rect([lay.bar[0], 0.0, lay.bar[2], lay.header_h], ui::panel(1.0));
         let order = self.folder.order;
         for (hit, r) in &lay.chips {
             let (label, on) = match hit {
@@ -310,11 +310,11 @@ impl App {
             };
             let dimmed = matches!(hit, Hit::Direction) && order.shuffle.is_some();
             if on {
-                let _ = self.renderer.fill_rect(*r, srgb(0x3D8BFF, 0.95));
+                let _ = self.renderer.fill_rect(*r, ui::accent(0.95));
             } else if self.strip.hot == Some(*hit) && !dimmed {
-                let _ = self.renderer.fill_rect(*r, srgb(0x3A3F4A, 0.95));
+                let _ = self.renderer.fill_rect(*r, ui::hover(0.95));
             } else {
-                let _ = self.renderer.fill_rect(*r, srgb(0x23262C, 0.95));
+                let _ = self.renderer.fill_rect(*r, ui::tile(0.95));
             }
             if let Some((key, tw, th)) = self.overlay_glyph(&label, 11.5) {
                 let _ = self.renderer.draw_overlay(key, r[0] + (r[2] - r[0] - tw) / 2.0, r[1] + (r[3] - r[1] - th) / 2.0, if dimmed { dim_c } else { text_c });
@@ -326,7 +326,7 @@ impl App {
             if let Some((key, tw, th)) = self.overlay_small(&[name]) {
                 let r = self.item_rect(&lay, i);
                 let (x, y) = (lay.bar[0] - tw - 8.0 * d, (r[1] + (r[3] - r[1] - th) / 2.0).clamp(0.0, lay.bar[3] - th));
-                let _ = self.renderer.fill_rect([x, y, x + tw, y + th], srgb(0x0E0E0E, 0.92));
+                let _ = self.renderer.fill_rect([x, y, x + tw, y + th], ui::panel(0.92));
                 let _ = self.renderer.draw_overlay(key, x, y, text_c);
             }
         }

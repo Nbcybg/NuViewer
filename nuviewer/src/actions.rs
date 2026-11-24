@@ -224,6 +224,10 @@ impl App {
             Action::Share => self.share_current(),
             Action::ExtractFrames => self.extract_frames_current(),
             Action::Undo => self.undo(),
+            Action::OpenFile => self.open_dialog_pick(),
+            Action::SaveAs => self.save_as(),
+            Action::Refresh => self.refresh_folder(),
+            Action::NextSkin => self.set_skin((nv_text::skin::current_index() + 1) % nv_text::skin::SKINS.len()),
             Action::Settings => self.open_settings(),
             Action::Back => {
                 if self.view.area.take().is_some() {

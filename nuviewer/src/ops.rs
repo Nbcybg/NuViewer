@@ -97,6 +97,49 @@ impl App {
         }
     }
 
+    /// `Ctrl+O` / File > Open: the Windows Open dialog, in the folder that is open. A picture opens like a second launch would.
+    pub fn open_dialog_pick(&mut self) {
+        let start = self.target().and_then(|i| self.folder.files.get(i)).and_then(|p| p.parent().map(|d| d.to_path_buf()));
+        let filter = "Pictures, video, 3D and documents\0*.*\0\0";
+        if let Some(p) = nv_win::shell::open_dialog(self.hwnd, "Open", filter, start.as_deref()) {
+            self.open_request(Some(p.display().to_string()), false);
+        }
+    }
+
+    /// `Ctrl+R` / File > Refresh: read the folder again - new files appear, deleted ones go, changed ones are decoded again - and stay
+    /// on the picture that is open (or the next one if it is gone). Undo history, sort order and the gallery stay as they are.
+    pub fn refresh_folder(&mut self) {
+        let Some(path) = self.folder.files.get(self.folder.index).cloned().or_else(|| self.target().and_then(|i| self.folder.files.get(i).cloned())) else { return };
+        let before = self.folder.files.len();
+        let order = self.folder.order;
+        let list = match FolderList::open_with(&path, order) {
+            Ok(l) => Ok(l),
+            Err(_) => match path.parent() {
+                Some(dir) => FolderList::open_with(dir, order),
+                None => Err("the folder is gone".to_string()),
+            },
+        };
+        match list {
+            Err(e) => self.toast(crate::hud::failure(1001, format!("Couldn't read the folder: {e}"))),
+            Ok(list) => {
+                let (undo, was_gallery) = (std::mem::take(&mut self.undo), self.mode == Mode::Gallery);
+                let selected = self.gallery.selected;
+                let note = list.files.len() as i64 - before as i64;
+                self.replace_folder(list);
+                self.undo = undo;
+                if was_gallery {
+                    self.gallery.selected = selected.min(self.folder.files.len().saturating_sub(1));
+                    self.enter_gallery();
+                }
+                self.toast(match note {
+                    0 => format!("Refreshed: {} pictures, no change", self.folder.files.len()),
+                    n if n > 0 => format!("Refreshed: {} pictures ({n} new)", self.folder.files.len()),
+                    n => format!("Refreshed: {} pictures ({} gone)", self.folder.files.len(), -n),
+                });
+            }
+        }
+    }
+
     /// Switch to a different folder: everything tied to the old list is dropped.
     pub(crate) fn replace_folder(&mut self, list: FolderList) {
         self.stop_slideshow(false);

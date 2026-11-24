@@ -225,9 +225,9 @@ impl App {
         let lay = self.layout();
         let scroll = lay.clamp_scroll(self.gallery.scroll);
         let d = self.gallery.dpi;
-        let tile = srgb(0x2A2A2A, 1.0);
-        let tile_failed = srgb(0x4A2222, 1.0);
-        let accent = srgb(0x3D8BFF, 1.0);
+        let tile = ui::tile(1.0);
+        let tile_failed = ui::failed(1.0);
+        let accent = ui::accent(1.0);
         for i in lay.visible(scroll) {
             let r = lay.rect(i, scroll);
             let fi = self.items[i];
@@ -249,8 +249,8 @@ impl App {
             if let Some(run) = self.runs.iter().find(|r| r.start == fi).cloned() {
                 if let Some((key, tw, th)) = self.overlay_small(&[format!("\u{25B6} {}", run.len())]) {
                     let (x, y) = (r[2] - tw - 4.0 * d, r[3] - th - 4.0 * d);
-                    let _ = self.renderer.fill_rect([x, y, x + tw, y + th], srgb(0x0E0E0E, 0.82));
-                    let _ = self.renderer.draw_overlay(key, x, y, srgb(0xF2F2F2, 1.0));
+                    let _ = self.renderer.fill_rect([x, y, x + tw, y + th], ui::panel(0.82));
+                    let _ = self.renderer.draw_overlay(key, x, y, ui::text(1.0));
                 }
             }
         }

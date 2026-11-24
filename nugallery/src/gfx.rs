@@ -15,20 +15,45 @@ pub fn rgb(hex: u32, a: f32) -> [f32; 4] {
     [ch(16), ch(8), ch(0), a]
 }
 
-/// The palette (sRGB hex).
+/// The palette (sRGB hex): the skin in use (`nv_text::skin`), read each time so a skin change shows at once.
 pub mod pal {
-    pub const BG: u32 = 0x1A1A1A;
-    pub const PANEL: u32 = 0x202225;
-    pub const PANEL_EDGE: u32 = 0x34373C;
-    pub const TILE: u32 = 0x2A2C30;
-    pub const TILE_HOVER: u32 = 0x34373C;
-    pub const TEXT: u32 = 0xF0F0F0;
-    pub const DIM: u32 = 0x9AA0A6;
-    pub const ACCENT: u32 = 0x3D8BFF;
-    pub const FIELD: u32 = 0x15171A;
-    pub const ERROR: u32 = 0xFF7B7B;
-    pub const FOLDER: u32 = 0xE8B84A;
-    pub const STAR: u32 = 0xFFC83D;
+    use nv_text::skin::current;
+    pub fn bg() -> u32 {
+        current().bg
+    }
+    pub fn panel() -> u32 {
+        current().panel
+    }
+    pub fn edge() -> u32 {
+        current().edge
+    }
+    pub fn tile() -> u32 {
+        current().tile
+    }
+    pub fn hover() -> u32 {
+        current().hover
+    }
+    pub fn text() -> u32 {
+        current().text
+    }
+    pub fn dim() -> u32 {
+        current().dim
+    }
+    pub fn accent() -> u32 {
+        current().accent
+    }
+    pub fn field() -> u32 {
+        current().field
+    }
+    pub fn error() -> u32 {
+        current().error
+    }
+    pub fn folder() -> u32 {
+        current().folder
+    }
+    pub fn star() -> u32 {
+        current().star
+    }
 }
 
 /// Text rendering state: which cached bitmaps were used this frame (the rest are dropped at the end of the frame),
@@ -165,31 +190,31 @@ pub fn draw_menubar(r: &mut Renderer, text: &mut Text, bar: &mut nv_win::menubar
     }
     let strip = bar.strip(w, d);
     let _ = r.fill_rect(strip, rgb(0x15171A, 0.97));
-    let _ = r.fill_rect([0.0, strip[3] - 1.0, w, strip[3]], rgb(pal::PANEL_EDGE, 1.0));
+    let _ = r.fill_rect([0.0, strip[3] - 1.0, w, strip[3]], rgb(pal::edge(), 1.0));
     let ty = (strip[3] - line_h(px)) / 2.0;
     // The two end buttons: back (to the previous program) and close.
     let (back_n, back_r, close_n, close_r) = bar.nav_rects(w, d);
     for (n, rr, glyph, size) in [(back_n, back_r, "\u{2039}", 22.0f32), (close_n, close_r, "\u{2715}", 14.0f32)] {
         if bar.nav_hot() == Some(n) {
-            let _ = r.fill_rect([rr[0], rr[1] + 2.0 * d, rr[2], rr[3] - 1.0], rgb(if n == nv_win::menubar::Nav::Close { 0xC0392B } else { pal::TILE_HOVER }, 1.0));
+            let _ = r.fill_rect([rr[0], rr[1] + 2.0 * d, rr[2], rr[3] - 1.0], rgb(if n == nv_win::menubar::Nav::Close { 0xC0392B } else { pal::hover() }, 1.0));
         }
         let gp = (size * d).round() as i32;
-        text.draw_centered(r, glyph, gp, (rr[0] + rr[2]) / 2.0, (strip[3] - line_h(gp)) / 2.0, rgb(pal::TEXT, 1.0));
+        text.draw_centered(r, glyph, gp, (rr[0] + rr[2]) / 2.0, (strip[3] - line_h(gp)) / 2.0, rgb(pal::text(), 1.0));
     }
     let labels = bar.labels();
     for (i, (rect, label)) in bar.rects().iter().zip(labels.iter()).enumerate() {
         if bar.hot() == Some(i) {
-            let _ = r.fill_rect([rect[0], rect[1] + 2.0 * d, rect[2], rect[3] - 1.0], rgb(if bar.keyboard() { pal::ACCENT } else { pal::TILE_HOVER }, 1.0));
+            let _ = r.fill_rect([rect[0], rect[1] + 2.0 * d, rect[2], rect[3] - 1.0], rgb(if bar.keyboard() { pal::accent() } else { pal::hover() }, 1.0));
         }
         let x = rect[0] + (rect[2] - rect[0] - text.width(label, px) as f32) / 2.0;
-        text.draw(r, label, px, x, ty, rgb(pal::TEXT, 1.0));
+        text.draw(r, label, px, x, ty, rgb(pal::text(), 1.0));
         if bar.keyboard() {
             if let Some(k) = bar.mnemonic_of(i) {
                 let before: String = label.chars().take(k).collect();
                 let ch: String = label.chars().skip(k).take(1).collect();
                 let ux = x + text.width(&before, px) as f32;
                 let uw = text.width(&ch, px) as f32;
-                let _ = r.fill_rect([ux, ty + line_h(px) - 3.0 * d, ux + uw, ty + line_h(px) - 2.0 * d], rgb(pal::TEXT, 1.0));
+                let _ = r.fill_rect([ux, ty + line_h(px) - 3.0 * d, ux + uw, ty + line_h(px) - 2.0 * d], rgb(pal::text(), 1.0));
             }
         }
     }

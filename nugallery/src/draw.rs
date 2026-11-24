@@ -108,8 +108,8 @@ pub fn header_hit(app: &App, x: f32) -> Option<SortKey> {
 #[allow(clippy::too_many_arguments)]
 pub fn draw_box(r: &mut Renderer, text: &mut Text, rect: [f32; 4], s: &str, ti: Option<&TextInput>, placeholder: &str, font: i32, d: f32, error: bool) {
     let focused = ti.is_some();
-    let edge = if error { pal::ERROR } else if focused { pal::ACCENT } else { pal::PANEL_EDGE };
-    let _ = r.fill_rect(rect, rgb(pal::FIELD, 1.0));
+    let edge = if error { pal::error() } else if focused { pal::accent() } else { pal::edge() };
+    let _ = r.fill_rect(rect, rgb(pal::field(), 1.0));
     outline(r, rect, if focused { 2.0 * d.min(1.5) } else { 1.0 }, rgb(edge, 1.0));
     let pad = 8.0 * d;
     let inner = [rect[0] + 2.0, rect[1] + 2.0, rect[2] - 2.0, rect[3] - 2.0];
@@ -124,17 +124,17 @@ pub fn draw_box(r: &mut Renderer, text: &mut Text, rect: [f32; 4], s: &str, ti: 
             let x0 = rect[0] + pad - shift;
             if let Some((a, b)) = ti.selection() {
                 let (xa, xb) = (text.width(&prefix(a), font) as f32, text.width(&prefix(b), font) as f32);
-                let _ = r.fill_rect([x0 + xa, ty, x0 + xb, ty + line_h(font)], rgb(pal::ACCENT, 0.55));
+                let _ = r.fill_rect([x0 + xa, ty, x0 + xb, ty + line_h(font)], rgb(pal::accent(), 0.55));
             }
-            text.draw(r, s, font, x0, ty, rgb(pal::TEXT, 1.0));
-            let _ = r.fill_rect([x0 + caret_x, ty + 1.0, x0 + caret_x + (1.5 * d).max(1.0), ty + line_h(font) - 1.0], rgb(pal::TEXT, 1.0));
+            text.draw(r, s, font, x0, ty, rgb(pal::text(), 1.0));
+            let _ = r.fill_rect([x0 + caret_x, ty + 1.0, x0 + caret_x + (1.5 * d).max(1.0), ty + line_h(font) - 1.0], rgb(pal::text(), 1.0));
         }
         None => {
             if s.is_empty() {
-                text.draw(r, placeholder, font, rect[0] + pad, ty, rgb(pal::DIM, 1.0));
+                text.draw(r, placeholder, font, rect[0] + pad, ty, rgb(pal::dim(), 1.0));
             } else {
                 let fitted = text.fit(s, font, view_w as i32);
-                text.draw(r, &fitted, font, rect[0] + pad, ty, rgb(pal::TEXT, 1.0));
+                text.draw(r, &fitted, font, rect[0] + pad, ty, rgb(pal::text(), 1.0));
             }
         }
     }
@@ -147,7 +147,7 @@ pub fn draw_folder(r: &mut Renderer, b: [f32; 4], alpha: f32) {
     let s = w.min(h) * 0.62;
     let (cx, cy) = ((b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0);
     let (x0, y0) = (cx - s / 2.0, cy - s * 0.36);
-    let c = rgb(pal::FOLDER, alpha);
+    let c = rgb(pal::folder(), alpha);
     let _ = r.fill_rect([x0, y0, x0 + s * 0.42, y0 + s * 0.14], rgb(0xC99A33, alpha));
     let _ = r.fill_rect([x0, y0 + s * 0.1, x0 + s, y0 + s * 0.72], c);
     let _ = r.fill_rect([x0, y0 + s * 0.22, x0 + s, y0 + s * 0.72], rgb(0xF2C75E, alpha));
@@ -184,7 +184,7 @@ pub fn draw_card(r: &mut Renderer, text: &mut Text, b: [f32; 4], ext: &str, fail
     let label = if ext.is_empty() { "?".to_string() } else { ext.to_uppercase() };
     let size = (cw * 0.28).clamp(9.0 * d, 20.0 * d) as i32;
     let label = text.fit(&label, size, (cw - 6.0) as i32);
-    text.draw_centered(r, &label, size, cx, cy - line_h(size) / 2.0, rgb(if failed { pal::ERROR } else { pal::DIM }, 1.0));
+    text.draw_centered(r, &label, size, cx, cy - line_h(size) / 2.0, rgb(if failed { pal::error() } else { pal::dim() }, 1.0));
 }
 
 impl App {
@@ -204,7 +204,7 @@ impl App {
         let (w, h) = (self.size.0 as f32, self.size.1 as f32);
         {
             let Some(r) = self.renderer.as_mut() else { return };
-            if !r.begin(rgb(pal::BG, 1.0)) {
+            if !r.begin(rgb(pal::bg(), 1.0)) {
                 return;
             }
         }
@@ -264,13 +264,13 @@ impl App {
                     contains(hr, mx as f32, my as f32)
                 };
                 if hovered {
-                    let _ = r.fill_rect(hr, rgb(pal::TILE_HOVER, 0.6));
+                    let _ = r.fill_rect(hr, rgb(pal::hover(), 0.6));
                 }
                 let ty = hr[1] + (hr[3] - hr[1] - line_h(head_px)) / 2.0 - 1.0 * d;
-                self.text.draw(r, &span.label, head_px, hr[0] + 6.0 * d, ty, rgb(pal::TEXT, 1.0));
+                self.text.draw(r, &span.label, head_px, hr[0] + 6.0 * d, ty, rgb(pal::text(), 1.0));
                 let lw = self.text.width(&span.label, head_px) as f32;
-                self.text.draw(r, &span.count.to_string(), name_px, hr[0] + 6.0 * d + lw + 10.0 * d, ty + 1.0 * d, rgb(pal::DIM, 1.0));
-                let _ = r.fill_rect([hr[0], hr[3] - 2.0 * d, hr[2], hr[3] - 1.0 * d], rgb(pal::ACCENT, 0.55));
+                self.text.draw(r, &span.count.to_string(), name_px, hr[0] + 6.0 * d + lw + 10.0 * d, ty + 1.0 * d, rgb(pal::dim(), 1.0));
+                let _ = r.fill_rect([hr[0], hr[3] - 2.0 * d, hr[2], hr[3] - 1.0 * d], rgb(pal::accent(), 0.55));
             }
         }
         for i in g.visible(scroll) {
@@ -284,17 +284,17 @@ impl App {
             let hovered = hover == Some(i);
             let is_drop = e.is_dir() && drag_target.as_ref().map(|t| crate::app::same_dir(t, &e.path)).unwrap_or(false);
             let bg = if is_drop {
-                rgb(pal::ACCENT, 0.55)
+                rgb(pal::accent(), 0.55)
             } else if selected {
-                rgb(pal::ACCENT, 0.30)
+                rgb(pal::accent(), 0.30)
             } else if hovered {
-                rgb(pal::TILE_HOVER, 1.0)
+                rgb(pal::hover(), 1.0)
             } else if mode == ViewMode::Details && i % 2 == 1 {
                 rgb(0x1F2124, 1.0)
             } else if mode == ViewMode::Thumbs {
-                rgb(pal::TILE, 1.0)
+                rgb(pal::tile(), 1.0)
             } else {
-                rgb(pal::BG, 0.0)
+                rgb(pal::bg(), 0.0)
             };
             let _ = r.fill_rect(rc, bg);
             match mode {
@@ -313,7 +313,7 @@ impl App {
                     }
                     if label_h > 0.0 {
                         let name = self.text.fit(&e.name, name_px, (rc[2] - rc[0] - 12.0 * d) as i32);
-                        self.text.draw(r, &name, name_px, rc[0] + 6.0 * d, rc[1] + cell + 3.0 * d, rgb(if selected { 0xFFFFFF } else { pal::TEXT }, 1.0));
+                        self.text.draw(r, &name, name_px, rc[0] + 6.0 * d, rc[1] + cell + 3.0 * d, rgb(if selected { 0xFFFFFF } else { pal::text() }, 1.0));
                     }
                 }
                 ViewMode::Details => {
@@ -321,25 +321,25 @@ impl App {
                     draw_visual(r, &mut self.text, e, icon, 0.0, failed, d);
                     let ty = rc[1] + (rc[3] - rc[1] - line_h(name_px)) / 2.0;
                     let name = self.text.fit(&e.name, name_px, (size_right - 90.0 * d - name_x) as i32);
-                    self.text.draw(r, &name, name_px, name_x, ty, rgb(pal::TEXT, 1.0));
+                    self.text.draw(r, &name, name_px, name_x, ty, rgb(pal::text(), 1.0));
                     if !e.is_dir() {
-                        self.text.draw_right(r, &fmt_bytes(e.size), name_px, size_right, ty, rgb(pal::DIM, 1.0));
+                        self.text.draw_right(r, &fmt_bytes(e.size), name_px, size_right, ty, rgb(pal::dim(), 1.0));
                     }
-                    self.text.draw(r, &type_label(e), name_px, type_x, ty, rgb(pal::DIM, 1.0));
-                    self.text.draw(r, &fmt_date(e.modified), name_px, date_x, ty, rgb(pal::DIM, 1.0));
+                    self.text.draw(r, &type_label(e), name_px, type_x, ty, rgb(pal::dim(), 1.0));
+                    self.text.draw(r, &fmt_date(e.modified), name_px, date_x, ty, rgb(pal::dim(), 1.0));
                 }
                 ViewMode::List => {
                     let icon = [rc[0] + 4.0 * d, rc[1] + 2.0 * d, rc[0] + 4.0 * d + 24.0 * d, rc[3] - 2.0 * d];
                     draw_visual(r, &mut self.text, e, icon, 0.0, failed, d);
                     let ty = rc[1] + (rc[3] - rc[1] - line_h(name_px)) / 2.0;
                     let name = self.text.fit(&e.name, name_px, (rc[2] - rc[0] - 40.0 * d) as i32);
-                    self.text.draw(r, &name, name_px, rc[0] + 34.0 * d, ty, rgb(pal::TEXT, 1.0));
+                    self.text.draw(r, &name, name_px, rc[0] + 34.0 * d, ty, rgb(pal::text(), 1.0));
                 }
             }
             if is_drop {
                 outline(r, rc, (2.0 * d).max(1.0), rgb(0x7DB4FF, 1.0));
             } else if selected {
-                outline(r, rc, (2.0 * d).max(1.0), rgb(pal::ACCENT, 1.0));
+                outline(r, rc, (2.0 * d).max(1.0), rgb(pal::accent(), 1.0));
             } else if cursor == Some(i) {
                 outline(r, rc, 1.0, rgb(0xB8C4D8, 0.8));
             }
@@ -348,14 +348,14 @@ impl App {
         // The details header stays on top.
         if mode == ViewMode::Details {
             let hb = [area[0], area[1], area[2], area[1] + 28.0 * d];
-            let _ = r.fill_rect(hb, rgb(pal::PANEL, 1.0));
-            let _ = r.fill_rect([hb[0], hb[3] - 1.0, hb[2], hb[3]], rgb(pal::PANEL_EDGE, 1.0));
+            let _ = r.fill_rect(hb, rgb(pal::panel(), 1.0));
+            let _ = r.fill_rect([hb[0], hb[3] - 1.0, hb[2], hb[3]], rgb(pal::edge(), 1.0));
             let key = self.listing.order.key;
             let mark = |k: SortKey| -> &'static str {
                 if self.listing.order.shuffle.is_some() || key != k { "" } else if self.listing.order.descending { " ▼" } else { " ▲" }
             };
             let ty = hb[1] + (hb[3] - hb[1] - line_h(name_px)) / 2.0;
-            let dim = rgb(pal::TEXT, 0.85);
+            let dim = rgb(pal::text(), 0.85);
             self.text.draw(r, &format!("Name{}", mark(SortKey::Name)), name_px, name_x, ty, dim);
             self.text.draw_right(r, &format!("Size{}", mark(SortKey::Size)), name_px, size_right, ty, dim);
             self.text.draw(r, &format!("Type{}", mark(SortKey::Type)), name_px, type_x, ty, dim);
@@ -364,7 +364,7 @@ impl App {
         if self.listing.len() == 0 && self.loading.is_none() {
             let msg = if !self.listing.search.is_empty() { "Nothing matches the search" } else { "This folder has nothing to show" };
             let cx = (area[0] + area[2]) / 2.0;
-            self.text.draw_centered(r, msg, px(16.0, d), cx, area[1] + 80.0 * d, rgb(pal::DIM, 1.0));
+            self.text.draw_centered(r, msg, px(16.0, d), cx, area[1] + 80.0 * d, rgb(pal::dim(), 1.0));
         }
     }
 
@@ -383,7 +383,7 @@ impl App {
         let rect = [sx.min(nx), sy.min(ny), sx.max(nx), sy.max(ny)];
         let d = self.dpi;
         let Some(r) = self.renderer.as_mut() else { return };
-        let _ = r.fill_rect(rect, rgb(pal::ACCENT, 0.15));
+        let _ = r.fill_rect(rect, rgb(pal::accent(), 0.15));
         outline(r, rect, (1.5 * d).max(1.0), rgb(0x7DB4FF, 0.95));
     }
 
@@ -423,7 +423,7 @@ impl App {
         let y = area[3] - h - 8.0 * d;
         let Some(r) = self.renderer.as_mut() else { return };
         let _ = r.fill_rect([x, y, x + w, y + h], rgb(0x0E0E0E, 0.78));
-        self.text.draw(r, &s, font, x + 8.0 * d, y + 3.0 * d, rgb(pal::TEXT, 0.95));
+        self.text.draw(r, &s, font, x + 8.0 * d, y + 3.0 * d, rgb(pal::text(), 0.95));
     }
 
     fn draw_toolbar(&mut self) {
@@ -443,8 +443,8 @@ impl App {
         let path_text = self.display_dir().display().to_string();
         let search_text = self.listing.search.clone();
         let Some(r) = self.renderer.as_mut() else { return };
-        let _ = r.fill_rect(top, rgb(pal::PANEL, 1.0));
-        let _ = r.fill_rect([top[0], top[3] - 1.0, top[2], top[3]], rgb(pal::PANEL_EDGE, 1.0));
+        let _ = r.fill_rect(top, rgb(pal::panel(), 1.0));
+        let _ = r.fill_rect([top[0], top[3] - 1.0, top[2], top[3]], rgb(pal::edge(), 1.0));
         for (b, rc) in &buttons {
             if matches!(b, Btn::PinLeft | Btn::PinRight) {
                 continue;
@@ -458,7 +458,7 @@ impl App {
                 _ => false,
             };
             let dead = (*b == Btn::Back && !can_back) || (*b == Btn::Forward && !can_fwd);
-            let bg = if on { rgb(pal::ACCENT, 0.85) } else if hot && !dead { rgb(0x3A3E44, 1.0) } else { rgb(0x2B2E33, 1.0) };
+            let bg = if on { rgb(pal::accent(), 0.85) } else if hot && !dead { rgb(0x3A3E44, 1.0) } else { rgb(0x2B2E33, 1.0) };
             let _ = r.fill_rect(*rc, bg);
             let label = match b {
                 Btn::Prev => "◀".to_string(),
@@ -476,7 +476,7 @@ impl App {
                 _ => String::new(),
             };
             let f = if matches!(b, Btn::Sort | Btn::Show | Btn::Tools | Btn::PinTop) { small } else { font };
-            let c = if dead { rgb(pal::DIM, 0.5) } else { rgb(pal::TEXT, 1.0) };
+            let c = if dead { rgb(pal::dim(), 0.5) } else { rgb(pal::text(), 1.0) };
             self.text.draw_centered(r, &label, f, (rc[0] + rc[2]) / 2.0, rc[1] + (rc[3] - rc[1] - line_h(f)) / 2.0, c);
         }
         let path_focus = self.active.as_ref().filter(|a| a.focus == Focus::Path);
@@ -503,10 +503,10 @@ impl App {
             let y = h * 0.36;
             let title = if new_folder { "New folder — Enter creates it, Esc cancels" } else { "Rename — Enter applies, Esc cancels" };
             let _ = r.fill_rect([x - 12.0 * d, y - 36.0 * d, x + bw + 12.0 * d, y + bh + 14.0 * d + if err.is_some() { 24.0 * d } else { 0.0 }], rgb(0x0E0E0E, 0.92));
-            self.text.draw(r, title, small, x, y - 28.0 * d, rgb(pal::DIM, 1.0));
+            self.text.draw(r, title, small, x, y - 28.0 * d, rgb(pal::dim(), 1.0));
             draw_box(r, &mut self.text, [x, y, x + bw, y + bh], &ti.text(), Some(&ti), "", font, d, err.is_some());
             if let Some(e) = err {
-                self.text.draw(r, &e, small, x, y + bh + 8.0 * d, rgb(pal::ERROR, 1.0));
+                self.text.draw(r, &e, small, x, y + bh + 8.0 * d, rgb(pal::error(), 1.0));
             }
         }
         if let Some(j) = job {
@@ -515,8 +515,8 @@ impl App {
             let x = (w - tw) / 2.0;
             let y = h - bh - 56.0 * d;
             let _ = r.fill_rect([x, y, x + tw, y + bh], rgb(0x0E0E0E, 0.92));
-            outline(r, [x, y, x + tw, y + bh], 1.0, rgb(pal::ACCENT, 0.9));
-            self.text.draw(r, &j, small, x + 12.0 * d, y + 6.0 * d, rgb(pal::TEXT, 1.0));
+            outline(r, [x, y, x + tw, y + bh], 1.0, rgb(pal::accent(), 0.9));
+            self.text.draw(r, &j, small, x + 12.0 * d, y + 6.0 * d, rgb(pal::text(), 1.0));
         }
         if let Some(t) = toast {
             let t = self.text.fit(&t, small, (w * 0.7) as i32);
@@ -524,7 +524,7 @@ impl App {
             let bh = line_h(small) + 12.0 * d;
             let (x, y) = (14.0 * d + self.chrome.area[0], h - bh - 44.0 * d);
             let _ = r.fill_rect([x, y, x + tw, y + bh], rgb(0x0E0E0E, 0.92));
-            self.text.draw(r, &t, small, x + 12.0 * d, y + 6.0 * d, rgb(pal::TEXT, 1.0));
+            self.text.draw(r, &t, small, x + 12.0 * d, y + 6.0 * d, rgb(pal::text(), 1.0));
         }
         if help {
             let help: Vec<String> = help_lines().into_iter().map(|l| nv_text::tr(&l).into_owned()).collect();
@@ -537,7 +537,7 @@ impl App {
             let (x, y) = (((w - tw) / 2.0).max(0.0), ((h - th) / 2.0).max(0.0));
             let _ = r.fill_rect([x, y, x + tw, y + th], rgb(0x0E0E0E, 0.95));
             for (i, l) in help.iter().enumerate() {
-                let c = if i == 0 { rgb(pal::TEXT, 1.0) } else { rgb(0xD0D4DA, 1.0) };
+                let c = if i == 0 { rgb(pal::text(), 1.0) } else { rgb(0xD0D4DA, 1.0) };
                 self.text.draw(r, l, font, x + 20.0 * d, y + 15.0 * d + i as f32 * lh, c);
             }
             // The credits are centred; the website and the support address are links.

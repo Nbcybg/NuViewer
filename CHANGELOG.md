@@ -2,6 +2,18 @@
 
 Notable changes to NuViewer, newest first. Details and measurements for each round of work are in `HANDOFF.md`.
 
+## 0.8.0 - 2026-11-24
+
+### Changed
+- **The right-click menu is grouped and short.** The first level was about 50 lines in one list; it is now 22 lines in six groups (open and save; look around; how the picture is shown; the file; change / send; settings) with the long lists folded into submenus: *Go to*, *Zoom*, *Rotate & flip* (the view's turn, and "turn the file itself" for JPEG / PNG), *View* (window, panels, 360, read mode, RAW look, skin), *Sort & group*, *Rating & labels*, *File* (copy to, move to, path, Explorer, share, properties), *Tools* (colour picker, palette, disk speed, frames, convert, plug-ins, file types). Every line has an icon and its shortcut on the right; a line that is switched on shows its icon on the accent colour. NuGallery's menu was regrouped the same way (41 lines -> 26) and NuEditor's menus use the same painter.
+- The menus are drawn by NuViewer (owner-drawn, Segoe MDL2 Assets icons) in the colours of the skin in use, in all three programs and their menu bars. No program's window procedure knows about it: the owner window is sub-classed only while a menu is open. Every line keeps its words in the menu (a screen reader reads each line; typing a letter goes to the line that starts with it, as in every Windows menu), and the lines scale with the display (checked at 1.0, 1.5 and 2.0).
+- Shortcut text: `Ctrl+Shift+S` on a still picture is Save as (on a video, animation or layered file it still saves the frame).
+- The Info panel no longer starts under the controls bar on the left edge (its labels were hidden).
+
+### Added
+- **Skins**: Nu Dark (as before), Nu Light, Marigold (yellow, white, red), Rouge (red, white, black), Verdant (green, white, red), Azure (blue, grey, white), Bumblebee (yellow, white, black), Candy Shell (a bag of sweets on chocolate), Aubergine (plum with four bright pens), Greyscale and Jet Black (OLED). Right-click > View > Skin, or `Ctrl+Alt+K` for the next one; kept in `settings.ini` (`skin = verdant`) and used by NuViewer, NuGallery and NuEditor (the viewer's bars, panels and the gallery). A unit test checks that every skin's text, hints, accent and error colours are readable on its own backgrounds. The names are our own words for a mood, not anybody's brand. Not skinned yet: the Settings window and other system dialogs (they are Windows' own controls), NuEditor's tool panels, NuQuick, NuNote, NuImporter.
+- **Open...** (`Ctrl+O`), **Save as...** (`Ctrl+Alt+S`; on a still picture also `Ctrl+Shift+S`; PNG, JPEG, lossless WebP, BMP, TIFF, TGA - the same format is a plain copy), **Refresh** (`Ctrl+R` or `Ctrl+F5`: read the folder again, stay on the picture, keep undo and the gallery).
+
 ## 0.7.3 - 2026-11-23
 
 ### Added

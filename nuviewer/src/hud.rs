@@ -170,7 +170,7 @@ impl App {
         let (w, h) = (w as f32, h as f32);
         let d = self.gallery.dpi;
         let margin = 14.0 * d;
-        let (text_c, dim_c, back_c) = (srgb(0xF2F2F2, 1.0), srgb(0x9AA0A6, 1.0), srgb(0x0E0E0E, 0.84));
+        let (text_c, dim_c, back_c) = (ui::text(1.0), ui::dim(1.0), ui::panel(0.84));
 
         // Gallery: a status line with the selected file's name.
         if self.mode == Mode::Gallery && !self.folder.files.is_empty() {
@@ -191,7 +191,9 @@ impl App {
             let values: Vec<String> = self.hud.info_rows.iter().map(|(_, v)| clip(v, 80)).collect();
             if !labels.is_empty() {
                 if let (Some((lk, lw, lh)), Some((vk, vw, _))) = (self.overlay(&labels), self.overlay(&values)) {
-                    let (x, y, gap) = (margin, margin, 6.0 * d);
+                    // Right of the controls bar when that is showing (it used to cover the labels column).
+                    let bar_edge = if self.sidebar_visible() { self.sidebar_layout().0[2] } else { 0.0 };
+                    let (x, y, gap) = (margin.max(bar_edge + 8.0 * d), margin, 6.0 * d);
                     let _ = self.renderer.fill_rect([x, y, x + lw + gap + vw, y + lh], back_c);
                     let _ = self.renderer.draw_overlay(lk, x, y, dim_c);
                     let _ = self.renderer.draw_overlay(vk, x + lw + gap, y, text_c);
@@ -216,16 +218,16 @@ impl App {
                 let ch: f32 = credit_overlays.iter().map(|c| c.2).sum();
                 let (bw, bh) = (tw.max(cw), th + ch);
                 let (x, y) = (((w - bw) / 2.0).max(0.0), ((h - bh) / 2.0).max(0.0));
-                let _ = self.renderer.fill_rect([x, y, x + bw, y + bh], srgb(0x0E0E0E, 0.92));
+                let _ = self.renderer.fill_rect([x, y, x + bw, y + bh], ui::panel(0.92));
                 let _ = self.renderer.draw_overlay(key, x + (bw - tw) / 2.0, y, text_c);
                 let mut cy = y + th;
                 for (k, ctw, cth, link) in &credit_overlays {
                     let cx = x + (bw - ctw) / 2.0;
-                    let colour = if link.is_some() { srgb(0x7DB4FF, 1.0) } else { dim_c };
+                    let colour = if link.is_some() { ui::link(1.0) } else { dim_c };
                     let _ = self.renderer.draw_overlay(*k, cx, cy, colour);
                     if let Some(l) = link {
                         self.hud.links.push(([cx, cy, cx + ctw, cy + cth], l.clone()));
-                        let _ = self.renderer.fill_rect([cx, cy + cth - 4.0 * d, cx + ctw, cy + cth - 3.0 * d], srgb(0x7DB4FF, 0.8));
+                        let _ = self.renderer.fill_rect([cx, cy + cth - 4.0 * d, cx + ctw, cy + cth - 3.0 * d], ui::link(0.8));
                     }
                     cy += cth;
                 }
@@ -245,18 +247,18 @@ impl App {
                 let box_w = (w * 0.5).max(tw + 2.0 * margin).min(w - 2.0 * margin);
                 let total_h = hh + th + err.map(|(_, _, eh)| eh).unwrap_or(0.0);
                 let (x, y) = ((w - box_w) / 2.0, h * 0.38);
-                let _ = self.renderer.fill_rect([x, y, x + box_w, y + total_h], srgb(0x0E0E0E, 0.94));
+                let _ = self.renderer.fill_rect([x, y, x + box_w, y + total_h], ui::panel(0.94));
                 let _ = self.renderer.draw_overlay(hk, x, y, dim_c);
                 let ty = y + hh;
                 let tx = x + margin;
                 self.hud.rename_geom = Some((tx + pad, ty, ty + th, x, x + box_w));
                 if let Some((a, b)) = sel_x {
-                    let _ = self.renderer.fill_rect([tx + pad + a, ty + pad * 0.6, tx + pad + b, ty + th - pad * 0.6], srgb(0x3D8BFF, 0.55));
+                    let _ = self.renderer.fill_rect([tx + pad + a, ty + pad * 0.6, tx + pad + b, ty + th - pad * 0.6], ui::accent(0.55));
                 }
                 let _ = self.renderer.draw_overlay(tk, tx, ty, text_c);
                 let _ = self.renderer.fill_rect([tx + pad + cur_x, ty + pad * 0.6, tx + pad + cur_x + 2.0 * d, ty + th - pad * 0.6], text_c);
                 if let Some((ek, _, _)) = err {
-                    let _ = self.renderer.draw_overlay(ek, x, ty + th, srgb(0xFF7B7B, 1.0));
+                    let _ = self.renderer.draw_overlay(ek, x, ty + th, ui::error(1.0));
                 }
             }
         }
@@ -268,7 +270,7 @@ impl App {
                     // Under the menu bar when that is showing too.
                     let y0 = if self.menubar.visible() { self.menubar.height(d) } else { 0.0 };
                     self.top_bar_h = th + y0;
-                    let _ = self.renderer.fill_rect([0.0, y0, w, y0 + th], srgb(0x0E0E0E, 0.88));
+                    let _ = self.renderer.fill_rect([0.0, y0, w, y0 + th], ui::panel(0.88));
                     let _ = self.renderer.draw_overlay(key, ((w - tw) / 2.0).max(0.0), y0, text_c);
                 }
             }

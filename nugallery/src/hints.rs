@@ -194,9 +194,9 @@ impl App {
 fn draw_box(r: &mut Renderer, text: &mut Text, rect: [f32; 4], lines: &[String], font: i32, lh: f32, d: f32) {
     let _ = r.fill_rect([rect[0] + 2.0 * d, rect[1] + 3.0 * d, rect[2] + 2.0 * d, rect[3] + 3.0 * d], rgb(0x000000, 0.35));
     let _ = r.fill_rect(rect, rgb(0x0E0E0E, 0.96));
-    outline(r, rect, 1.0, rgb(pal::PANEL_EDGE, 1.0));
+    outline(r, rect, 1.0, rgb(pal::edge(), 1.0));
     for (i, l) in lines.iter().enumerate() {
-        let c = if i == 0 { rgb(pal::TEXT, 1.0) } else { rgb(pal::DIM, 1.0) };
+        let c = if i == 0 { rgb(pal::text(), 1.0) } else { rgb(pal::dim(), 1.0) };
         text.draw(r, l, font, rect[0] + 10.0 * d, rect[1] + 6.0 * d + i as f32 * lh, c);
     }
 }

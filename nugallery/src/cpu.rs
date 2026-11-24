@@ -148,7 +148,7 @@ impl App {
         if !self.cpu_possible() {
             return;
         }
-        let mut canvas = Canvas::new(self.size.0 as i32, self.size.1 as i32, pal::BG);
+        let mut canvas = Canvas::new(self.size.0 as i32, self.size.1 as i32, pal::bg());
         let g = self.grid();
         let scroll = g.clamp(self.scroll);
         for i in g.visible(scroll) {
@@ -188,7 +188,7 @@ impl App {
         if rc[3] < 0.0 || rc[1] > c.h as f32 {
             return;
         }
-        c.fill(rc, pal::TILE);
+        c.fill(rc, pal::tile());
         let pad = 8.0 * d;
         let inner = [rc[0] + pad, rc[1] + pad, rc[0] + cell - pad, rc[1] + cell - pad];
         if is_dir {
@@ -197,7 +197,7 @@ impl App {
             let (cx, cy) = ((inner[0] + inner[2]) / 2.0, (inner[1] + inner[3]) / 2.0);
             let (x0, y0) = (cx - s / 2.0, cy - s * 0.36);
             c.fill([x0, y0, x0 + s * 0.42, y0 + s * 0.14], 0xC99A33);
-            c.fill([x0, y0 + s * 0.1, x0 + s, y0 + s * 0.72], pal::FOLDER);
+            c.fill([x0, y0 + s * 0.1, x0 + s, y0 + s * 0.72], pal::folder());
             c.fill([x0, y0 + s * 0.22, x0 + s, y0 + s * 0.72], 0xF2C75E);
         } else if let Some((_, img)) = self.staged.iter().find(|(sid, _)| *sid == id) {
             let (tw, th) = (img.width as f32, img.height as f32);
@@ -218,7 +218,7 @@ impl App {
             let fitted = self.text.fit(&name, px, (rc[2] - rc[0] - 12.0 * d) as i32);
             let bmp = text::render_lines(&[fitted], px, 1);
             let (tx, ty) = ((rc[0] + 6.0 * d).round() as i32 - 1, (rc[1] + cell + 3.0 * d).round() as i32 - 1);
-            c.text(tx, ty, &bmp, pal::TEXT, [rc[0] as i32, rc[1] as i32, rc[2] as i32, rc[3] as i32]);
+            c.text(tx, ty, &bmp, pal::text(), [rc[0] as i32, rc[1] as i32, rc[2] as i32, rc[3] as i32]);
             let _ = line_h(px);
         }
         if self.sel.cursor == Some(i) && !self.sel.ids.contains(&id) {

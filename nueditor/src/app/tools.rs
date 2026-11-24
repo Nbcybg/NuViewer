@@ -624,9 +624,9 @@ pub fn draw_crop(r: &mut Renderer, text: &mut Text, t: &Tools, full: (u32, u32),
 
 /// The curve editor: channel tabs, the square with grid, the curve and its points.
 pub fn draw_curves(r: &mut Renderer, text: &mut Text, t: &Tools, rec: &Recipe, sp: &Special, hot_tab: Option<usize>, d: f32) {
-    let (text_c, dim_c, accent) = (rgb(pal::TEXT, 1.0), rgb(pal::DIM, 1.0), rgb(pal::ACCENT, 1.0));
+    let (text_c, dim_c, accent) = (rgb(pal::text(), 1.0), rgb(pal::dim(), 1.0), rgb(pal::accent(), 1.0));
     for (i, (rect, name)) in sp.tabs.iter().zip(["RGB", "R", "G", "B"]).enumerate() {
-        let fill = if t.curve_ch == i { accent } else if hot_tab == Some(i) { rgb(pal::TILE_HOVER, 1.0) } else { rgb(pal::TILE, 1.0) };
+        let fill = if t.curve_ch == i { accent } else if hot_tab == Some(i) { rgb(pal::hover(), 1.0) } else { rgb(pal::tile(), 1.0) };
         let _ = r.fill_rect(*rect, fill);
         text.draw_centered(r, name, (12.0 * d) as i32, (rect[0] + rect[2]) / 2.0, rect[1] + 4.0 * d, text_c);
     }
@@ -835,10 +835,10 @@ pub fn warp_image(n: u32) -> Image {
 /// The Hue curves section: its four tabs and the square of the chosen one (a curve over the hue circle, or the warper's wheel).
 pub fn draw_hue_curves(r: &mut Renderer, text: &mut Text, t: &Tools, rec: &Recipe, sp: &Special, d: f32) {
     use nv_editor::huecurves::{curve_lut, lch_to_srgb, RINGS, SPOKES};
-    let (text_c, dim_c, accent) = (rgb(pal::TEXT, 1.0), rgb(pal::DIM, 1.0), rgb(pal::ACCENT, 1.0));
+    let (text_c, dim_c, accent) = (rgb(pal::text(), 1.0), rgb(pal::dim(), 1.0), rgb(pal::accent(), 1.0));
     for (i, (rect, name)) in sp.tabs.iter().zip(["Hue", "Sat", "Lum", "Warp"]).enumerate() {
         let changed = if i < 3 { rec.hue_curves.curve(i).iter().any(|p| p.1 != 0.0) } else { rec.hue_curves.warp.iter().any(|n| n[0] != 0.0 || n[1] != 0.0) };
-        let fill = if t.hue_tab == i { accent } else { rgb(pal::TILE, 1.0) };
+        let fill = if t.hue_tab == i { accent } else { rgb(pal::tile(), 1.0) };
         let _ = r.fill_rect(*rect, fill);
         text.draw_centered(r, name, (12.0 * d) as i32, (rect[0] + rect[2]) / 2.0, rect[1] + 4.0 * d, text_c);
         if changed {
@@ -949,7 +949,7 @@ pub fn wheel_image(n: u32) -> Image {
 
 /// The hue wheel section: the ring with a marker per band, the name of the chosen band and its three sliders.
 pub fn draw_wheel(r: &mut Renderer, text: &mut Text, t: &Tools, rec: &Recipe, sp: &Special, d: f32) {
-    let (text_c, dim_c, accent) = (rgb(pal::TEXT, 1.0), rgb(pal::DIM, 1.0), rgb(pal::ACCENT, 1.0));
+    let (text_c, dim_c, accent) = (rgb(pal::text(), 1.0), rgb(pal::dim(), 1.0), rgb(pal::accent(), 1.0));
     let a = sp.area;
     let name = BAND_NAMES[t.band];
     let title = format!("{}{}", name[..1].to_uppercase(), &name[1..]);

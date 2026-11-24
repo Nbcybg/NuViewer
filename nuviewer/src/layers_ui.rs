@@ -681,8 +681,8 @@ impl App {
         }
         let lay = self.layers_layout();
         let d = lay.d;
-        let (text, dim, accent) = (srgb(0xF2F2F2, 1.0), srgb(0x8A9099, 1.0), srgb(0x3D8BFF, 0.95));
-        let _ = self.renderer.fill_rect(lay.panel, srgb(0x0E0E0E, 0.90));
+        let (text, dim, accent) = (ui::text(1.0), ui::dim(1.0), ui::accent(0.95));
+        let _ = self.renderer.fill_rect(lay.panel, ui::panel(0.90));
         // Title and close.
         let ready = self.layers.state == State::Ready;
         let title = match (&self.layers.state, &self.layers.doc) {
@@ -693,7 +693,7 @@ impl App {
         };
         self.ltext(&title, lay.panel[0] + 10.0 * d, lay.panel[1] + 9.0 * d, text);
         if self.layers.hot == Some(Hit::Close) {
-            let _ = self.renderer.fill_rect(lay.close, srgb(0x3A3F4A, 0.95));
+            let _ = self.renderer.fill_rect(lay.close, ui::hover(0.95));
         }
         if let Some((key, tw, th)) = self.overlay_glyph("\u{2715}", 14.0) {
             let _ = self.renderer.draw_overlay(key, lay.close[0] + (lay.close[2] - lay.close[0] - tw) / 2.0, lay.close[1] + (lay.close[3] - lay.close[1] - th) / 2.0, text);
@@ -749,7 +749,7 @@ impl App {
                     let node = self.layers.set.nodes[r.index].clone();
                     let hot_row = self.layers.set.hover == Some(r.index);
                     if hot_row {
-                        let _ = self.renderer.fill_rect(g.row, srgb(0x2A3A52, 0.9));
+                        let _ = self.renderer.fill_rect(g.row, ui::select(0.9));
                     }
                     if self.layers.set.solo == Some(r.index) {
                         let _ = self.renderer.fill_rect([g.row[0], g.row[1], g.row[0] + 3.0 * d, g.row[3]], accent);
@@ -771,10 +771,10 @@ impl App {
                     self.renderer.set_clip(Some(lay.list));
                     // Opacity slider.
                     let (s, mid) = (g.slider, (g.slider[1] + g.slider[3]) / 2.0);
-                    let _ = self.renderer.fill_rect([s[0], mid - 2.0 * d, s[2], mid + 2.0 * d], srgb(0x2B2E35, 1.0));
+                    let _ = self.renderer.fill_rect([s[0], mid - 2.0 * d, s[2], mid + 2.0 * d], ui::tile(1.0));
                     let fill = s[0] + (s[2] - s[0]) * node.opacity;
-                    let _ = self.renderer.fill_rect([s[0], mid - 2.0 * d, fill, mid + 2.0 * d], if node.on { accent } else { srgb(0x4A4F5A, 1.0) });
-                    let _ = self.renderer.fill_rect([fill - 3.0 * d, s[1] + 2.0 * d, fill + 3.0 * d, s[3] - 2.0 * d], srgb(0xF2F2F2, 1.0));
+                    let _ = self.renderer.fill_rect([s[0], mid - 2.0 * d, fill, mid + 2.0 * d], if node.on { accent } else { ui::knob(1.0) });
+                    let _ = self.renderer.fill_rect([fill - 3.0 * d, s[1] + 2.0 * d, fill + 3.0 * d, s[3] - 2.0 * d], ui::text(1.0));
                     if hot_row || self.layers.drag == Some(r.index) {
                         let pct = format!("{:.0}%", node.opacity * 100.0);
                         self.renderer.set_clip(Some([g.slider[0] - 40.0 * d, g.row[1], g.slider[0] - 2.0 * d, g.row[3]]));
@@ -790,13 +790,13 @@ impl App {
                 if rows.len() > slots {
                     let track = [lay.list[2] - 3.0 * d, lay.list[1], lay.list[2], lay.list[3]];
                     let (th, top) = ((track[3] - track[1]) * slots as f32 / rows.len() as f32, (track[3] - track[1]) * self.layers.scroll as f32 / rows.len() as f32);
-                    let _ = self.renderer.fill_rect([track[0], track[1] + top, track[2], track[1] + top + th.max(12.0 * d)], srgb(0x5A606C, 0.9));
+                    let _ = self.renderer.fill_rect([track[0], track[1] + top, track[2], track[1] + top + th.max(12.0 * d)], ui::knob(0.9));
                 }
             }
             State::Loading => self.ltext("Reading the layers...", lay.list[0] + 4.0 * d, lay.list[1] + 6.0 * d, dim),
             State::Failed(e) => {
                 for (k, line) in wrap(&e, 44).into_iter().take(4).enumerate() {
-                    self.ltext(&line, lay.list[0] + 4.0 * d, lay.list[1] + (6.0 + k as f32 * 20.0) * d, srgb(0xFFB454, 1.0));
+                    self.ltext(&line, lay.list[0] + 4.0 * d, lay.list[1] + (6.0 + k as f32 * 20.0) * d, ui::star(1.0));
                 }
             }
             State::Idle => {}

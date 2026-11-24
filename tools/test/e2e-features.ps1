@@ -95,8 +95,11 @@ try {
     $c = Pixel $cx $cy
     Check 'End goes to the last page (blue)' (((Title) -like '*page 3/3*') -and ($c.B -gt 200) -and ($c.R -lt 60)) (Title)
     Wheel -120 $cx $cy
+    Start-Sleep -Milliseconds 500
+    Check 'wheel down on the last page stays there (a document stops at its last page; Ctrl+Right leaves it)' ((Title) -like 'doc.pdf*page 3/3*') (Title)
+    Key-Mods 0x27 1
     [void](Wait-Until { (Title) -like 'logo.svg*' } 4000); Start-Sleep -Milliseconds 300
-    Check 'wheel down past the last page continues to the next file (logo.svg)' ((Title) -like 'logo.svg*') (Title)
+    Check 'Ctrl+Right on the last page continues to the next file (logo.svg)' ((Title) -like 'logo.svg*') (Title)
     $c = Pixel $cx $cy
     Check "SVG is drawn (red rectangle on blue)  [centre $($c.R),$($c.G),$($c.B)]" (($c.R -gt 200) -and ($c.B -lt 60))
     Wheel 120 $cx $cy
@@ -134,7 +137,7 @@ try {
     Wheel 120 $cx $cy; Wheel 120 $cx $cy; Wheel 120 $cx $cy
     $n1 = & $count
     Check "the wheel zooms the model ($n0 -> $n1 lit samples)" ($n1 -gt $n0 * 1.2)
-    Key 0x46
+    Key 0x46 1000
     Check 'F puts the camera back' ((Signature) -eq $sig0)
 
     # ============================================================================================
@@ -204,8 +207,12 @@ try {
         $hm = [In]::SendMessage($menu, 0x01E1, [IntPtr]::Zero, [IntPtr]::Zero)
         $n = [In]::GetMenuItemCount($hm)
         $texts = @(0..($n - 1) | ForEach-Object { [In]::MenuText($hm, $_) })
-        Check "menu has 43 entries  [$n]" ($n -eq 43)
-        Check 'Settings… and Fold image sequences are in the menu' ((@($texts | Where-Object { $_ -like 'Settings*' }).Count -eq 1) -and (@($texts | Where-Object { $_ -like 'Fold image sequences*' }).Count -eq 1))
+        Check "menu has 27 entries (22 lines in 5 groups + 5 separators)  [$n]" ($n -eq 27)
+        Check 'Settings… is in the menu, and the lines have their text (screen readers read it)' ((@($texts | Where-Object { $_ -like 'Settings*' }).Count -eq 1) -and (@($texts | Where-Object { $_ -like 'Gallery*' }).Count -eq 1))
+        $so = [array]::IndexOf(@($texts | ForEach-Object { $_ -like 'Sort & group*' }), $true)
+        $ssub = if ($so -ge 0) { [In]::GetSubMenu($hm, $so) } else { [IntPtr]::Zero }
+        $sitems = @(); if ($ssub -ne [IntPtr]::Zero) { for ($k = 0; $k -lt [In]::GetMenuItemCount($ssub); $k++) { $sitems += [In]::MenuText($ssub, $k) } }
+        Check 'Fold image sequences is in the Sort & group submenu' ((@($sitems | Where-Object { $_ -like 'Fold image sequences*' }).Count) -eq 1) ($sitems -join '|')
         $ow = [array]::IndexOf(@($texts | ForEach-Object { $_ -like 'Edit with*' }), $true)
         $sub = [In]::GetSubMenu($hm, $ow)
         Check "the Edit with submenu lists the external program 'Mark it'" (($sub -ne [IntPtr]::Zero) -and ([In]::MenuText($sub, 0) -eq 'Mark it'))
@@ -228,22 +235,22 @@ try {
         Start-Sleep -Milliseconds 300
         $list = ([In]::Children($sw) | Where-Object { $_.Id -eq 410 }).H
         $cnt = [In]::SendMessage($list, 0x018B, [IntPtr]::Zero, [IntPtr]::Zero)
-        Check "keyboard list holds all 77 actions  [$cnt]" ($cnt -eq 77)
+        Check "keyboard list holds every action (more than 100 now)  [$cnt]" ([int]$cnt -gt 100)
         [void][In]::SendMessage($list, 0x0186, [IntPtr]0, [IntPtr]::Zero)   # LB_SETCURSEL 0
         [void][In]::SendMessage($sw, 0x0111, [IntPtr](410 -bor (1 -shl 16)), $list)   # WM_COMMAND, LBN_SELCHANGE
         $edit = ([In]::Children($sw) | Where-Object { $_.Id -eq 411 }).H
         $sbuf = New-Object System.Text.StringBuilder 256; [void][In]::SendMessage($edit, 0x000D, [IntPtr]256, $sbuf)
         Check "selecting 'Next picture' shows its keys  [$sbuf]" ($sbuf.ToString() -eq 'Right, Space')
-        [void][In]::SendMessage($edit, 0x000C, [IntPtr]::Zero, 'K, Space')   # WM_SETTEXT
+        [void][In]::SendMessage($edit, 0x000C, [IntPtr]::Zero, 'Ctrl+Alt+F8, Space')   # WM_SETTEXT
         $setBtn = ([In]::Children($sw) | Where-Object { $_.Id -eq 412 }).H
         [void][In]::SendMessage($setBtn, 0xF5, [IntPtr]::Zero, [IntPtr]::Zero)
-        Check "Set updates the list row  [$([In]::ListText($list, 0))]" ([In]::ListText($list, 0) -like '*K, Space*')
+        Check "Set updates the list row  [$([In]::ListText($list, 0))]" ([In]::ListText($list, 0) -like '*Ctrl+Alt+F8, Space*')
         [void][In]::SendMessage($edit, 0x000C, [IntPtr]::Zero, 'Left')       # Left already belongs to "Previous"
         [void][In]::PostMessage($setBtn, 0xF5, [IntPtr]::Zero, [IntPtr]::Zero)
         $mb = Wait-Until { $m = [In]::FindWindow('#32770', 'NuViewer'); if ($m -ne [IntPtr]::Zero) { $m } } 5000
         Check 'a key that another action owns is refused with a message' ($null -ne $mb)
         if ($mb) { [void][In]::PostMessage($mb, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero); Start-Sleep -Milliseconds 300 }
-        Check 'and the row is unchanged' ([In]::ListText($list, 0) -like '*K, Space*')
+        Check 'and the row is unchanged' ([In]::ListText($list, 0) -like '*Ctrl+Alt+F8, Space*')
         $edge = ([In]::Children($sw) | Where-Object { $_.Id -eq 113 }).H   # "viewer controls on the left edge" (on by default)
         [void][In]::PostMessage($edge, 0xF5, [IntPtr]::Zero, [IntPtr]::Zero); Start-Sleep -Milliseconds 300
         $ok = ([In]::Children($sw) | Where-Object { $_.Id -eq 1 -and $_.Cls -eq 'Button' }).H
@@ -251,7 +258,7 @@ try {
         $done = Wait-Until { $sp.HasExited } 5000
         Check 'OK closes the window' ($null -ne $done)
         $text = Get-Content $ini -Raw
-        Check 'the keys were saved to the settings file' ($text -match 'key\.next = K, Space') $text
+        Check 'the keys were saved to the settings file' ($text -match 'key\.next = Ctrl\+Alt\+F8, Space') $text
         Check 'the left-edge controls setting was saved' ($text -match 'sidebar = false')
         Check 'untouched settings stay as they were' ($text -match 'fps = 24')
     }

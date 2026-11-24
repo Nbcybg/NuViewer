@@ -4,7 +4,7 @@
 use super::*;
 use nv_core::keys::{Action, ACTIONS};
 use nv_core::xmp::Label;
-use nv_win::menu::{self, Entry};
+use nv_win::menu::{self, icon, Entry};
 
 /// Menu ids: `ACTION_BASE + index in ACTIONS` runs that action, `EXTERNAL_BASE + n` sends the picture to the n-th
 /// external program, the rest are special items.
@@ -26,6 +26,72 @@ const MENU_PLUGIN_NOTE: u32 = 0x1000_0032;
 const MENU_PLUGIN: u32 = 0x1000_1000;
 const MENU_SORT_ASC: u32 = 0x1000_0020;
 const MENU_SORT_DESC: u32 = 0x1000_0021;
+/// "Skin" submenu: `MENU_SKIN + index in nv_text::skin::SKINS`.
+const MENU_SKIN: u32 = 0x1000_0100;
+
+fn checked(e: Entry, on: bool) -> Entry {
+    match e {
+        Entry::Item { id, text, enabled, icon, .. } => Entry::Item { id, text, checked: on, enabled, icon },
+        other => other,
+    }
+}
+
+/// The picture shown in front of each action in the menus (Segoe MDL2 Assets).
+fn action_icon(a: Action) -> char {
+    use Action::*;
+    match a {
+        OpenFile => icon::OPEN,
+        SaveAs => icon::SAVE_AS,
+        Refresh => icon::REFRESH,
+        Gallery => icon::GALLERY,
+        Slideshow => icon::SLIDESHOW,
+        PlayPause => icon::PLAY,
+        FitReset => icon::FIT,
+        ActualSize => icon::ACTUAL,
+        ZoomIn => icon::ZOOM_IN,
+        ZoomOut => icon::ZOOM_OUT,
+        ZoomReset | Zoom1 | Zoom2 | Zoom3 | Zoom4 | Zoom5 => icon::ZOOM,
+        RotateCw90 | RotatePlus45 | QuickRotateRight => icon::TURN_RIGHT,
+        RotateCcw90 | RotateMinus45 | QuickRotateLeft => icon::TURN_LEFT,
+        SaveRotation => icon::SAVE,
+        QuickFlipH => icon::FLIP_H,
+        QuickFlipV => icon::FLIP_V,
+        Fullscreen => icon::FULLSCREEN,
+        Borderless => icon::WINDOW,
+        Info => icon::INFO,
+        FilmStrip => icon::FILM,
+        ToggleSidebar => icon::SIDEBAR,
+        Layers => icon::LAYERS,
+        Dim => icon::DIM,
+        Pano => icon::GLOBE,
+        ReadMode | ReadDirection => icon::BOOK,
+        RawLook | Snapshot => icon::CAMERA,
+        Shuffle => icon::SHUFFLE,
+        ToggleSequences => icon::LIBRARY,
+        TogglePairs => icon::STACK,
+        PickColour => icon::DOT,
+        Palette => icon::PALETTE,
+        DiskMonitor => icon::CHART,
+        ExtractFrames => icon::SCAN,
+        ConvertPng | ConvertJpeg => icon::CONVERT,
+        CopyImage | CopyTo => icon::COPY,
+        CopyPath => icon::LINK,
+        MoveTo => icon::CUT,
+        Rename => icon::RENAME,
+        Delete | DeletePermanently => icon::DELETE,
+        Undo => icon::UNDO,
+        Reveal => icon::FOLDER,
+        Share => icon::SHARE,
+        Edit => icon::EDIT,
+        Settings => icon::SETTINGS,
+        Help => icon::HELP,
+        Quit => icon::CLOSE,
+        Next | NextFile => icon::NEXT,
+        Prev | PrevFile => icon::PREV,
+        NextSkin => icon::SKIN,
+        _ => '\0',
+    }
+}
 
 impl App {
     // ---- wheel ------------------------------------------------------------------------------------
@@ -196,8 +262,8 @@ impl App {
     pub fn draw_area_box(&mut self, a: (i32, i32), b: (i32, i32)) {
         let (l, t, r, bt) = (a.0.min(b.0) as f32, a.1.min(b.1) as f32, a.0.max(b.0) as f32, a.1.max(b.1) as f32);
         let w = (1.5 * self.gallery.dpi).max(1.0);
-        let _ = self.renderer.fill_rect([l, t, r, bt], srgb(0x3D8BFF, 0.16));
-        let edge = srgb(0x7DB4FF, 0.95);
+        let _ = self.renderer.fill_rect([l, t, r, bt], ui::accent(0.16));
+        let edge = ui::link(0.95);
         let _ = self.renderer.fill_rect([l, t, r, t + w], edge);
         let _ = self.renderer.fill_rect([l, bt - w, r, bt], edge);
         let _ = self.renderer.fill_rect([l, t, l + w, bt], edge);
@@ -261,7 +327,7 @@ impl App {
         let idx = ACTIONS.iter().position(|i| i.action == action).unwrap_or(0);
         let hint = self.keymap.chords_of(action).first().map(|c| c.format()).unwrap_or_default();
         let label = nv_text::tr(label);
-        Entry::item(ACTION_BASE + idx as u32, if hint.is_empty() { label.into_owned() } else { format!("{label}\t{hint}") })
+        Entry::item(ACTION_BASE + idx as u32, if hint.is_empty() { label.into_owned() } else { format!("{label}\t{hint}") }).icon(action_icon(action))
     }
 
     /// "Undo delete" / "Undo move" ...: what Ctrl+Z would take back, named.
@@ -296,7 +362,7 @@ impl App {
             items.push(Entry::Separator);
         }
         items.push(Entry::item(MENU_OPEN_AS, "Choose another app…"));
-        Entry::Submenu { text: "Open with".into(), items, enabled: enabled && file.is_some() }
+        Entry::sub("Open with", items).icon(icon::OPEN_WITH).enabled(enabled && file.is_some())
     }
 
     /// "Edit with": the programs set up in Settings, any program chosen on the spot, and the way to set the list up.
@@ -307,7 +373,7 @@ impl App {
         }
         items.push(Entry::item(MENU_CHOOSE_PROGRAM, "Choose a program…"));
         items.push(Entry::item(MENU_SET_UP_PROGRAMS, "Set up the list…"));
-        Entry::Submenu { text: "Edit with…".into(), items, enabled }
+        Entry::sub("Edit with…", items).icon(icon::EDIT).enabled(enabled)
     }
 
     /// "Quick edit": turn or flip the file itself in one click (JPEG and PNG; the original stays in the undo folder).
@@ -319,7 +385,7 @@ impl App {
             self.action_entry(Action::QuickFlipH, "Flip horizontally"),
             self.action_entry(Action::QuickFlipV, "Flip vertically"),
         ];
-        Entry::Submenu { text: "Quick edit".into(), items, enabled: ok }
+        Entry::sub("Quick edit", items).icon(icon::ROTATE).enabled(ok)
     }
 
     /// "Plug-ins": the commands that apply to this picture, then the folder to put plug-ins in and a reload.
@@ -335,7 +401,7 @@ impl App {
         items.push(Entry::Separator);
         items.push(Entry::item(MENU_PLUGIN_FOLDER, "Open the plug-ins folder…"));
         items.push(Entry::item(MENU_PLUGIN_RELOAD, format!("Reload plug-ins ({} loaded{})", loaded.plugins.len(), if loaded.skipped.is_empty() { String::new() } else { format!(", {} skipped", loaded.skipped.len()) })));
-        Entry::Submenu { text: "Plug-ins".into(), items, enabled }
+        Entry::sub("Plug-ins", items).icon(icon::PLUGIN).enabled(enabled)
     }
 
     /// The entries under menu bar label `i` (labels: File, Edit, View, Go, Tools, Help).
@@ -343,13 +409,13 @@ impl App {
         let has = self.target().is_some();
         let viewer = self.mode == Mode::Viewer;
         let many = self.folder.files.len() > 1;
-        let checked = |e: Entry, on: bool| match e {
-            Entry::Item { id, text, enabled, .. } => Entry::Item { id, text, checked: on, enabled },
-            other => other,
-        };
         match i {
             0 => vec![
+                self.action_entry(Action::OpenFile, "Open\u{2026}"),
                 self.open_with_entry(has),
+                self.action_entry(Action::SaveAs, "Save as\u{2026}").enabled(has),
+                self.action_entry(Action::Refresh, "Refresh").enabled(has),
+                Entry::Separator,
                 self.action_entry(Action::Rename, "Rename…").enabled(has),
                 self.action_entry(Action::CopyTo, "Copy to…").enabled(has),
                 self.action_entry(Action::MoveTo, "Move to…").enabled(has),
@@ -408,6 +474,8 @@ impl App {
                 Entry::Separator,
                 checked(self.action_entry(Action::Slideshow, "Slideshow").enabled(many), self.slide.on),
                 checked(self.action_entry(Action::Shuffle, "Shuffle").enabled(many), self.folder.order.shuffle.is_some()),
+                Entry::Separator,
+                self.skin_menu(),
             ],
             3 => vec![
                 self.action_entry(Action::Prev, "Previous picture").enabled(viewer && many),
@@ -458,90 +526,236 @@ impl App {
         let viewer = self.mode == Mode::Viewer;
         let many = self.folder.files.len() > 1;
         let playable = self.controller().is_some();
-        let checked = |e: Entry, on: bool| match e {
-            Entry::Item { id, text, enabled, .. } => Entry::Item { id, text, checked: on, enabled },
-            other => other,
-        };
-        let edit_with = self.edit_with_entry(has_file);
-        let plugins = self.plugins_entry(has_file);
-        let open_with = self.open_with_entry(has_file);
         let order = self.folder.order;
-        let sort_menu = {
-            let mut items: Vec<Entry> = nv_core::SortKey::ALL.iter().enumerate().map(|(i, k)| Entry::checked(MENU_SORT + i as u32, k.label(), order.shuffle.is_none() && order.key == *k)).collect();
-            items.push(Entry::Separator);
-            items.push(Entry::checked(MENU_SORT_ASC, "Ascending", !order.descending));
-            items.push(Entry::checked(MENU_SORT_DESC, "Descending", order.descending));
-            Entry::Submenu { text: "Sort by".into(), items, enabled: has_file && many }
-        };
-        let rating_menu = {
-            let now = self.target().map(|i| nv_core::xmp::read(&self.folder.files[i])).unwrap_or_default();
-            let mut items: Vec<Entry> = (0..=5u8)
-                .map(|n| {
-                    let a = [Action::Rate0, Action::Rate1, Action::Rate2, Action::Rate3, Action::Rate4, Action::Rate5][n as usize];
-                    let text = if n == 0 { "No stars".to_string() } else { "\u{2605}".repeat(n as usize) };
-                    checked(self.action_entry(a, &text), !now.rejected && now.stars == n)
-                })
-                .collect();
-            items.push(checked(self.action_entry(Action::Reject, "Rejected"), now.rejected));
-            items.push(Entry::Separator);
-            for (a, l) in [(Action::LabelRed, Label::Red), (Action::LabelYellow, Label::Yellow), (Action::LabelGreen, Label::Green), (Action::LabelBlue, Label::Blue), (Action::LabelPurple, Label::Purple)] {
-                items.push(checked(self.action_entry(a, l.name()), now.label == Some(l)));
-            }
-            items.push(self.action_entry(Action::LabelNone, "No label"));
-            Entry::Submenu { text: "Rating".into(), items, enabled: has_file }
-        };
-        let entries = vec![
-            self.action_entry(Action::Prev, "Previous picture").enabled(viewer && many),
-            self.action_entry(Action::Next, "Next picture").enabled(viewer && many),
+        let mut entries = vec![
+            // -- open, save, read again
+            self.action_entry(Action::OpenFile, "Open\u{2026}"),
+            self.open_with_entry(has_file),
+            self.action_entry(Action::Refresh, "Refresh").enabled(has_file),
+            self.action_entry(Action::SaveAs, "Save as\u{2026}").enabled(has_file),
             Entry::Separator,
-            self.action_entry(Action::FitReset, self.fit_toggle().1).enabled(viewer),
+            // -- look around
             checked(self.action_entry(Action::Gallery, "Gallery").enabled(has_file), !viewer),
-            checked(self.action_entry(Action::Fullscreen, "Fullscreen"), nv_win::is_fullscreen()),
-            checked(self.action_entry(Action::Borderless, "Borderless window"), nv_win::is_borderless()),
-            checked(self.action_entry(Action::PickColour, "Pick a colour (copy it)").enabled(has_file && viewer), self.pick.on),
-            checked(self.action_entry(Action::Palette, "Palette of this picture").enabled(has_file && viewer), self.pick.palette_on),
             checked(self.action_entry(Action::Slideshow, "Slideshow").enabled(many), self.slide.on),
-            self.action_entry(Action::PlayPause, "Play / pause").enabled(playable),
-            checked(self.action_entry(Action::ToggleSequences, "Fold image sequences"), self.settings.sequences),
-            checked(self.action_entry(Action::TogglePairs, "Group RAW + JPG pairs"), self.settings.pair_group),
-            rating_menu,
-            checked(self.action_entry(Action::FilmStrip, "Film strip").enabled(viewer && many), self.strip.pinned),
-            checked(self.action_entry(Action::ReadMode, "Read mode (two pages)").enabled(viewer && many), self.read.on),
-            checked(self.action_entry(Action::ReadDirection, "Japanese reading (right to left)").enabled(viewer), self.settings.read_rtl),
-            checked(self.action_entry(Action::Dim, "Dim the screen"), self.disp.dim),
-            checked(self.action_entry(Action::Pano, "360 view").enabled(viewer), self.disp.pano.is_some()),
-            checked(self.action_entry(Action::RawLook, "RAW: camera look (not sensor data)"), self.settings.raw_mode.is_camera_look()),
-            sort_menu,
-            checked(self.action_entry(Action::Shuffle, "Shuffle").enabled(many), order.shuffle.is_some()),
-            checked(self.action_entry(Action::Info, "Info / EXIF").enabled(has_file), self.hud.show_info),
+        ];
+        if playable {
+            entries.push(self.action_entry(Action::PlayPause, "Play / pause"));
+        }
+        entries.extend([
+            self.go_menu(viewer, many),
             Entry::Separator,
-            self.action_entry(Action::Rename, "Rename…").enabled(has_file),
-            self.action_entry(Action::CopyTo, "Copy to…").enabled(has_file),
-            self.action_entry(Action::MoveTo, "Move to…").enabled(has_file),
+            // -- how the picture is shown
+            self.zoom_menu(viewer),
+            self.rotate_menu(viewer),
+            self.view_menu(has_file, viewer, many),
+            self.arrange_menu(has_file, many, order),
+            self.rating_menu(has_file),
+            Entry::Separator,
+            // -- the file itself
             self.action_entry(Action::CopyImage, "Copy picture").enabled(has_file),
-            self.action_entry(Action::CopyPath, "Copy file path").enabled(has_file),
-            self.action_entry(Action::Reveal, "Show in Explorer").enabled(has_file),
-            self.action_entry(Action::Share, "Share to\u{2026}").enabled(has_file),
-            self.action_entry(Action::ExtractFrames, "Extract frames\u{2026}").enabled(has_file),
-            Entry::item(MENU_PROPERTIES, "Properties").enabled(has_file),
-            self.action_entry(Action::ConvertPng, nv_core::i18n::t("menu.convert_png")).enabled(has_file && viewer),
-            self.action_entry(Action::ConvertJpeg, nv_core::i18n::t("menu.convert_jpeg")).enabled(has_file && viewer),
-            self.action_entry(Action::Snapshot, nv_core::i18n::t("menu.snapshot")).enabled(viewer && (self.media_current() || self.controller().is_some())),
-            self.action_entry(Action::Delete, "Delete (Recycle Bin)").enabled(has_file),
-            self.action_entry(Action::Undo, &self.undo_label()).enabled(!self.undo.is_empty()),
+            self.action_entry(Action::Rename, "Rename\u{2026}").enabled(has_file),
+            self.file_menu(has_file),
+            self.action_entry(Action::Delete, "Delete").enabled(has_file),
+        ]);
+        if !self.undo.is_empty() {
+            entries.push(self.action_entry(Action::Undo, &self.undo_label()));
+        }
+        entries.extend([
             Entry::Separator,
+            // -- change it, send it elsewhere
             self.action_entry(Action::Edit, "Edit in NuEditor").enabled(has_file && viewer),
-            self.quick_edit_entry(),
-            open_with,
-            edit_with,
-            plugins,
+            self.edit_with_entry(has_file),
+            self.tools_menu(has_file, viewer),
             Entry::Separator,
-            self.action_entry(Action::Settings, "Settings…"),
-            Entry::item(MENU_FILE_TYPES, "File types…"),
+            self.action_entry(Action::Settings, "Settings\u{2026}"),
             checked(self.action_entry(Action::Help, "Help"), self.hud.show_help),
             self.action_entry(Action::Quit, "Close"),
-        ];
+        ]);
         entries
+    }
+
+    // ---- the groups of the right-click menu: each is a submenu so the first level stays short ---------------
+
+    /// "Go to": where in the folder.
+    fn go_menu(&self, viewer: bool, many: bool) -> Entry {
+        Entry::sub(
+            "Go to",
+            vec![
+                self.action_entry(Action::Next, "Next picture").enabled(viewer && many),
+                self.action_entry(Action::Prev, "Previous picture").enabled(viewer && many),
+                self.action_entry(Action::First, "First picture").enabled(viewer && many),
+                self.action_entry(Action::Last, "Last picture").enabled(viewer && many),
+                Entry::Separator,
+                self.action_entry(Action::NextFile, "Next file").enabled(many),
+                self.action_entry(Action::PrevFile, "Previous file").enabled(many),
+            ],
+        )
+        .icon(icon::NEXT)
+        .enabled(many)
+    }
+
+    /// "Zoom": fit, 100%, steps and multiples.
+    fn zoom_menu(&self, viewer: bool) -> Entry {
+        Entry::sub(
+            "Zoom",
+            vec![
+                self.action_entry(Action::FitReset, "Fit to screen").enabled(viewer),
+                self.action_entry(Action::ActualSize, "Actual size (100%)").enabled(viewer),
+                Entry::Separator,
+                self.action_entry(Action::ZoomIn, "Zoom in").enabled(viewer),
+                self.action_entry(Action::ZoomOut, "Zoom out").enabled(viewer),
+                self.action_entry(Action::ZoomReset, "Reset zoom").enabled(viewer),
+                Entry::Separator,
+                self.action_entry(Action::Zoom2, "2\u{00D7}").enabled(viewer),
+                self.action_entry(Action::Zoom3, "3\u{00D7}").enabled(viewer),
+                self.action_entry(Action::Zoom4, "4\u{00D7}").enabled(viewer),
+                self.action_entry(Action::Zoom5, "5\u{00D7}").enabled(viewer),
+            ],
+        )
+        .icon(icon::ZOOM)
+        .enabled(viewer)
+    }
+
+    /// "Rotate & flip": the view turns for now, "Quick edit" turns the file itself (the original is kept for Undo).
+    fn rotate_menu(&self, viewer: bool) -> Entry {
+        let can_rewrite = !self.is_model() && self.target().and_then(|t| self.folder.files.get(t)).is_some_and(|p| nv_core::quick_edit::can_rewrite(p));
+        Entry::sub(
+            "Rotate & flip",
+            vec![
+                self.action_entry(Action::RotateCcw90, "Rotate left 90\u{00B0}").enabled(viewer),
+                self.action_entry(Action::RotateCw90, "Rotate right 90\u{00B0}").enabled(viewer),
+                self.action_entry(Action::RotateMinus45, "Rotate left 45\u{00B0}").enabled(viewer),
+                self.action_entry(Action::RotatePlus45, "Rotate right 45\u{00B0}").enabled(viewer),
+                self.action_entry(Action::SaveRotation, "Save the rotation").enabled(viewer),
+                Entry::Separator,
+                self.action_entry(Action::QuickRotateLeft, "Turn the file left 90\u{00B0}").enabled(can_rewrite),
+                self.action_entry(Action::QuickRotateRight, "Turn the file right 90\u{00B0}").enabled(can_rewrite),
+                self.action_entry(Action::QuickFlipH, "Flip the file horizontally").enabled(can_rewrite),
+                self.action_entry(Action::QuickFlipV, "Flip the file vertically").enabled(can_rewrite),
+            ],
+        )
+        .icon(icon::ROTATE)
+    }
+
+    /// "View": the window, the panels and the special ways to look at a picture.
+    fn view_menu(&self, has: bool, viewer: bool, many: bool) -> Entry {
+        Entry::sub(
+            "View",
+            vec![
+                checked(self.action_entry(Action::Fullscreen, "Fullscreen"), nv_win::is_fullscreen()),
+                checked(self.action_entry(Action::Borderless, "Borderless window"), nv_win::is_borderless()),
+                Entry::Separator,
+                checked(self.action_entry(Action::Info, "Info / EXIF").enabled(has), self.hud.show_info),
+                checked(self.action_entry(Action::FilmStrip, "Film strip").enabled(viewer && many), self.strip.pinned),
+                checked(self.action_entry(Action::ToggleSidebar, "Viewer controls").enabled(viewer), self.sidebar.pinned),
+                checked(self.action_entry(Action::Layers, "Layers (PSD, XCF, OpenRaster)").enabled(viewer), self.layers.open),
+                Entry::Separator,
+                checked(self.action_entry(Action::Dim, "Dim the screen"), self.disp.dim),
+                checked(self.action_entry(Action::Pano, "360 view").enabled(viewer), self.disp.pano.is_some()),
+                checked(self.action_entry(Action::ReadMode, "Read mode (two pages)").enabled(viewer && many), self.read.on),
+                checked(self.action_entry(Action::ReadDirection, "Japanese reading (right to left)").enabled(viewer), self.settings.read_rtl),
+                checked(self.action_entry(Action::RawLook, "RAW: camera look (not sensor data)"), self.settings.raw_mode.is_camera_look()),
+                Entry::Separator,
+                self.skin_menu(),
+            ],
+        )
+        .icon(icon::VIEW)
+    }
+
+    /// "Sort & group": the order of the folder and how files are folded together.
+    fn arrange_menu(&self, has: bool, many: bool, order: nv_core::Order) -> Entry {
+        let mut sort: Vec<Entry> = nv_core::SortKey::ALL.iter().enumerate().map(|(i, k)| Entry::checked(MENU_SORT + i as u32, k.label(), order.shuffle.is_none() && order.key == *k)).collect();
+        sort.push(Entry::Separator);
+        sort.push(Entry::checked(MENU_SORT_ASC, "Ascending", !order.descending));
+        sort.push(Entry::checked(MENU_SORT_DESC, "Descending", order.descending));
+        Entry::sub(
+            "Sort & group",
+            vec![
+                Entry::sub("Sort by", sort).enabled(has && many).icon(icon::SORT),
+                checked(self.action_entry(Action::Shuffle, "Shuffle").enabled(many), order.shuffle.is_some()),
+                Entry::Separator,
+                checked(self.action_entry(Action::ToggleSequences, "Fold image sequences"), self.settings.sequences),
+                checked(self.action_entry(Action::TogglePairs, "Group RAW + JPG pairs"), self.settings.pair_group),
+            ],
+        )
+        .icon(icon::SORT)
+    }
+
+    /// "Rating & labels": stars, reject and colour labels (kept in an XMP sidecar).
+    fn rating_menu(&self, has: bool) -> Entry {
+        let now = self.target().map(|i| nv_core::xmp::read(&self.folder.files[i])).unwrap_or_default();
+        let mut items: Vec<Entry> = (0..=5u8)
+            .map(|n| {
+                let a = [Action::Rate0, Action::Rate1, Action::Rate2, Action::Rate3, Action::Rate4, Action::Rate5][n as usize];
+                let text = if n == 0 { "No stars".to_string() } else { "\u{2605}".repeat(n as usize) };
+                checked(self.action_entry(a, &text), !now.rejected && now.stars == n)
+            })
+            .collect();
+        items.push(checked(self.action_entry(Action::Reject, "Rejected"), now.rejected));
+        items.push(Entry::Separator);
+        for (a, l) in [(Action::LabelRed, Label::Red), (Action::LabelYellow, Label::Yellow), (Action::LabelGreen, Label::Green), (Action::LabelBlue, Label::Blue), (Action::LabelPurple, Label::Purple)] {
+            items.push(checked(self.action_entry(a, l.name()), now.label == Some(l)));
+        }
+        items.push(self.action_entry(Action::LabelNone, "No label"));
+        Entry::sub("Rating & labels", items).enabled(has).icon(icon::STAR)
+    }
+
+    /// "File": what to do with the file besides the few that are on the first level.
+    fn file_menu(&self, has: bool) -> Entry {
+        Entry::sub(
+            "File",
+            vec![
+                self.action_entry(Action::CopyTo, "Copy to\u{2026}").enabled(has),
+                self.action_entry(Action::MoveTo, "Move to\u{2026}").enabled(has),
+                Entry::Separator,
+                self.action_entry(Action::CopyPath, "Copy file path").enabled(has),
+                self.action_entry(Action::Reveal, "Show in Explorer").enabled(has),
+                self.action_entry(Action::Share, "Share to\u{2026}").enabled(has),
+                Entry::item(MENU_PROPERTIES, "Properties").enabled(has).icon(icon::INFO),
+                Entry::Separator,
+                self.action_entry(Action::DeletePermanently, "Delete permanently\u{2026}").enabled(has),
+            ],
+        )
+        .icon(icon::FOLDER)
+    }
+
+    /// "Tools": colour picking, frames, conversion, plug-ins, file types.
+    fn tools_menu(&self, has: bool, viewer: bool) -> Entry {
+        let frames_ok = viewer && (self.media_current() || self.controller().is_some());
+        Entry::sub(
+            "Tools",
+            vec![
+                checked(self.action_entry(Action::PickColour, "Pick a colour (copy it)").enabled(has && viewer), self.pick.on),
+                checked(self.action_entry(Action::Palette, "Palette of this picture").enabled(has && viewer), self.pick.palette_on),
+                checked(self.action_entry(Action::DiskMonitor, "Disk speed"), self.settings.disk_monitor),
+                Entry::Separator,
+                self.action_entry(Action::ExtractFrames, "Extract frames\u{2026}").enabled(has),
+                self.action_entry(Action::Snapshot, nv_core::i18n::t("menu.snapshot")).enabled(frames_ok),
+                self.action_entry(Action::ConvertPng, nv_core::i18n::t("menu.convert_png")).enabled(has && viewer),
+                self.action_entry(Action::ConvertJpeg, nv_core::i18n::t("menu.convert_jpeg")).enabled(has && viewer),
+                Entry::Separator,
+                self.plugins_entry(has),
+                Entry::item(MENU_FILE_TYPES, "File types\u{2026}").icon(icon::PAGE),
+            ],
+        )
+        .icon(icon::TOOLS)
+    }
+
+    /// "Skin": the colours of the menus and panels.
+    fn skin_menu(&self) -> Entry {
+        let cur = nv_text::skin::current_index();
+        let items = nv_text::skin::SKINS.iter().enumerate().map(|(i, s)| Entry::checked(MENU_SKIN + i as u32, s.name, i == cur)).collect();
+        Entry::sub("Skin", items).icon(icon::SKIN)
+    }
+
+    /// Switch to skin `i`: the menus and panels are drawn in its colours from the next frame on; it is kept for the next start.
+    pub fn set_skin(&mut self, i: usize) {
+        let Some(s) = nv_text::skin::SKINS.get(i) else { return };
+        nv_text::skin::set_index(i);
+        self.settings.skin = s.id.to_string();
+        let _ = self.settings.save();
+        self.toast(format!("Skin: {}", s.name));
+        invalidate(self.hwnd);
     }
 
     /// Carry out a menu choice (right-click menu or menu bar).
@@ -608,6 +822,7 @@ impl App {
             i if (MENU_SORT..MENU_SORT + nv_core::SortKey::ALL.len() as u32).contains(&i) => {
                 self.set_sort_key(nv_core::SortKey::ALL[(i - MENU_SORT) as usize]);
             }
+            i if (MENU_SKIN..MENU_SKIN + nv_text::skin::SKINS.len() as u32).contains(&i) => self.set_skin((i - MENU_SKIN) as usize),
             i if i >= EXTERNAL_BASE => {
                 let program = self.settings.external.get((i - EXTERNAL_BASE) as usize).cloned();
                 if let (Some(p), Some(t)) = (program, self.target()) {

@@ -8,6 +8,7 @@
 //! File format: `key = text`, one per line; `#` starts a comment line; `\n` in the text is a line break, `\\` a backslash.
 
 pub mod registry;
+pub mod skin;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

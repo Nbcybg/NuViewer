@@ -28,7 +28,8 @@ public static class In {
     [DllImport("user32.dll")] static extern int GetDlgCtrlID(IntPtr h);
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
     public class Ctl { public IntPtr H; public string Cls; public string Text; public int Style; public int Id; }
-    public static string MenuText(IntPtr m, int i) { var s = new StringBuilder(160); GetMenuString(m, (uint)i, s, 160, 0x400); return s.ToString(); }
+    // The text of a menu line as a person reads it: the "&" that marks its keyboard letter is taken out ("&&" is a real "&").
+    public static string MenuText(IntPtr m, int i) { var s = new StringBuilder(160); GetMenuString(m, (uint)i, s, 160, 0x400); return s.ToString().Replace("&&", "").Replace("&", "").Replace("", "&"); }
     public static List<Ctl> Children(IntPtr parent) {
         var list = new List<Ctl>();
         EnumChildWindows(parent, (h, l) => {

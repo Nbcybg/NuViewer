@@ -173,17 +173,17 @@ impl App {
         }
         let (rect, buttons) = self.sidebar_layout();
         let d = self.gallery.dpi;
-        let (text_c, dim_c) = (srgb(0xF2F2F2, 1.0), srgb(0x6B7078, 1.0));
-        let _ = self.renderer.fill_rect(rect, srgb(0x0E0E0E, 0.88));
+        let (text_c, dim_c) = (ui::text(1.0), ui::off(1.0));
+        let _ = self.renderer.fill_rect(rect, ui::panel(0.88));
         let hot = self.sidebar.hot;
         for (i, item) in ITEMS.iter().enumerate() {
             let r = buttons[i];
             let enabled = self.sidebar_enabled(item.action);
             let active = self.sidebar_active(item.action);
             if active {
-                let _ = self.renderer.fill_rect(r, srgb(0x3D8BFF, 0.9));
+                let _ = self.renderer.fill_rect(r, ui::accent(0.9));
             } else if hot == Some(i) && enabled {
-                let _ = self.renderer.fill_rect(r, srgb(0x3A3F4A, 0.95));
+                let _ = self.renderer.fill_rect(r, ui::hover(0.95));
             }
             let glyph = if item.action == Action::FitReset { self.fit_toggle().0 } else { item.glyph };
             let size = if glyph.chars().count() > 1 { 14.0 } else { 24.0 };
@@ -199,7 +199,7 @@ impl App {
             if let Some((key, tw, th)) = self.overlay_small(&[format!("{label}{hint}")]) {
                 let r = buttons[i];
                 let (x, y) = (rect[2] + 8.0 * d, r[1] + (r[3] - r[1] - th) / 2.0);
-                let _ = self.renderer.fill_rect([x, y, x + tw, y + th], srgb(0x0E0E0E, 0.92));
+                let _ = self.renderer.fill_rect([x, y, x + tw, y + th], ui::panel(0.92));
                 let _ = self.renderer.draw_overlay(key, x, y, text_c);
             }
         }

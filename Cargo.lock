@@ -1109,7 +1109,7 @@ checksum = "e53debba6bda7a793e5f99b8dacf19e626084f525f7829104ba9898f367d85ff"
 
 [[package]]
 name = "mock-cubism"
-version = "0.7.3"
+version = "0.8.0"
 
 [[package]]
 name = "moxcms"
@@ -1170,7 +1170,7 @@ dependencies = [
 
 [[package]]
 name = "nueditor"
-version = "0.7.3"
+version = "0.8.0"
 dependencies = [
  "nv-codecs",
  "nv-core",
@@ -1182,7 +1182,7 @@ dependencies = [
 
 [[package]]
 name = "nugallery"
-version = "0.7.3"
+version = "0.8.0"
 dependencies = [
  "nv-codecs",
  "nv-core",
@@ -1195,7 +1195,7 @@ dependencies = [
 
 [[package]]
 name = "nuimporter"
-version = "0.7.3"
+version = "0.8.0"
 dependencies = [
  "nv-codecs",
  "nv-core",
@@ -1299,7 +1299,7 @@ dependencies = [
 
 [[package]]
 name = "nunote"
-version = "0.7.3"
+version = "0.8.0"
 dependencies = [
  "nv-core",
  "nv-win",
@@ -1308,7 +1308,7 @@ dependencies = [
 
 [[package]]
 name = "nuquick"
-version = "0.7.3"
+version = "0.8.0"
 dependencies = [
  "nv-codecs",
  "nv-core",
@@ -1318,7 +1318,7 @@ dependencies = [
 
 [[package]]
 name = "nuviewer"
-version = "0.7.3"
+version = "0.8.0"
 dependencies = [
  "nv-anim",
  "nv-codecs",
@@ -1332,7 +1332,7 @@ dependencies = [
 
 [[package]]
 name = "nuviewer-setup"
-version = "0.7.3"
+version = "0.8.0"
 dependencies = [
  "miniz_oxide 0.9.1",
  "nv-win",
@@ -1341,7 +1341,7 @@ dependencies = [
 
 [[package]]
 name = "nv-anim"
-version = "0.7.3"
+version = "0.8.0"
 dependencies = [
  "serde_json",
  "windows",
@@ -1349,7 +1349,7 @@ dependencies = [
 
 [[package]]
 name = "nv-codecs"
-version = "0.7.3"
+version = "0.8.0"
 dependencies = [
  "brotli-decompressor",
  "fbxcel-dom",
@@ -1384,7 +1384,7 @@ dependencies = [
 
 [[package]]
 name = "nv-core"
-version = "0.7.3"
+version = "0.8.0"
 dependencies = [
  "flate2",
  "nv-codecs",
@@ -1397,7 +1397,7 @@ dependencies = [
 
 [[package]]
 name = "nv-editor"
-version = "0.7.3"
+version = "0.8.0"
 dependencies = [
  "gif",
  "image-webp",
@@ -1407,14 +1407,14 @@ dependencies = [
 
 [[package]]
 name = "nv-media"
-version = "0.7.3"
+version = "0.8.0"
 dependencies = [
  "windows",
 ]
 
 [[package]]
 name = "nv-render"
-version = "0.7.3"
+version = "0.8.0"
 dependencies = [
  "nv-codecs",
  "windows",
@@ -1422,11 +1422,11 @@ dependencies = [
 
 [[package]]
 name = "nv-text"
-version = "0.7.3"
+version = "0.8.0"
 
 [[package]]
 name = "nv-win"
-version = "0.7.3"
+version = "0.8.0"
 dependencies = [
  "nv-text",
  "png",

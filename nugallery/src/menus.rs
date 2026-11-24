@@ -154,7 +154,7 @@ impl Builder {
     }
 
     fn sub(&mut self, text: &str, items: Vec<Item>) -> Item {
-        Item::Submenu { text: text.into(), items, enabled: true }
+        Item::Submenu { text: text.into(), items, enabled: true, icon: '\0' }
     }
 }
 
@@ -172,7 +172,7 @@ impl App {
             items.push(Item::Separator);
         }
         items.push(b.item(Cmd::OpenWithChoose, "Choose another app…"));
-        Item::Submenu { text: "Open with".into(), items, enabled: first.is_some() }
+        Item::Submenu { text: "Open with".into(), items, enabled: first.is_some(), icon: '\0' }
     }
 
     /// "Plug-ins": the commands that apply to the first selected file, then the plug-ins folder and a reload.
@@ -188,7 +188,7 @@ impl App {
         items.push(Item::Separator);
         items.push(b.item(Cmd::PluginsFolder, "Open the plug-ins folder…"));
         items.push(b.item(Cmd::PluginsReload, format!("Reload plug-ins ({} loaded{})", loaded.plugins.len(), if loaded.skipped.is_empty() { String::new() } else { format!(", {} skipped", loaded.skipped.len()) })));
-        Item::Submenu { text: "Plug-ins".into(), items, enabled: true }
+        Item::Submenu { text: "Plug-ins".into(), items, enabled: true, icon: '\0' }
     }
 
     /// "Rating": stars, reject and colour labels for the selected pictures (the checked ones are what the focused picture has).
@@ -207,7 +207,7 @@ impl App {
             items.push(b.checked(Cmd::Rate(RateChange::Label(Some(l))), format!("{}\t{key}", l.name()), now.label == Some(l)));
         }
         items.push(b.item(Cmd::Rate(RateChange::Label(None)), "No label\tCtrl+Shift+`"));
-        Item::Submenu { text: "Rating (XMP)".into(), items, enabled }
+        Item::Submenu { text: "Rating (XMP)".into(), items, enabled, icon: '\0' }
     }
 
     /// "Show rating": only the pictures with at least so many stars, a colour label, not rated, rejected ...
@@ -237,81 +237,90 @@ impl App {
         let _ = n;
         let mut b = Builder::default();
 
+        use nv_win::menu::icon;
         let mut menu: Vec<Item> = Vec::new();
+        // -- open
         menu.push(b.item(Cmd::Open, "Open\tSpace").enabled(has));
         menu.push(b.item(Cmd::Slideshow, "Slideshow\tF8").enabled(any_pic));
         let ow = self.open_with_menu(&mut b, &picked);
         menu.push(ow);
-        let quick: Vec<Item> = [QuickOp::RotateLeft, QuickOp::RotateRight, QuickOp::FlipH, QuickOp::FlipV].iter().map(|&q| b.item(Cmd::Quick(q), q.label())).collect();
-        menu.push(b.item(Cmd::NuEditor, "Edit in NuEditor	F4").enabled(any_pic && !many));
-        menu.push(b.item(Cmd::NuEditor, "Edit text in NuNote	F4").enabled(any_text && !many));
-        menu.push(Item::Submenu { text: "Quick edit".into(), items: quick, enabled: all_rewritable });
+        menu.push(b.item(Cmd::ShowLocation, "Show file location\tCtrl+E").enabled(has));
+        menu.push(Item::Separator);
+        // -- change it
+        menu.push(b.item(Cmd::NuEditor, "Edit in NuEditor\tF4").enabled(any_pic && !many));
+        if any_text {
+            menu.push(b.item(Cmd::NuEditor, "Edit text in NuNote\tF4").enabled(!many));
+        }
         let mut with: Vec<Item> = externals.iter().enumerate().map(|(i, name)| b.item(Cmd::EditWith(i), name.clone())).collect();
         if !with.is_empty() {
             with.push(Item::Separator);
         }
         with.push(b.item(Cmd::ChooseProgram, "Choose a program…"));
         with.push(b.item(Cmd::SetUpPrograms, "Set up the list…"));
-        menu.push(Item::Submenu { text: "Edit with…".into(), items: with, enabled: any_file });
-        menu.push(b.item(Cmd::ShowLocation, "Show file location\tCtrl+E").enabled(has));
-        menu.push(Item::Separator);
-        menu.push(b.item(Cmd::Refresh, "Refresh\tF5"));
-        menu.push(b.checked(Cmd::Shuffle, "Shuffle\tCtrl+R", shuffled));
-        menu.push(b.checked(Cmd::ToggleSequences, "Group image sequences\tCtrl+G", self.settings.sequences));
-        menu.push(b.checked(Cmd::TogglePairs, "Group RAW + JPG pairs\tCtrl+Shift+G", self.settings.pair_group));
-        let select = vec![
-            b.item(Cmd::SelectItem, "Item (toggle)").enabled(has),
-            b.item(Cmd::SelectAll, "All\tCtrl+A"),
-            b.item(Cmd::SelectNone, "None\tEsc"),
-            b.item(Cmd::SelectInvert, "Invert"),
-        ];
-        menu.push(b.sub("Select", select));
-        let rate = self.rate_menu(&mut b, any_pic);
-        menu.push(rate);
+        menu.push(Item::sub("Edit with…", with).icon(icon::EDIT).enabled(any_file));
+        let quick: Vec<Item> = [QuickOp::RotateLeft, QuickOp::RotateRight, QuickOp::FlipH, QuickOp::FlipV].iter().map(|&q| b.item(Cmd::Quick(q), q.label())).collect();
+        menu.push(Item::sub("Rotate & flip", quick).icon(icon::ROTATE).enabled(all_rewritable));
+        // One click, no questions: next to each file, same name, nothing lost (PNG is lossless, JPEG is quality 100 at full colour resolution).
+        let mut convert: Vec<Item> = vec![b.item(Cmd::QuickPng, nv_core::i18n::t("menu.convert_png")).enabled(any_pic), b.item(Cmd::QuickJpeg, nv_core::i18n::t("menu.convert_jpeg")).enabled(any_pic), Item::Separator];
+        convert.extend([Preset::JpegHigh, Preset::JpegSmall, Preset::Png, Preset::Webp, Preset::Bmp, Preset::Resize(1920), Preset::Resize(1280), Preset::Resize(800)].iter().map(|&p| b.item(Cmd::Convert(p), p.label())));
+        menu.push(Item::sub("Quick convert", convert).icon(icon::CONVERT).enabled(any_pic));
         let plugins = self.plugins_menu(&mut b, picked.iter().find(|e| !e.is_dir()).copied());
         menu.push(plugins);
         menu.push(Item::Separator);
-        menu.push(b.item(Cmd::CopyImage, "Copy picture").enabled(any_pic));
+        // -- clipboard, copy, move
         menu.push(b.item(Cmd::CopyFile, "Copy file\tCtrl+C").enabled(has));
-        menu.push(b.item(Cmd::CopyPath, "Copy path\tCtrl+Shift+C").enabled(has));
         menu.push(b.item(Cmd::Cut, "Cut\tCtrl+X").enabled(has));
         menu.push(b.item(Cmd::Paste, "Paste\tCtrl+V").enabled(paste_ok));
-        menu.push(b.item(Cmd::CopyTo, "Copy to…\tF7").enabled(has));
+        let copy_move = vec![
+            b.item(Cmd::CopyImage, "Copy picture").enabled(any_pic),
+            b.item(Cmd::CopyPath, "Copy path\tCtrl+Shift+C").enabled(has),
+            Item::Separator,
+            b.item(Cmd::CopyTo, "Copy to…\tF7").enabled(has),
+            b.item(Cmd::MoveTo, "Move to…\tF6").enabled(has),
+        ];
+        menu.push(Item::sub("Copy & move", copy_move).icon(icon::COPY).enabled(has));
         menu.push(Item::Separator);
-        menu.push(b.item(Cmd::MoveTo, "Move to…\tF6").enabled(has));
-        menu.push(Item::Separator);
-        menu.push(b.item(Cmd::Print, "Print\tCtrl+P").enabled(any_pic));
-        menu.push(b.item(Cmd::Share, "Share to\u{2026}\tCtrl+Shift+H").enabled(any_file));
-        menu.push(b.item(Cmd::ExtractFrames, "Extract frames\u{2026}\tCtrl+Shift+F").enabled(any_file));
+        // -- the files
         menu.push(b.item(Cmd::NewFolder, "New folder\tCtrl+N"));
         menu.push(b.item(Cmd::Rename, "Rename\tF2").enabled(has && !many));
         menu.push(b.item(Cmd::Delete, "Delete\tDel").enabled(has));
-        menu.push(b.item(Cmd::Undo, format!("{}\tCtrl+Z", self.undo_label())).enabled(!self.undo.is_empty()));
-        menu.push(b.item(Cmd::Properties, "Properties"));
-        let any_archive = picked.iter().any(|e| nv_core::archive_tools::is_archive(&e.path));
-        menu.push(b.item(Cmd::Compress, "Compress…").enabled(has));
-        menu.push(b.item(Cmd::Extract, "Unpack here").enabled(any_archive));
-        menu.push(b.item(Cmd::MakePdf, "Make a PDF").enabled(true));
-        let convert: Vec<Item> = [Preset::JpegHigh, Preset::JpegSmall, Preset::Png, Preset::Webp, Preset::Bmp, Preset::Resize(1920), Preset::Resize(1280), Preset::Resize(800)]
-            .iter()
-            .map(|&p| b.item(Cmd::Convert(p), p.label()))
-            .collect();
-        menu.push(Item::Submenu { text: "Quick convert".into(), items: convert, enabled: any_pic });
-        // One click, no questions: next to each file, same name, nothing lost (PNG is lossless, JPEG is quality 100 at full colour resolution).
-        menu.push(b.item(Cmd::QuickPng, nv_core::i18n::t("menu.convert_png")).enabled(any_pic));
-        menu.push(b.item(Cmd::QuickJpeg, nv_core::i18n::t("menu.convert_jpeg")).enabled(any_pic));
+        if !self.undo.is_empty() {
+            menu.push(b.item(Cmd::Undo, format!("{}\tCtrl+Z", self.undo_label())));
+        }
         if many {
-            menu.push(Item::Separator);
             let batch = vec![
                 b.item(Cmd::BatchRename, "Rename…"),
                 b.item(Cmd::BatchConvert, "Convert…"),
                 b.item(Cmd::BatchTimes, "Change time stamp…"),
                 b.item(Cmd::BatchStrip, "Remove metadata…"),
             ];
-            menu.push(b.sub("Batch", batch));
+            menu.push(Item::sub("Batch", batch).icon(icon::SLIDERS));
         }
-        // How this folder is shown, and the program's settings.
+        let select = vec![
+            b.item(Cmd::SelectItem, "Item (toggle)").enabled(has),
+            b.item(Cmd::SelectAll, "All\tCtrl+A"),
+            b.item(Cmd::SelectNone, "None\tEsc"),
+            b.item(Cmd::SelectInvert, "Invert"),
+        ];
+        menu.push(Item::sub("Select", select).icon(icon::SELECT));
+        let rate = self.rate_menu(&mut b, any_pic);
+        menu.push(rate);
+        let any_archive = picked.iter().any(|e| nv_core::archive_tools::is_archive(&e.path));
+        let more = vec![
+            b.item(Cmd::Print, "Print\tCtrl+P").enabled(any_pic),
+            b.item(Cmd::Share, "Share to\u{2026}\tCtrl+Shift+H").enabled(any_file),
+            b.item(Cmd::ExtractFrames, "Extract frames\u{2026}\tCtrl+Shift+F").enabled(any_file),
+            Item::Separator,
+            b.item(Cmd::Compress, "Compress…").enabled(has),
+            b.item(Cmd::Extract, "Unpack here").enabled(any_archive),
+            b.item(Cmd::MakePdf, "Make a PDF").enabled(true),
+            Item::Separator,
+            b.item(Cmd::Properties, "Properties"),
+        ];
+        menu.push(Item::sub("More", more).icon(icon::MORE));
         menu.push(Item::Separator);
+        // -- the folder: how it is shown, and the program's settings
+        menu.push(b.item(Cmd::Refresh, "Refresh\tF5"));
         let mut view: Vec<Item> = ViewMode::ALL.iter().map(|&v| b.checked(Cmd::View(v), v.label(), self.mode == v)).collect();
         view.push(Item::Separator);
         view.push(b.item(Cmd::ZoomIn, "Larger thumbnails\tCtrl +"));
@@ -321,13 +330,18 @@ impl App {
         view.push(b.checked(Cmd::ToggleFolders, "Folders", self.listing.folders));
         view.push(b.checked(Cmd::ToggleHidden, "Hidden files", self.persist.hidden));
         view.push(b.checked(Cmd::ToggleNames, "File names under thumbnails", self.persist.names));
-        menu.push(b.sub("View", view));
-        let sort = self.sort_items(&mut b);
-        menu.push(b.sub("Sort by", sort));
-        let group = self.group_items(&mut b);
-        menu.push(b.sub("Group by", group));
+        menu.push(b.sub("View", view).icon(icon::VIEW));
+        let mut sort = self.sort_items(&mut b);
+        sort.push(Item::Separator);
+        sort.push(b.checked(Cmd::Shuffle, "Shuffle\tCtrl+R", shuffled));
+        menu.push(b.sub("Sort by", sort).icon(icon::SORT));
+        let mut group = self.group_items(&mut b);
+        group.push(Item::Separator);
+        group.push(b.checked(Cmd::ToggleSequences, "Group image sequences\tCtrl+G", self.settings.sequences));
+        group.push(b.checked(Cmd::TogglePairs, "Group RAW + JPG pairs\tCtrl+Shift+G", self.settings.pair_group));
+        menu.push(b.sub("Group by", group).icon(icon::LIBRARY));
         let show: Vec<Item> = Show::ALL_CHOICES.iter().map(|&s| b.checked(Cmd::Show(s), s.label(), self.listing.show == s)).collect();
-        menu.push(b.sub("Show only", show));
+        menu.push(b.sub("Show only", show).icon(icon::FILTER));
         menu.push(b.item(Cmd::Settings, "Settings…"));
         if let Some(id) = popup(self.hwnd, x, y, &menu) {
             if let Some(cmd) = b.cmds.get(id as usize - 1).cloned() {
@@ -457,7 +471,7 @@ impl App {
                 }
                 with.push(b.item(Cmd::ChooseProgram, "Choose a program…"));
                 with.push(b.item(Cmd::SetUpPrograms, "Set up the list…"));
-                m.push(Item::Submenu { text: "Edit with…".into(), items: with, enabled: any_file });
+                m.push(Item::Submenu { text: "Edit with…".into(), items: with, enabled: any_file, icon: '\0' });
                 m.push(b.item(Cmd::ShowLocation, "Show file location\tCtrl+E").enabled(has));
                 let rate = self.rate_menu(b, any_pic);
                 m.push(rate);
@@ -522,15 +536,15 @@ impl App {
             }
             3 => {
                 let batch = vec![b.item(Cmd::BatchRename, "Rename…"), b.item(Cmd::BatchConvert, "Convert…"), b.item(Cmd::BatchTimes, "Change time stamp…"), b.item(Cmd::BatchStrip, "Remove metadata…")];
-                m.push(Item::Submenu { text: "Batch (selected files)".into(), items: batch, enabled: has });
+                m.push(Item::Submenu { text: "Batch (selected files)".into(), items: batch, enabled: has, icon: '\0' });
                 let any_archive = picked.iter().any(|e| nv_core::archive_tools::is_archive(&e.path));
                 m.push(b.item(Cmd::Compress, "Compress selected…").enabled(has));
                 m.push(b.item(Cmd::Extract, "Unpack the selected archive").enabled(any_archive));
                 m.push(b.item(Cmd::MakePdf, "Make a PDF of the selected pictures or folder"));
                 let convert: Vec<Item> = [Preset::JpegHigh, Preset::JpegSmall, Preset::Png, Preset::Webp, Preset::Bmp, Preset::Resize(1920), Preset::Resize(1280), Preset::Resize(800)].iter().map(|&p| b.item(Cmd::Convert(p), p.label())).collect();
-                m.push(Item::Submenu { text: "Quick convert".into(), items: convert, enabled: any_pic });
+                m.push(Item::Submenu { text: "Quick convert".into(), items: convert, enabled: any_pic, icon: '\0' });
                 let quick: Vec<Item> = [QuickOp::RotateLeft, QuickOp::RotateRight, QuickOp::FlipH, QuickOp::FlipV].iter().map(|&q| b.item(Cmd::Quick(q), q.label())).collect();
-                m.push(Item::Submenu { text: "Quick edit".into(), items: quick, enabled: all_rewritable });
+                m.push(Item::Submenu { text: "Quick edit".into(), items: quick, enabled: all_rewritable, icon: '\0' });
                 m.push(Item::Separator);
                 m.push(b.item(Cmd::Importer, "Import photos… (NuImporter, mock-up)"));
                 m.push(b.checked(Cmd::PickColour, "Pick a colour from the preview\tK", self.pick.on));

@@ -164,7 +164,7 @@ impl App {
         self.pick_tick();
         let d = self.gallery.dpi;
         let (w, h) = (self.renderer.size().0 as f32, self.renderer.size().1 as f32);
-        let (text_c, back_c) = (srgb(0xF2F2F2, 1.0), srgb(0x0E0E0E, 0.88));
+        let (text_c, back_c) = (ui::text(1.0), ui::panel(0.88));
         let rgb_hex = |c: Rgb| ((c.0 as u32) << 16) | ((c.1 as u32) << 8) | c.2 as u32;
         if self.pick.on {
             let (mx, my) = self.last_mouse;

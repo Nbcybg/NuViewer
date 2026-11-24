@@ -25,6 +25,7 @@ pub mod rawpair;
 pub mod quick;
 pub mod quick_edit;
 pub mod sequence;
+pub use nv_text::skin;
 pub mod settings;
 pub mod snapshot;
 pub mod spread;

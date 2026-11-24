@@ -879,7 +879,7 @@ pub struct ItemDraw {
 /// Draw the items in the style of the slider rows.
 pub fn draw_item_list(r: &mut Renderer, text: &mut Text, items: &[ItemDraw], hot: Option<usize>, d: f32) {
     let px = |n: f32| (n * d).round() as i32;
-    let (text_c, dim_c, accent) = (rgb(pal::TEXT, 1.0), rgb(pal::DIM, 1.0), rgb(pal::ACCENT, 1.0));
+    let (text_c, dim_c, accent) = (rgb(pal::text(), 1.0), rgb(pal::dim(), 1.0), rgb(pal::accent(), 1.0));
     for (i, it) in items.iter().enumerate() {
         let hot = hot == Some(i);
         let rect = it.rect;
@@ -895,19 +895,19 @@ pub fn draw_item_list(r: &mut Renderer, text: &mut Text, items: &[ItemDraw], hot
             }
             DrawKind::Pick { label, value } => {
                 if hot {
-                    let _ = r.fill_rect(rect, rgb(pal::TILE_HOVER, 1.0));
+                    let _ = r.fill_rect(rect, rgb(pal::hover(), 1.0));
                 }
                 text.draw(r, label, px(12.0), rect[0] + 14.0 * d, rect[1] + 6.0 * d, text_c);
                 text.draw_right(r, value, px(12.0), rect[2] - 14.0 * d, rect[1] + 6.0 * d, accent);
             }
             DrawKind::Btn { label } => {
-                let fill = if hot { rgb(pal::TILE_HOVER, 1.0) } else { rgb(pal::TILE, 1.0) };
+                let fill = if hot { rgb(pal::hover(), 1.0) } else { rgb(pal::tile(), 1.0) };
                 let _ = r.fill_rect(rect, fill);
                 text.draw_centered(r, label, px(12.0), (rect[0] + rect[2]) / 2.0, rect[1] + 8.0 * d, text_c);
             }
             DrawKind::Preset { name } => {
                 if hot {
-                    let _ = r.fill_rect(rect, rgb(pal::TILE_HOVER, 1.0));
+                    let _ = r.fill_rect(rect, rgb(pal::hover(), 1.0));
                 }
                 text.draw(r, name, px(12.0), rect[0] + 14.0 * d, rect[1] + 6.0 * d, text_c);
                 text.draw_right(r, "click applies · right-click deletes", px(10.0), rect[2] - 14.0 * d, rect[1] + 8.0 * d, dim_c);
@@ -917,7 +917,7 @@ pub fn draw_item_list(r: &mut Renderer, text: &mut Text, items: &[ItemDraw], hot
                 for (k, (_, name, key)) in TOOL_KINDS.iter().enumerate() {
                     let cell = [rect[0] + w * k as f32 + 1.0, rect[1], rect[0] + w * (k + 1) as f32 - 1.0, rect[3]];
                     let is_active = *active == Some(k);
-                    let fill = if is_active { accent } else { rgb(pal::TILE, 1.0) };
+                    let fill = if is_active { accent } else { rgb(pal::tile(), 1.0) };
                     let _ = r.fill_rect(cell, fill);
                     text.draw_centered(r, name, px(10.0), (cell[0] + cell[2]) / 2.0, cell[1] + 4.0 * d, text_c);
                     text.draw_centered(r, key, px(9.0), (cell[0] + cell[2]) / 2.0, cell[1] + 17.0 * d, if is_active { text_c } else { dim_c });

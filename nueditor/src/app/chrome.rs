@@ -166,12 +166,13 @@ impl App {
                 Entry::item(C_SCOPE_NEXT, "Next graph\tY"),
             ],
             enabled: true,
+            icon: '\u{E9D9}',
         }
     }
 
     fn retouch_menu(&self) -> Entry {
         let items = TOOL_KINDS.iter().enumerate().map(|(i, (k, name, key))| Self::checked(C_HEAL_BASE + i as u32, &format!("{name}\t{key}"), self.tools.mode == Mode::Heal(*k))).collect();
-        Entry::Submenu { text: "Retouch".into(), items, enabled: self.full.is_some() }
+        Entry::Submenu { text: "Retouch".into(), items, enabled: self.full.is_some(), icon: '\0' }
     }
 
     /// The entries under menu bar label `i`.

@@ -292,6 +292,8 @@ pub struct Settings {
     /// How the pictures of a folder are ordered (next / previous, gallery, film strip), and whether that is reversed.
     pub sort: SortKey,
     pub sort_desc: bool,
+    /// The colours of the interface: an id from `skin::SKINS`.
+    pub skin: String,
     /// The film strip appears when the pointer touches the right edge of the window.
     pub film_strip: bool,
     /// Read mode (two pages side by side without a gap): right-to-left books (manga) put the first page on the right.
@@ -355,6 +357,7 @@ impl Default for Settings {
             editor_watermark: String::new(),
             sort: SortKey::Name,
             sort_desc: false,
+            skin: crate::skin::DEFAULT.to_string(),
             film_strip: true,
             read_rtl: false,
             read_start: 2,
@@ -398,6 +401,8 @@ impl Settings {
         let s: Settings = std::fs::read_to_string(Self::path()).map(|t| Self::parse(&t)).unwrap_or_default();
         // The sentence fonts are shown with is read by the decoders, in every program that loads the settings.
         nv_codecs::fontview::set_sample(&s.more.font_sample);
+        // ... and the colours the menus and panels are drawn in.
+        crate::skin::set(&s.skin);
         s
     }
 
@@ -490,6 +495,7 @@ impl Settings {
                 "editor_watermark" => s.editor_watermark = v.chars().take(120).collect(),
                 "sort" => s.sort = SortKey::from_id(v).unwrap_or(s.sort),
                 "sort_desc" => s.sort_desc = parse_bool(v).unwrap_or(s.sort_desc),
+                "skin" => s.skin = crate::skin::by_id(v).map(|i| crate::skin::SKINS[i].id.to_string()).unwrap_or_else(|| s.skin.clone()),
                 "film_strip" => s.film_strip = parse_bool(v).unwrap_or(s.film_strip),
                 "read_rtl" => s.read_rtl = parse_bool(v).unwrap_or(s.read_rtl),
                 "read_start" => s.read_start = v.parse().ok().filter(|p| (1..=9999).contains(p)).unwrap_or(s.read_start),
@@ -599,6 +605,7 @@ impl Settings {
             self.editor_history,
             b(self.editor_raw_sensor)
         );
+        out += &format!("skin = {}\n", self.skin);
         out += &format!("sort = {}\nsort_desc = {}\nfilm_strip = {}\nread_rtl = {}\nread_start = {}\n", self.sort.id(), b(self.sort_desc), b(self.film_strip), b(self.read_rtl), self.read_start);
         let m = &self.model;
         out += &format!(

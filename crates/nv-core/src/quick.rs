@@ -91,6 +91,58 @@ pub fn convert_file(src: &Path, t: Target) -> Result<PathBuf, String> {
     Ok(dst)
 }
 
+/// The file formats "Save as" can write, as `(extension, name)`; the extension picks the encoder.
+pub const SAVE_AS_FORMATS: &[(&str, &str)] = &[("png", "PNG"), ("jpg", "JPEG"), ("webp", "WebP (lossless)"), ("bmp", "BMP"), ("tif", "TIFF"), ("tga", "TGA")];
+
+fn out_for(ext: &str, quality: u8) -> Option<Out> {
+    match ext {
+        "png" => Some(Out::Png),
+        "jpg" | "jpeg" | "jpe" | "jfif" => Some(Out::Jpeg(quality.clamp(1, 100))),
+        "webp" => Some(Out::Webp),
+        "bmp" => Some(Out::Bmp),
+        "tif" | "tiff" => Some(Out::Tiff),
+        "tga" => Some(Out::Tga),
+        _ => None,
+    }
+}
+
+fn same_format(a: &str, b: &str) -> bool {
+    let norm = |e: &str| match e {
+        "jpeg" | "jpe" | "jfif" => "jpg".to_string(),
+        "tiff" => "tif".to_string(),
+        o => o.to_string(),
+    };
+    norm(a) == norm(b)
+}
+
+/// "Save as": a copy of `src` written to `dst`, in the format the extension of `dst` names. The same format as the original is a
+/// plain copy of the file (nothing is re-encoded, so nothing is lost); another format is decoded (embedded profile -> sRGB, upright)
+/// and encoded again, first frame only. Returns the file written.
+pub fn save_as(src: &Path, dst: &Path, jpeg_quality: u8) -> Result<PathBuf, String> {
+    if src == dst {
+        return Err("that is the file itself - pick another name".into());
+    }
+    let ext = |p: &Path| p.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    let (se, de) = (ext(src), ext(dst));
+    if same_format(&se, &de) {
+        std::fs::copy(src, dst).map_err(|e| format!("{}: {e}", dst.display()))?;
+        return Ok(dst.to_path_buf());
+    }
+    let out = out_for(&de, jpeg_quality).ok_or_else(|| format!("can't write .{de} files (use png, jpg, webp, bmp, tif or tga)"))?;
+    let img = nv_codecs::decode_file_first_frame(src)?;
+    if img.mesh.is_some() {
+        return Err("a 3D model is not a picture".into());
+    }
+    if img.reduced_from.is_some() {
+        return Err("too large to save without losing pixels".into());
+    }
+    let img = img.finish_for_cpu();
+    let px = Pixels::new(img.width, img.height, img.rgba);
+    let bytes = convert::encode(&px, out, [255, 255, 255], None)?;
+    save::write_atomic(dst, &bytes).map_err(|e| format!("{}: {e}", dst.display()))?;
+    Ok(dst.to_path_buf())
+}
+
 #[derive(Default, Debug)]
 pub struct Report {
     pub made: Vec<PathBuf>,

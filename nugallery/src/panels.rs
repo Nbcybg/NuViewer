@@ -78,12 +78,12 @@ impl App {
         let sb = self.tree.scrollbar(tree_rect, row_h, d);
         let sb_hot = self.tree_sb_drag.is_some() || sb.map(|(t, _)| contains([t[0] - 4.0 * d, t[1], t[2] + 3.0 * d, t[3]], mx, my)).unwrap_or(false);
         let Some(r) = self.renderer.as_mut() else { return };
-        let _ = r.fill_rect(l, rgb(pal::PANEL, 1.0));
-        let _ = r.fill_rect([l[2] - 1.0, l[1], l[2], l[3]], rgb(pal::PANEL_EDGE, 1.0));
-        self.text.draw(r, "Folders", font, l[0] + 12.0 * d, l[1] + 8.0 * d, rgb(pal::TEXT, 1.0));
+        let _ = r.fill_rect(l, rgb(pal::panel(), 1.0));
+        let _ = r.fill_rect([l[2] - 1.0, l[1], l[2], l[3]], rgb(pal::edge(), 1.0));
+        self.text.draw(r, "Folders", font, l[0] + 12.0 * d, l[1] + 8.0 * d, rgb(pal::text(), 1.0));
         if let Some(pr) = pin_rect {
-            let _ = r.fill_rect(pr, rgb(if pin { pal::ACCENT } else { 0x2B2E33 }, if pin { 0.85 } else { 1.0 }));
-            self.text.draw_centered(r, "Pin", small, (pr[0] + pr[2]) / 2.0, pr[1] + (pr[3] - pr[1] - line_h(small)) / 2.0, rgb(pal::TEXT, 1.0));
+            let _ = r.fill_rect(pr, rgb(if pin { pal::accent() } else { 0x2B2E33 }, if pin { 0.85 } else { 1.0 }));
+            self.text.draw_centered(r, "Pin", small, (pr[0] + pr[2]) / 2.0, pr[1] + (pr[3] - pr[1] - line_h(small)) / 2.0, rgb(pal::text(), 1.0));
         }
         // Tree rows.
         r.set_clip(Some(tree_rect));
@@ -94,25 +94,25 @@ impl App {
             let y = tree_rect[1] + i as f32 * row_h - self.tree.scroll;
             let row = [tree_rect[0], y, tree_rect[2], y + row_h];
             if n.header {
-                self.text.draw(r, &n.name.to_uppercase(), small, l[0] + 12.0 * d - hscroll, y + (row_h - line_h(small)) / 2.0 + 3.0 * d, rgb(pal::DIM, 1.0));
+                self.text.draw(r, &n.name.to_uppercase(), small, l[0] + 12.0 * d - hscroll, y + (row_h - line_h(small)) / 2.0 + 3.0 * d, rgb(pal::dim(), 1.0));
                 continue;
             }
             let is_current = crate::app::same_dir(&n.path, &current);
             let is_target = drag_target.as_ref().map(|t| crate::app::same_dir(&n.path, t)).unwrap_or(false);
             if is_target {
-                let _ = r.fill_rect(row, rgb(pal::ACCENT, 0.5));
+                let _ = r.fill_rect(row, rgb(pal::accent(), 0.5));
                 outline(r, row, 1.5 * d, rgb(0x7DB4FF, 1.0));
             } else if is_current {
-                let _ = r.fill_rect(row, rgb(pal::ACCENT, 0.28));
+                let _ = r.fill_rect(row, rgb(pal::accent(), 0.28));
             } else if contains(row, mx, my) {
-                let _ = r.fill_rect(row, rgb(pal::TILE_HOVER, 1.0));
+                let _ = r.fill_rect(row, rgb(pal::hover(), 1.0));
             }
             if tree_focus && !is_target && tree_sel.as_ref().map(|t| crate::app::same_dir(&n.path, t)).unwrap_or(false) {
                 outline(r, row, 1.0, rgb(0xB8C4D8, 0.85));
             }
             let ix = l[0] + 10.0 * d + n.depth as f32 * 16.0 * d - hscroll;
             if n.kids {
-                self.text.draw(r, if n.expanded { "▾" } else { "▸" }, small, ix + 2.0 * d, y + (row_h - line_h(small)) / 2.0, rgb(pal::DIM, 1.0));
+                self.text.draw(r, if n.expanded { "▾" } else { "▸" }, small, ix + 2.0 * d, y + (row_h - line_h(small)) / 2.0, rgb(pal::dim(), 1.0));
             }
             let icon = [ix + 20.0 * d, y + 5.0 * d, ix + 36.0 * d, y + row_h - 5.0 * d];
             match n.icon {
@@ -126,7 +126,7 @@ impl App {
                 }
             }
             // The whole name: what does not fit is reached with the sideways scroll bar (or Shift + wheel).
-            self.text.draw(r, &n.name, font, ix + 42.0 * d, y + (row_h - line_h(font)) / 2.0, rgb(pal::TEXT, 1.0));
+            self.text.draw(r, &n.name, font, ix + 42.0 * d, y + (row_h - line_h(font)) / 2.0, rgb(pal::text(), 1.0));
         }
         r.set_clip(None);
         // The tree's scroll bar (the folder list is longer than the panel once a few folders are open).
@@ -140,14 +140,14 @@ impl App {
         }
         // Folder data and size.
         let foot_top = l[3] - TREE_FOOT * d;
-        let _ = r.fill_rect([l[0], foot_top, l[2], foot_top + 1.0], rgb(pal::PANEL_EDGE, 1.0));
+        let _ = r.fill_rect([l[0], foot_top, l[2], foot_top + 1.0], rgb(pal::edge(), 1.0));
         let mut y = foot_top + 10.0 * d;
         let lh = line_h(small) + 3.0 * d;
         let x = l[0] + 12.0 * d;
         let width = (l[2] - l[0] - 24.0 * d) as i32;
         let name = self.listing.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| self.listing.dir.display().to_string());
         let name = self.text.fit(&name, font, width);
-        self.text.draw(r, &name, font, x, y, rgb(pal::TEXT, 1.0));
+        self.text.draw(r, &name, font, x, y, rgb(pal::text(), 1.0));
         y += line_h(font) + 4.0 * d;
         let rows: Vec<(String, String)> = vec![
             ("Items".into(), if loading { "reading…".into() } else { format!("{shown} shown of {all}") }),
@@ -159,14 +159,14 @@ impl App {
             ("Folder size".into(), format!("{}{}", fmt_bytes(fs.bytes), if fs.done { String::new() } else { " …".into() })),
         ];
         for (k, v) in rows {
-            self.text.draw(r, &k, small, x, y, rgb(pal::DIM, 1.0));
+            self.text.draw(r, &k, small, x, y, rgb(pal::dim(), 1.0));
             let v = self.text.fit(&v, small, width - 96 * d as i32);
-            self.text.draw(r, &v, small, x + 96.0 * d, y, rgb(pal::TEXT, 1.0));
+            self.text.draw(r, &v, small, x + 96.0 * d, y, rgb(pal::text(), 1.0));
             y += lh;
         }
         if fs.files + fs.folders > 0 {
             let line = format!("{} files, {} folders inside", fs.files, fs.folders);
-            self.text.draw(r, &line, small, x, y, rgb(pal::DIM, 1.0));
+            self.text.draw(r, &line, small, x, y, rgb(pal::dim(), 1.0));
         }
     }
 
@@ -277,19 +277,19 @@ impl App {
         let (mx, my) = (self.last_mouse.0 as f32, self.last_mouse.1 as f32);
         let title_lines = self.title_lines((p[2] - p[0] - 2.0 * pad) as i32);
         let Some(r) = self.renderer.as_mut() else { return };
-        let _ = r.fill_rect(p, rgb(pal::PANEL, 1.0));
-        let _ = r.fill_rect([p[0], p[1], p[0] + 1.0, p[3]], rgb(pal::PANEL_EDGE, 1.0));
+        let _ = r.fill_rect(p, rgb(pal::panel(), 1.0));
+        let _ = r.fill_rect([p[0], p[1], p[0] + 1.0, p[3]], rgb(pal::edge(), 1.0));
         // The scrolling content, clipped under the fixed header.
         r.set_clip(Some([p[0], p[1] + HEAD * d, p[2], p[3]]));
         let width = (p[2] - p[0] - 2.0 * pad) as i32;
         match &focus {
             None => {
-                self.text.draw(r, "Nothing selected", font, p[0] + pad, geo.preview[1], rgb(pal::DIM, 1.0));
+                self.text.draw(r, "Nothing selected", font, p[0] + pad, geo.preview[1], rgb(pal::dim(), 1.0));
             }
             Some((id, name, size, kind, modified, ext)) => {
                 // Preview.
                 let pv = geo.preview;
-                let _ = r.fill_rect(pv, rgb(pal::FIELD, 1.0));
+                let _ = r.fill_rect(pv, rgb(pal::field(), 1.0));
                 let key = if preview_ok { info::preview_key(*id) } else { *id };
                 if *kind == Kind::Folder {
                     draw_folder(r, pv, 1.0);
@@ -301,7 +301,7 @@ impl App {
                 // Name and facts.
                 // The whole name, over as many lines as it needs.
                 for (k, line) in title_lines.iter().enumerate() {
-                    self.text.draw(r, line, big, p[0] + pad, geo.name_y + k as f32 * line_h(big), rgb(pal::TEXT, 1.0));
+                    self.text.draw(r, line, big, p[0] + pad, geo.name_y + k as f32 * line_h(big), rgb(pal::text(), 1.0));
                 }
                 let mut l1 = Vec::new();
                 let mut l2 = Vec::new();
@@ -319,11 +319,11 @@ impl App {
                     }
                     l2.push(format!("changed {}", fmt_date(*modified)));
                 }
-                self.text.draw(r, &l1.join("  ·  "), small, p[0] + pad, geo.facts_y, rgb(pal::DIM, 1.0));
-                self.text.draw(r, &l2.join("  ·  "), small, p[0] + pad, geo.facts_y + line_h(small) + 2.0 * d, rgb(pal::DIM, 1.0));
+                self.text.draw(r, &l1.join("  ·  "), small, p[0] + pad, geo.facts_y, rgb(pal::dim(), 1.0));
+                self.text.draw(r, &l2.join("  ·  "), small, p[0] + pad, geo.facts_y + line_h(small) + 2.0 * d, rgb(pal::dim(), 1.0));
                 // Histogram.
                 let hb = geo.hist;
-                let _ = r.fill_rect(hb, rgb(pal::FIELD, 1.0));
+                let _ = r.fill_rect(hb, rgb(pal::field(), 1.0));
                 if let Some(h) = &hist {
                     let cols = 128usize;
                     let (bw, bh) = ((hb[2] - hb[0]) / cols as f32, hb[3] - hb[1] - 4.0 * d);
@@ -339,23 +339,23 @@ impl App {
                         }
                     }
                 } else if *kind != Kind::Folder {
-                    self.text.draw_centered(r, "Histogram", small, (hb[0] + hb[2]) / 2.0, hb[1] + 26.0 * d, rgb(pal::DIM, 0.6));
+                    self.text.draw_centered(r, "Histogram", small, (hb[0] + hb[2]) / 2.0, hb[1] + 26.0 * d, rgb(pal::dim(), 0.6));
                 }
-                outline(r, hb, 1.0, rgb(pal::PANEL_EDGE, 1.0));
+                outline(r, hb, 1.0, rgb(pal::edge(), 1.0));
                 // Properties.
                 if !geo.fields.is_empty() {
                     let head = if n_sel > 1 { format!("Properties — applies to all {n_sel}") } else { "Properties (editable)".to_string() };
-                    self.text.draw(r, &head, font, p[0] + pad, geo.meta_head_y, rgb(pal::TEXT, 1.0));
+                    self.text.draw(r, &head, font, p[0] + pad, geo.meta_head_y, rgb(pal::text(), 1.0));
                     for (f, row, value) in &geo.fields {
-                        self.text.draw(r, f.label(), small, row[0], row[1] + (row[3] - row[1] - line_h(small)) / 2.0, rgb(pal::DIM, 1.0));
+                        self.text.draw(r, f.label(), small, row[0], row[1] + (row[3] - row[1] - line_h(small)) / 2.0, rgb(pal::dim(), 1.0));
                         let v = props.iter().find(|(k, _)| k == f).map(|(_, v)| v.clone()).unwrap_or_default();
                         let editing = active.as_ref().filter(|(fo, _, _)| *fo == Focus::Meta(*f));
                         if *f == Field::Rating {
                             let stars: u32 = v.parse().unwrap_or(0);
-                            let _ = r.fill_rect(*value, rgb(pal::FIELD, 1.0));
-                            outline(r, *value, 1.0, rgb(if contains(*value, mx, my) { pal::ACCENT } else { pal::PANEL_EDGE }, 1.0));
+                            let _ = r.fill_rect(*value, rgb(pal::field(), 1.0));
+                            outline(r, *value, 1.0, rgb(if contains(*value, mx, my) { pal::accent() } else { pal::edge() }, 1.0));
                             for s in 0..5u32 {
-                                let c = if s < stars { rgb(pal::STAR, 1.0) } else { rgb(0x555A62, 1.0) };
+                                let c = if s < stars { rgb(pal::star(), 1.0) } else { rgb(0x555A62, 1.0) };
                                 self.text.draw(r, "★", px(17.0, d), value[0] + 8.0 * d + s as f32 * 24.0 * d, value[1] + (value[3] - value[1] - line_h(px(17.0, d))) / 2.0, c);
                             }
                         } else {
@@ -369,28 +369,28 @@ impl App {
                 }
                 // EXIF.
                 if !exif.is_empty() {
-                    self.text.draw(r, "EXIF", font, p[0] + pad, geo.exif_head_y, rgb(pal::TEXT, 1.0));
+                    self.text.draw(r, "EXIF", font, p[0] + pad, geo.exif_head_y, rgb(pal::text(), 1.0));
                     let label_w = (84.0 * d) as i32;
                     for (i, (k, v)) in exif.iter().enumerate() {
                         let y = geo.exif_y + i as f32 * geo.row_h;
-                        self.text.draw(r, k, small, p[0] + pad, y, rgb(pal::DIM, 1.0));
+                        self.text.draw(r, k, small, p[0] + pad, y, rgb(pal::dim(), 1.0));
                         let v = self.text.fit(v, small, width - label_w);
-                        self.text.draw(r, &v, small, p[0] + pad + label_w as f32, y, rgb(pal::TEXT, 1.0));
+                        self.text.draw(r, &v, small, p[0] + pad + label_w as f32, y, rgb(pal::text(), 1.0));
                     }
                 } else if info_ready.is_none() && *kind != Kind::Folder {
-                    self.text.draw(r, "reading details…", small, p[0] + pad, geo.exif_head_y, rgb(pal::DIM, 0.7));
+                    self.text.draw(r, "reading details…", small, p[0] + pad, geo.exif_head_y, rgb(pal::dim(), 0.7));
                 }
             }
         }
         r.set_clip(None);
         // Fixed header.
         let head = [p[0], p[1], p[2], p[1] + HEAD * d];
-        let _ = r.fill_rect(head, rgb(pal::PANEL, 1.0));
-        let _ = r.fill_rect([head[0], head[3] - 1.0, head[2], head[3]], rgb(pal::PANEL_EDGE, 1.0));
-        self.text.draw(r, "Details", font, p[0] + pad, p[1] + 8.0 * d, rgb(pal::TEXT, 1.0));
+        let _ = r.fill_rect(head, rgb(pal::panel(), 1.0));
+        let _ = r.fill_rect([head[0], head[3] - 1.0, head[2], head[3]], rgb(pal::edge(), 1.0));
+        self.text.draw(r, "Details", font, p[0] + pad, p[1] + 8.0 * d, rgb(pal::text(), 1.0));
         if let Some(pr) = pin_rect {
-            let _ = r.fill_rect(pr, rgb(if pin { pal::ACCENT } else { 0x2B2E33 }, if pin { 0.85 } else { 1.0 }));
-            self.text.draw_centered(r, "Pin", small, (pr[0] + pr[2]) / 2.0, pr[1] + (pr[3] - pr[1] - line_h(small)) / 2.0, rgb(pal::TEXT, 1.0));
+            let _ = r.fill_rect(pr, rgb(if pin { pal::accent() } else { 0x2B2E33 }, if pin { 0.85 } else { 1.0 }));
+            self.text.draw_centered(r, "Pin", small, (pr[0] + pr[2]) / 2.0, pr[1] + (pr[3] - pr[1] - line_h(small)) / 2.0, rgb(pal::text(), 1.0));
         }
     }
 

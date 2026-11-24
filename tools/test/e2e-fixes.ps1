@@ -162,9 +162,10 @@ Check 'right click on a picture shows the menu' ($null -ne $pm)
 if ($pm) {
     $r = Menu-Texts $pm; $t = $r[1]; $joined = $t -join '|'
     Check 'menu has Open with' ($joined -match 'Open with') $joined
-    Check 'menu has Properties' ($joined -match 'Properties') $joined
+    Check 'menu has More (Properties is inside it)' ($joined -match 'More') $joined
     Check 'menu has Settings' ($joined -match 'Settings') $joined
     Check 'menu has View and Sort by' ($joined -match 'View' -and $joined -match 'Sort by') $joined
+    Check 'the first level of the gallery menu is short (at most 28 lines)' ($t.Count -le 32) "$($t.Count)"
     $ow = [Array]::IndexOf($t, ($t | Where-Object { $_ -match 'Open with' } | Select-Object -First 1))
     if ($ow -ge 0) { $sm = [In]::GetSubMenu($r[0], $ow); $cnt = [In]::GetMenuItemCount($sm); $items = @(); for ($i = 0; $i -lt $cnt; $i++) { $items += [In]::MenuText($sm, $i) }
         Check 'Open with lists programs and "Choose another app"' ($cnt -ge 1 -and ($items -join '|') -match 'Choose another app') ($items -join '|') }

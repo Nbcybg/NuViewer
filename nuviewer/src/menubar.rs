@@ -105,15 +105,15 @@ impl App {
             return;
         }
         let strip = self.menubar.strip(w as f32, d);
-        let _ = self.renderer.fill_rect(strip, srgb(0x15171A, 0.97));
-        let _ = self.renderer.fill_rect([0.0, strip[3] - 1.0, w as f32, strip[3]], srgb(0x34373C, 1.0));
+        let _ = self.renderer.fill_rect(strip, ui::panel(0.97));
+        let _ = self.renderer.fill_rect([0.0, strip[3] - 1.0, w as f32, strip[3]], ui::edge(1.0));
         let (back_n, back_r, close_n, close_r) = self.menubar.nav_rects(w as f32, d);
         for (n, r, glyph) in [(back_n, back_r, "\u{2039}"), (close_n, close_r, "\u{2715}")] {
             if self.menubar.nav_hot() == Some(n) {
                 let _ = self.renderer.fill_rect([r[0], r[1] + 2.0 * d, r[2], r[3] - 1.0], srgb(if n == Nav::Close { 0xC0392B } else { 0x34373C }, 1.0));
             }
             if let Some((key, tw, th)) = self.overlay_glyph(glyph, if n == Nav::Back { 22.0 } else { 14.0 }) {
-                let _ = self.renderer.draw_overlay(key, (r[0] + r[2] - tw) / 2.0, (r[1] + r[3] - th) / 2.0, srgb(0xF2F2F2, 1.0));
+                let _ = self.renderer.draw_overlay(key, (r[0] + r[2] - tw) / 2.0, (r[1] + r[3] - th) / 2.0, ui::text(1.0));
             }
         }
         let labels = self.menubar.labels();
@@ -125,7 +125,9 @@ impl App {
             }
             if let Some((key, tw, th)) = self.overlay_small(&[label.clone()]) {
                 let (x, y) = ((rect[0] + rect[2] - tw) / 2.0, (rect[1] + rect[3] - th) / 2.0);
-                let _ = self.renderer.draw_overlay(key, x, y, srgb(0xF2F2F2, 1.0));
+                // On the accent colour (the keyboard highlight) the text takes the colour that reads on it in every skin.
+                let ink = if hot == Some(i) && keyboard { ui::on_accent(1.0) } else { ui::text(1.0) };
+                let _ = self.renderer.draw_overlay(key, x, y, ink);
                 if keyboard {
                     if let Some(k) = self.menubar.mnemonic_of(i) {
                         let pad = 4.0 * d;
@@ -133,7 +135,7 @@ impl App {
                         let ch: String = label.chars().skip(k).take(1).collect();
                         let ux = x + pad + text::measure(&before, px) as f32;
                         let uw = text::measure(&ch, px) as f32;
-                        let _ = self.renderer.fill_rect([ux, y + th - pad - 1.0 * d, ux + uw, y + th - pad], srgb(0xF2F2F2, 1.0));
+                        let _ = self.renderer.fill_rect([ux, y + th - pad - 1.0 * d, ux + uw, y + th - pad], ink);
                     }
                 }
             }

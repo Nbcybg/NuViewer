@@ -242,15 +242,15 @@ pub fn draw_entry_box(r: &mut Renderer, text: &mut Text, e: &EntryBox, d: f32) {
     let z = e.zone;
     let b = [z[0] + 24.0 * d, z[1] + 2.0 * d, z[2] - 8.0 * d, z[3] - 1.0 * d];
     let _ = r.fill_rect(b, rgb(0x0E0E10, 1.0));
-    gfx::outline(r, b, 1.5 * d, rgb(pal::ACCENT, 1.0));
+    gfx::outline(r, b, 1.5 * d, rgb(pal::accent(), 1.0));
     let px = (12.0 * d).round() as i32;
     let w = text.width(&e.text, px) as f32;
     if e.fresh {
-        let _ = r.fill_rect([b[2] - 6.0 * d - w, b[1] + 3.0 * d, b[2] - 6.0 * d, b[3] - 3.0 * d], rgb(pal::ACCENT, 0.45));
+        let _ = r.fill_rect([b[2] - 6.0 * d - w, b[1] + 3.0 * d, b[2] - 6.0 * d, b[3] - 3.0 * d], rgb(pal::accent(), 0.45));
     }
-    text.draw_right(r, &e.text, px, b[2] - 6.0 * d, b[1] + 3.0 * d, rgb(pal::TEXT, 1.0));
+    text.draw_right(r, &e.text, px, b[2] - 6.0 * d, b[1] + 3.0 * d, rgb(pal::text(), 1.0));
     if !e.fresh {
-        let _ = r.fill_rect([b[2] - 5.0 * d, b[1] + 4.0 * d, b[2] - 4.0 * d, b[3] - 4.0 * d], rgb(pal::TEXT, 1.0));
+        let _ = r.fill_rect([b[2] - 5.0 * d, b[1] + 4.0 * d, b[2] - 4.0 * d, b[3] - 4.0 * d], rgb(pal::text(), 1.0));
     }
 }
 
